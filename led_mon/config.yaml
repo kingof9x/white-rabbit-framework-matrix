@@ -1,0 +1,147 @@
+# See config-README.md for help on using this config file.
+# To customize the settings, copy them to config-local.yaml.
+# That file, if present, will be used in place of this one.
+
+duration: 10
+
+# Optional: pin each panel to a serial port instead of auto-detecting it (e.g. COM4 on Windows, /dev/ttyACM0 on Linux)
+# left-port: COM4
+# right-port: COM5
+# Or pin each panel to its USB position, which stays the same if Windows renumbers the COM ports
+# (run led_mon --diagnose to see the positions)
+# left-location: 1-4.2
+# right-location: 1-3.3
+
+quadrants:
+  top-left:
+  - app:
+    name: time
+    duration: 60
+    scope: panel
+    args:
+      fmt_24_hour: false
+      # use tz identifer as listed in the IANA database. See https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+      timezone:
+  - app:
+    name: equalizer
+    duration: 60
+    scope: panel
+    dispose-fn: equalizer_dispose
+    persistent-draw: true
+    args:
+      external-filter: false
+      # playback|microphone
+      input-mode: playback
+      # Optional input device override for microphone mode (substring match)
+      # input-device: "Microphone"
+      # Level shaping (defaults: playback gain=1.35 gate=1 sum-threshold=2,
+      # microphone gain=0.75 gate=18 sum-threshold=48)
+      # level-gain: 1.35
+      # noise-gate-level: 1
+      # silence-level-sum-threshold: 2
+      # Silence behavior tuning (continuous center-origin star pulse)
+      # zero-frame-delay-sec: 4  # pulse-only silence display delay
+      # silent-pulse-after-sec: 12
+      # silent-pulse-period-sec: 3.8
+      # silent-pulse-reveal-sec: 5
+      # left|right
+      side: left
+      border: false  
+  - app:
+    name: cpu
+    duration: 60
+    animate: false
+  - app:
+    name: snap
+    duration: 60
+    animate: true
+    scope: panel
+    args:
+      file: zigzag.json
+      path: snapshot_files
+      panel: left
+  top-right:
+  - app:
+    name: weather
+    duration: 60
+    scope: panel
+    args:
+      # imperial|metric|standard  (default metric)
+      units: imperial
+      # location look-up via country-specific zip and ISO 3166 digraph code
+      #zip_info: ["your zip", "country code"]
+      # location look-up via latitude and longitude
+      #lat_lon: [<lat>, <lon>]
+      # Include one or more of [temp_condition, wind_chill, wind]
+      measures: [temp_condition, wind_chill, wind]
+      measures-duration: 20
+      forecast: false
+      # 1-5
+      forecast_day: 1
+      # 0|3|6|9|12|15|18|21 (default 12)
+      forecast_hour: 12
+      # [arg-name, id-if-arg-true, id-if-arg-false]
+      id_key_override: [forecast, weather_forecast, weather_current]
+  - app:
+    name: equalizer
+    duration: 60
+    scope: panel
+    dispose-fn: equalizer_dispose
+    persistent-draw: true
+    args:
+      external-filter: false
+      # Optional overrides:
+      # input-mode: microphone
+      # level-gain: 0.75
+      # noise-gate-level: 18
+      # silence-level-sum-threshold: 48
+      side: right
+      border: false
+  - app:
+    name: temp
+    duration: 60
+    animate: false
+    scope: quadrant
+  - app:
+    name: snap
+    animate: true
+    duration: 60
+    scope: panel
+    args:
+      file: every-third-row.json
+      path: snapshot_files
+      panel: right
+  bottom-right:
+  - app:
+    name: noop1
+    duration: 60
+    display: false
+  - app:
+    name: noop2
+    display: false
+    duration: 60
+  - app:
+    name: fan
+    duration: 60
+    animate: false
+  - app:
+    name: noop3
+    display: false
+    duration: 60
+  bottom-left:
+  - app:
+    name: noop1
+    duration: 60
+    display: false
+  - app:
+    name: noop2
+    duration: 60
+    display: false
+  - app:
+    name: mem-bat
+    duration: 60
+    animate: false
+  - app:
+    name: noop3
+    duration: 60
+    display: false
