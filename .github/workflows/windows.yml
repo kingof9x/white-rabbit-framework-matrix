@@ -1,0 +1,199 @@
+name: Windows build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version for a new GitHub Release (e.g. 1.0.0). Leave empty for a test build with no release."
+        required: false
+
+permissions:
+  contents: write  # publish the GitHub Release
+
+jobs:
+  tests:
+    name: Tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: python -m pip install pytest pyserial pyyaml python-dotenv numpy psutil pillow
+      - name: Run tests
+        run: python -m pytest
+
+  build:
+    name: Build exe and installer
+    needs: tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # PyInstaller's prebuilt launcher is shared by many malware samples, so antivirus engines flag
+      # anything built with it. Compiling our own launcher gives the exe a unique, unflagged one.
+      - name: Install PyInstaller with a launcher compiled from source
+        shell: pwsh
+        run: |
+          python -m pip download --no-binary :all: --no-deps --no-cache-dir pyinstaller -d pyi-src
+          python -c "import glob, tarfile; tarfile.open(glob.glob('pyi-src/pyinstaller-*.tar.gz')[0]).extractall('pyi-src', filter='data')"
+          $src = (Get-ChildItem pyi-src -Directory | Select-Object -First 1).FullName
+          Push-Location "$src\bootloader"
+          python ./waf all --target-arch=64bit
+          if ($LASTEXITCODE -ne 0) { throw "Compiling the PyInstaller launcher failed" }
+          Pop-Location
+          python -m pip install $src
+          # Show the launcher's hash, to compare with the prebuilt one if needed
+          python -c "import hashlib, os, PyInstaller; p = os.path.join(os.path.dirname(PyInstaller.__file__), 'bootloader', 'Windows-64bit-intel', 'runw.exe'); print(p, hashlib.sha256(open(p, 'rb').read()).hexdigest())"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt pytest
+
+      - name: Run tests with the full dependencies
+        run: python -m pytest
+
+      # A v* tag or the version typed into "Run workflow" wins; a test build uses pyproject.toml's version
+      - name: Work out the version
+        id: version
+        shell: pwsh
+        run: |
+          if ("${{ github.ref_type }}" -eq "tag") { $version = "${{ github.ref_name }}".TrimStart("v") }
+          elseif ("${{ inputs.version }}") { $version = "${{ inputs.version }}".Trim().TrimStart("v") }
+          else { $version = python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])" }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "WHITE_RABBIT_VERSION=$version" >> $env:GITHUB_ENV
+          Write-Host "Version $version"
+
+      # Firmware for the Firmware tab: this project's (built in kingof9x/inputmodule-rs) and Framework's official one
+      - name: Download firmware to bundle
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force res\releases\white-rabbit, res\releases\framework-0.2.0, dist | Out-Null
+          Invoke-WebRequest https://github.com/kingof9x/inputmodule-rs/releases/latest/download/ledmatrix.uf2 -OutFile res\releases\white-rabbit\ledmatrix.uf2
+          Invoke-WebRequest https://github.com/FrameworkComputer/inputmodule-rs/releases/download/v0.2.0/ledmatrix.uf2 -OutFile res\releases\framework-0.2.0\ledmatrix.uf2
+          Copy-Item res\releases\white-rabbit\ledmatrix.uf2 dist\ledmatrix.uf2
+          Get-ChildItem -Recurse res\releases -File | Format-Table FullName, Length
+
+      - name: Build one-dir (for the installer)
+        run: python -m PyInstaller white_rabbit.spec --noconfirm --clean --workpath build\onedir
+
+      # The fps app runs Intel's PresentMon (MIT licence). The installer ships it next to WhiteRabbit.exe;
+      # it isn't packed inside the portable exe, since an exe hidden inside another looks suspicious to scanners.
+      - name: Add PresentMon to the installed app
+        shell: pwsh
+        env:
+          PRESENTMON_VERSION: v2.6.0
+        run: |
+          $headers = @{ Authorization = "Bearer ${{ github.token }}"; "X-GitHub-Api-Version" = "2022-11-28" }
+          $release = Invoke-RestMethod -Headers $headers "https://api.github.com/repos/GameTechDev/PresentMon/releases/tags/$env:PRESENTMON_VERSION"
+          $asset = @($release.assets | Where-Object { $_.name -match '^PresentMon-[\d.]+-x64\.exe$' })
+          if ($asset.Count -ne 1) {
+            $release.assets | ForEach-Object { Write-Host $_.name }
+            throw "Expected one PresentMon console exe in release $env:PRESENTMON_VERSION"
+          }
+          Write-Host "Using $($asset[0].name)"
+          Invoke-WebRequest -Headers $headers $asset[0].browser_download_url -OutFile dist\WhiteRabbit\PresentMon.exe
+          $license = Invoke-RestMethod -Headers $headers "https://api.github.com/repos/GameTechDev/PresentMon/license?ref=$env:PRESENTMON_VERSION"
+          [IO.File]::WriteAllBytes("$PWD\dist\WhiteRabbit\PresentMon-LICENSE.txt", [Convert]::FromBase64String($license.content))
+          Get-AuthenticodeSignature dist\WhiteRabbit\PresentMon.exe | Format-List Status, SignerCertificate
+
+      - name: Build one-file (portable exe)
+        shell: pwsh
+        run: |
+          $env:WHITE_RABBIT_ONEFILE = "1"
+          python -m PyInstaller white_rabbit.spec --noconfirm --clean --workpath build\onefile
+
+      - name: Smoke test (--list-apps, no panels needed)
+        shell: pwsh
+        run: |
+          foreach ($exe in @("dist\WhiteRabbit.exe", "dist\WhiteRabbit\WhiteRabbit.exe")) {
+            Write-Host "== $exe --list-apps"
+            # The exe is windowless, so start it explicitly and wait for its exit code
+            $p = Start-Process -FilePath $exe -ArgumentList "--list-apps" -PassThru -NoNewWindow `
+                 -RedirectStandardOutput smoke-out.txt -RedirectStandardError smoke-err.txt
+            $null = $p.Handle
+            if (-not $p.WaitForExit(120000)) { $p.Kill(); throw "$exe --list-apps did not exit" }
+            Get-Content smoke-out.txt, smoke-err.txt -ErrorAction SilentlyContinue
+            if ($p.ExitCode -ne 0) { throw "$exe --list-apps exited with $($p.ExitCode)" }
+          }
+
+      - name: Smoke test (the window opens with all its tabs and closes)
+        shell: pwsh
+        run: |
+          $env:WHITE_RABBIT_SMOKE_TEST = "1"
+          $env:APPDATA = "$PWD\smoke-appdata"
+          $env:LOCALAPPDATA = "$PWD\smoke-appdata"
+          foreach ($exe in @("dist\WhiteRabbit.exe", "dist\WhiteRabbit\WhiteRabbit.exe")) {
+            Write-Host "== $exe --window"
+            $p = Start-Process -FilePath $exe -ArgumentList "--window" -PassThru
+            $null = $p.Handle
+            if (-not $p.WaitForExit(120000)) { $p.Kill(); throw "$exe --window did not exit" }
+            $log = "smoke-appdata\WhiteRabbit\WhiteRabbit.log"
+            Get-Content $log -ErrorAction SilentlyContinue
+            if ($p.ExitCode -ne 0) { throw "$exe --window exited with $($p.ExitCode)" }
+            if (Select-String -Path $log -Pattern "Traceback|couldn.t start" -Quiet) { throw "$exe --window logged an error" }
+          }
+
+      # Code signing placeholder (not enabled yet). Unsigned builds show a SmartScreen warning.
+      # - name: Sign executables
+      #   shell: pwsh
+      #   run: |
+      #     signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
+      #       /f cert.pfx /p "${{ secrets.SIGNING_CERT_PASSWORD }}" dist\WhiteRabbit.exe dist\WhiteRabbit\WhiteRabbit.exe
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=${{ steps.version.outputs.version }}" installer\white_rabbit.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+
+      - name: Upload portable exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: WhiteRabbit.exe
+          path: dist/WhiteRabbit.exe
+          if-no-files-found: error
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: WhiteRabbit-setup.exe
+          path: dist/WhiteRabbit-setup.exe
+          if-no-files-found: error
+
+      # A v* tag, or a manual run with a version, publishes a GitHub Release.
+      # The file names stay the same in every release so the README's "latest" download links keep working.
+      - name: Publish GitHub Release
+        if: github.ref_type == 'tag' || inputs.version != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: White Rabbit ${{ steps.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          body: |
+            - `WhiteRabbit-setup.exe`: installer (starts with Windows, Start menu shortcut)
+            - `WhiteRabbit.exe`: portable app, nothing is installed
+            - `ledmatrix.uf2`: LED Matrix firmware with the startup animation setting and the extra Game of Life patterns (the app's Firmware tab can flash it too)
+          generate_release_notes: true
+          make_latest: "true"
+          fail_on_unmatched_files: true
+          files: |
+            dist/WhiteRabbit.exe
+            dist/WhiteRabbit-setup.exe
+            dist/ledmatrix.uf2

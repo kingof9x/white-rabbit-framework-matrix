@@ -1,10 +1,9 @@
 import time
 from enum import IntEnum
 
-import serial
-
 from inputmodule import font
 from inputmodule.inputmodule import (
+    open_serial,
     send_command,
     CommandVals,
     PatternVals,
@@ -137,7 +136,7 @@ def get_startup_animation(dev):
     program is using it."""
     # Older firmware doesn't respond, so don't wait forever.
     # But a sleeping module first fades back in, which takes up to a second.
-    with serial.Serial(dev.device, 115200, timeout=2) as s:
+    with open_serial(dev.device, timeout=2) as s:
         # Don't mistake leftover data from earlier commands for the response
         s.reset_input_buffer()
         s.write(FWK_MAGIC + [CommandVals.StartupAnimation])
@@ -193,7 +192,7 @@ def image_bl(dev, image_file):
 def camera(dev):
     """Play a live view from the webcam, for fun"""
     set_status('camera')
-    with serial.Serial(dev.device, 115200) as s:
+    with open_serial(dev.device) as s:
         import cv2
 
         capture = cv2.VideoCapture(0)
@@ -233,7 +232,7 @@ def camera(dev):
 def video(dev, video_file):
     set_status('video')
     """Resize and play back a video"""
-    with serial.Serial(dev.device, 115200) as s:
+    with open_serial(dev.device) as s:
         import cv2
 
         capture = cv2.VideoCapture(video_file)
@@ -302,7 +301,7 @@ def image_greyscale(dev, image_file):
     """Display an image in greyscale
     Sends each 1x34 column and then commits => 10 commands
     """
-    with serial.Serial(dev.device, 115200) as s:
+    with open_serial(dev.device) as s:
         from PIL import Image
 
         im = Image.open(image_file).convert("RGB")
@@ -334,7 +333,7 @@ def commit_cols(dev, s):
 
 
 def checkerboard(dev, n):
-    with serial.Serial(dev.device, 115200) as s:
+    with open_serial(dev.device) as s:
         for x in range(0, WIDTH):
             vals = (([0xFF] * n) + ([0x00] * n)) * int(HEIGHT / 2)
             if x % (n * 2) < n:
@@ -346,7 +345,7 @@ def checkerboard(dev, n):
 
 
 def every_nth_col(dev, n):
-    with serial.Serial(dev.device, 115200) as s:
+    with open_serial(dev.device) as s:
         for x in range(0, WIDTH):
             vals = [(0xFF if x % n == 0 else 0) for _ in range(HEIGHT)]
 
@@ -355,7 +354,7 @@ def every_nth_col(dev, n):
 
 
 def every_nth_row(dev, n):
-    with serial.Serial(dev.device, 115200) as s:
+    with open_serial(dev.device) as s:
         for x in range(0, WIDTH):
             vals = [(0xFF if y % n == 0 else 0) for y in range(HEIGHT)]
 
@@ -366,7 +365,7 @@ def every_nth_row(dev, n):
 def all_brightnesses(dev):
     """Increase the brightness with each pixel.
     Only 0-255 available, so it can't fill all 306 LEDs"""
-    with serial.Serial(dev.device, 115200) as s:
+    with open_serial(dev.device) as s:
         for x in range(0, WIDTH):
             vals = [0 for _ in range(HEIGHT)]
 

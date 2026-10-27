@@ -1,15 +1,16 @@
 # Opening LED panel serial ports.
 #
-# On Linux several handles can be open on the same /dev/ttyACM* device, and the app relies on that
-# (the equalizer opens the panel a second time). Windows COM ports are exclusive, so there every
-# open() of the same port returns a handle onto one shared pyserial object, with writes serialised.
+# Windows COM ports are exclusive, so every open() of the same port returns a handle onto one shared
+# pyserial object, with writes serialised. White Rabbit does the same on Linux, so that holding a
+# panel (below) covers every writer.
+#
+# Holding a panel: while the White Rabbit window plays a game or shows a pattern on a panel, the
+# monitor's writes to that port are dropped, and only control handles (open_port(..., control=True))
+# get through. Releasing the panel lets the monitor draw on it again.
 
 # Built In Dependencies
 import threading
 import logging
-
-# Internal Dependencies
-from led_mon.platform_utils import IS_WINDOWS
 
 # External Dependencies
 import serial # pyserial
@@ -37,9 +38,10 @@ class _SharedPort:
 class SharedSerial:
     """A handle onto a shared port. Has the subset of the pyserial API the app uses."""
 
-    def __init__(self, entry):
+    def __init__(self, entry, control=False):
         self._entry = entry
         self._closed = False
+        self._control = control
         entry.refs += 1
 
     @property
@@ -57,6 +59,9 @@ class SharedSerial:
     def write(self, data):
         if self._closed:
             raise serial.SerialException(f"{self.port} handle is closed")
+        if not self._control and is_held(self.port):
+            # The panel is lent to the White Rabbit window; pretend the write went through
+            return len(data)
         with self._entry.lock:
             if self._entry.broken:
                 raise serial.SerialException(f"{self.port} needs to be reopened")
@@ -70,6 +75,18 @@ class SharedSerial:
     def read(self, size=1):
         with self._entry.lock:
             return self._entry.serial.read(size)
+
+    @property
+    def timeout(self):
+        return self._entry.serial.timeout
+
+    @timeout.setter
+    def timeout(self, value):
+        self._entry.serial.timeout = value
+
+    def reset_input_buffer(self):
+        with self._entry.lock:
+            self._entry.serial.reset_input_buffer()
 
     def close(self):
         if self._closed:
@@ -91,10 +108,11 @@ def _release(entry):
             entry.close()
 
 
-def open_port(port_name):
-    """Open an LED panel port. Shared on Windows, a plain pyserial object elsewhere."""
-    if not IS_WINDOWS:
-        return serial.Serial(port_name, BAUD_RATE)
+def open_port(port_name, control=False):
+    """Open an LED panel port: a handle onto one shared pyserial object per port.
+
+    control=True gives a handle that still writes while the panel is held (the White Rabbit window's).
+    """
     key = port_name.lower()
     with _ports_guard:
         entry = _ports.get(key)
@@ -106,7 +124,43 @@ def open_port(port_name):
         if entry is None:
             entry = _SharedPort(port_name)
             _ports[key] = entry
-        return SharedSerial(entry)
+        return SharedSerial(entry, control=control)
+
+
+# {port name in lower case: id of whoever holds it}
+_held = {}
+_held_guard = threading.Lock()
+
+
+def hold(port_names, owner=None):
+    """Stop the monitor drawing on these panels until release()."""
+    with _held_guard:
+        for name in port_names:
+            _held[name.lower()] = owner
+    log.info(f"Panels lent to the White Rabbit window: {', '.join(port_names)}")
+
+
+def release(port_names=None):
+    """Let the monitor draw on these panels again (all of them when port_names is None)."""
+    with _held_guard:
+        names = list(_held) if port_names is None else [n.lower() for n in port_names]
+        released = [n for n in names if n in _held]
+        for n in released:
+            del _held[n]
+    if released:
+        log.info(f"Panels back with the monitor: {', '.join(released)}")
+    return released
+
+
+def is_held(port_name):
+    with _held_guard:
+        return port_name.lower() in _held
+
+
+def held():
+    """{port name: owner} of the held panels."""
+    with _held_guard:
+        return dict(_held)
 
 
 def port_lock(s):

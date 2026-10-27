@@ -60,7 +60,7 @@ def test_enabling_updates_a_moved_exe():
 
 def test_launch_command_from_source():
     command = startup.launch_command()
-    assert command.endswith('main.py"')
+    assert command.endswith('main.py" --background')
     assert command.startswith('"')
 
 

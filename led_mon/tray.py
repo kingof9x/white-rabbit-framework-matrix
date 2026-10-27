@@ -1,7 +1,7 @@
 # System tray icon for running windowless on Windows (pystray + Pillow).
 #
 # Menu (left or right click):
-#   Edit layout... / Brightness...
+#   Open White Rabbit... / Brightness...
 #   Stop animation / Start animation   - the icon turns grey while stopped
 #   Identify panels / Next app / Freeze app switching
 #   Open Hardware Monitor               - only when it is found
@@ -18,7 +18,7 @@ from led_mon import platform_utils, external_apps, startup
 
 log = logging.getLogger(__name__)
 
-DISPLAY_NAME = "LED Matrix Monitor"
+DISPLAY_NAME = platform_utils.DISPLAY_NAME
 LIT_COLOR = (255, 176, 32, 255)
 DIM_COLOR = (90, 90, 90, 255)
 
@@ -87,7 +87,7 @@ def build_menu(pystray, actions, finder, is_paused, is_frozen, edit_layout_avail
     startup_supported = startup.supported() if startup_supported is None else startup_supported
     item = pystray.MenuItem
     return pystray.Menu(
-        item("Edit layout...", actions["edit_layout"], default=True, visible=edit_layout_available),
+        item("Open White Rabbit...", actions["edit_layout"], default=True, visible=edit_layout_available),
         item("Brightness...", actions["brightness"]),
         pystray.Menu.SEPARATOR,
         item(lambda i: animation_label(is_paused()), actions["toggle_animation"]),
@@ -215,5 +215,5 @@ def run_tray(identify, next_app, set_freeze, is_frozen, reload_config, config_di
     }
     menu = build_menu(pystray, actions, finder, is_paused, is_frozen, edit_layout is not None)
     icon_class = _icon_class(pystray, finder)
-    icon = icon_class("led_mon", make_icon_image(lit=not is_paused()), tooltip(is_paused()), menu)
+    icon = icon_class(platform_utils.APP_NAME, make_icon_image(lit=not is_paused()), tooltip(is_paused()), menu)
     icon.run()

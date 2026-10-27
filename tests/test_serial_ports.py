@@ -1,4 +1,4 @@
-# Shared serial handles (used on Windows, where COM ports can only be opened once)
+# Shared serial handles (Windows COM ports can only be opened once) and holding a panel for the window
 import pytest
 import serial
 
@@ -32,10 +32,10 @@ class FakeSerial:
 @pytest.fixture(autouse=True)
 def windows_ports(monkeypatch):
     FakeSerial.open_ports = set()
-    monkeypatch.setattr(serial_ports, "IS_WINDOWS", True)
     monkeypatch.setattr(serial_ports.serial, "Serial", FakeSerial)
     yield
     serial_ports.close_all()
+    serial_ports.release()
 
 
 def test_same_port_is_shared():
@@ -110,3 +110,28 @@ def test_quit_draws_a_dark_frame_before_stopping():
     assert animate is False and not grid.any()
     grid, animate = received[-2]
     assert animate is None and not grid.any()
+
+
+def test_held_panel_only_takes_control_writes():
+    monitor = serial_ports.open_port("COM4")
+    window = serial_ports.open_port("COM4", control=True)
+    serial_ports.hold(["com4"], owner=123)
+    assert monitor.write(b"frame") == 5
+    window.write(b"game")
+    assert monitor._entry.serial.written == [b"game"]
+    assert serial_ports.held() == {"com4": 123}
+    assert serial_ports.release() == ["com4"]
+    monitor.write(b"frame")
+    assert monitor._entry.serial.written == [b"game", b"frame"]
+
+
+def test_hold_is_per_panel():
+    left = serial_ports.open_port("COM4")
+    right = serial_ports.open_port("COM5")
+    serial_ports.hold(["COM4"])
+    left.write(b"l")
+    right.write(b"r")
+    assert left._entry.serial.written == []
+    assert right._entry.serial.written == [b"r"]
+    assert serial_ports.release(["COM5"]) == []
+    assert serial_ports.is_held("COM4")

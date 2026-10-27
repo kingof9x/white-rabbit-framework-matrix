@@ -119,6 +119,9 @@ def set_freeze(frozen):
 def is_frozen_switching():
     return freeze_app_switching
 
+# More control channel commands, added by White Rabbit: {cmd: handler(message) -> reply dict}
+extra_control_handlers = {}
+
 # Set while the animation is stopped from the tray: the panels go dark until it is started again
 display_paused = threading.Event()
 
@@ -292,7 +295,7 @@ def app(args, base_apps, plugin_apps):
 
     # Only one instance may drive the panels; a second launch exits silently (Windows)
     if not platform_utils.acquire_single_instance():
-        log.info("led_mon is already running")
+        log.info("White Rabbit is already running")
         sys.exit(0)
 
     led_devices = find_led_devices()
@@ -520,10 +523,12 @@ def app(args, base_apps, plugin_apps):
         if cmd == 'identify':
             request_identify()
             return {}
+        if cmd in extra_control_handlers:
+            return extra_control_handlers[cmd](message)
         return {'ok': False, 'error': f"Unknown command {cmd}"}
 
-    if IS_WINDOWS:
-        control.serve(handle_control_request)
+    # The White Rabbit window talks to the panels through this channel on Linux too
+    control.serve(handle_control_request)
 
     def render_iteration(args):
         global latch_key_combo, next_key_fired, freeze_app_switching, evdev_next_key_pressed
@@ -821,7 +826,8 @@ def app(args, base_apps, plugin_apps):
     log.info("Exiting")
 
 def open_layout_editor(args):
-    editor_args = ['--edit-layout']
+    # The layout editor is the first tab of the White Rabbit window
+    editor_args = ['--window']
     if args.config_file:
         editor_args += ['--config-file', args.config_file]
     platform_utils.launch_self(*editor_args)

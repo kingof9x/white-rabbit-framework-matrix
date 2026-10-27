@@ -101,6 +101,20 @@ class GameControlVal(IntEnum):
 RESPONSE_SIZE = 32
 
 
+def _open_pyserial(port, timeout=None):
+    return serial.Serial(port, 115200, timeout=timeout)
+
+
+# White Rabbit replaces this so that, while its monitor has the ports open,
+# commands go through the monitor instead (Windows lets only one program open a port)
+serial_opener = _open_pyserial
+
+
+def open_serial(port, timeout=None):
+    """Open a module's serial port, for use in a with statement"""
+    return serial_opener(port, timeout)
+
+
 def bootloader_jump(dev):
     """Reboot into the bootloader to flash new firmware"""
     send_command(dev, CommandVals.BootloaderReset, [0x00])
@@ -142,7 +156,7 @@ def send_command_raw(dev, command, with_response=False):
     Opens new serial connection every time"""
     # print(f"Sending command: {command}")
     try:
-        with serial.Serial(dev.device, 115200) as s:
+        with open_serial(dev.device) as s:
             s.write(command)
 
             if with_response:

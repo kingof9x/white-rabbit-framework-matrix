@@ -12,8 +12,12 @@ from logging.handlers import RotatingFileHandler
 IS_WINDOWS = os.name == "nt"
 IS_LINUX = sys.platform.startswith("linux")
 
-APP_NAME = "led_mon"
-SINGLE_INSTANCE_MUTEX = "led_mon_single_instance"
+# White Rabbit keeps its settings, log and startup entry apart from a separate led_mon install
+APP_NAME = "WhiteRabbit"
+DISPLAY_NAME = "White Rabbit"
+SINGLE_INSTANCE_MUTEX = "WhiteRabbit_single_instance"
+# Folder of the stand-alone led_mon app, whose settings are copied on White Rabbit's first start
+OLD_APP_NAME = "led_mon"
 
 log = logging.getLogger(__name__)
 
@@ -47,7 +51,7 @@ def app_dir():
 def user_config_dir():
     """Where the user's config.yaml / config-local.yaml / .env live.
 
-    Windows: %APPDATA%\\led_mon. Linux: next to the package, as before.
+    Windows: %APPDATA%\\WhiteRabbit. Linux: next to the package, as before.
     """
     if IS_WINDOWS:
         base = os.environ.get("APPDATA") or os.path.expanduser("~")
@@ -65,9 +69,10 @@ def log_file_path():
 
 
 def ensure_user_config():
-    """On Windows, copy the bundled config.yaml to %APPDATA%\\led_mon on first run."""
+    """On Windows, copy the bundled config.yaml to %APPDATA%\\WhiteRabbit on first run."""
     if not IS_WINDOWS:
         return
+    import_old_settings()
     cfg_dir = user_config_dir()
     local_cfg = os.path.join(cfg_dir, "config-local.yaml")
     cfg = os.path.join(cfg_dir, "config.yaml")
@@ -80,6 +85,35 @@ def ensure_user_config():
         log.info(f"Created default config file {cfg}")
     except OSError as e:
         log.error(f"Could not create default config file {cfg}: {e}")
+
+
+# Files from %APPDATA%\\led_mon worth keeping: the layout, brightness / app settings and API keys
+OLD_SETTINGS_FILES = ("config-local.yaml", "config.yaml", "settings.json", ".env")
+
+
+def import_old_settings(appdata=None):
+    """First start on Windows: copy the stand-alone led_mon app's settings, if it was used before.
+
+    Does nothing once White Rabbit has its own settings folder. Returns the names of the files copied.
+    """
+    base = appdata or os.environ.get("APPDATA") or os.path.expanduser("~")
+    new_dir = os.path.join(base, APP_NAME)
+    old_dir = os.path.join(base, OLD_APP_NAME)
+    if os.path.exists(new_dir) or not os.path.isdir(old_dir):
+        return []
+    copied = []
+    try:
+        os.makedirs(new_dir, exist_ok=True)
+        for name in OLD_SETTINGS_FILES:
+            old = os.path.join(old_dir, name)
+            if os.path.isfile(old):
+                shutil.copyfile(old, os.path.join(new_dir, name))
+                copied.append(name)
+    except OSError as e:
+        log.error(f"Could not copy the led_mon settings from {old_dir}: {e}")
+    if copied:
+        log.info(f"Copied {', '.join(copied)} from {old_dir}")
+    return copied
 
 
 def resolve_config_file(cli_config_file=None):
@@ -112,13 +146,14 @@ def load_env_file():
     """Load the .env file with API keys.
 
     Linux: as before, the current-directory .env when not frozen (frozen builds get env vars from systemd).
-    Windows: %APPDATA%\\led_mon\\.env, frozen or not.
+    Windows: %APPDATA%\\WhiteRabbit\\.env, frozen or not.
     """
     try:
         from dotenv import load_dotenv
     except ImportError:
         return
     if IS_WINDOWS:
+        import_old_settings()
         load_dotenv(os.path.join(user_config_dir(), ".env"))
     elif not is_frozen():
         load_dotenv()
@@ -137,7 +172,7 @@ LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 
 
 def setup_logging():
-    """Configure root logging. On Windows also log to a rotating file in %LOCALAPPDATA%\\led_mon."""
+    """Configure root logging. On Windows also log to a rotating file in %LOCALAPPDATA%\\WhiteRabbit."""
     if not IS_WINDOWS:
         logging.basicConfig(level=log_level_from_env(), format=LOG_FORMAT)
         return
@@ -234,12 +269,12 @@ def launch_self(*args):
         command = [sys.executable, *args]
         cwd = None
     else:
-        command = [sys.executable, "-m", "led_mon.main", *args]
+        command = [sys.executable, "-m", "white_rabbit", *args]
         cwd = os.path.dirname(package_dir())
     return subprocess.Popen(command, cwd=cwd, creationflags=subprocess_flags())
 
 
-def show_error(message, title="LED Matrix Monitor"):
+def show_error(message, title=DISPLAY_NAME):
     """Tell the user about a fatal problem when there is no console to print to (Windows)."""
     if not IS_WINDOWS:
         return

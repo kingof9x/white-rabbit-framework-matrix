@@ -13,7 +13,7 @@ from led_mon import platform_utils
 
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 APPROVED_KEY = r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"
-VALUE_NAME = "led_mon"
+VALUE_NAME = "WhiteRabbit"
 
 
 class WinRegistry:
@@ -51,15 +51,18 @@ def _registry(registry):
 
 
 def launch_command():
-    """The command Windows runs at login: this exe, or pythonw with the repo's main.py when run from source."""
+    """The command Windows runs at login: this exe, or pythonw with the repo's main.py when run from source.
+
+    --background starts the monitor and tray icon without opening the window.
+    """
     if platform_utils.is_frozen():
-        return f'"{sys.executable}"'
+        return f'"{sys.executable}" --background'
     python = sys.executable
     pythonw = os.path.join(os.path.dirname(python), "pythonw.exe")
     if os.path.isfile(pythonw):
         python = pythonw
     script = os.path.join(os.path.dirname(platform_utils.package_dir()), "main.py")
-    return f'"{python}" "{script}"'
+    return f'"{python}" "{script}" --background'
 
 
 def _disabled_in_task_manager(registry):

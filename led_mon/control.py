@@ -32,9 +32,9 @@ def _user_tag():
 
 def address():
     if IS_WINDOWS:
-        return rf"\\.\pipe\led_mon-{_user_tag()}"
+        return rf"\\.\pipe\{platform_utils.APP_NAME}-{_user_tag()}"
     runtime_dir = os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir()
-    return os.path.join(runtime_dir, f"led_mon-{_user_tag()}.sock")
+    return os.path.join(runtime_dir, f"{platform_utils.APP_NAME}-{_user_tag()}.sock")
 
 
 def _key_file():

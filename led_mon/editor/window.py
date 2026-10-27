@@ -459,8 +459,12 @@ def _number_or_text(text):
 
 
 class LayoutEditor:
-    def __init__(self, root, args):
+    def __init__(self, root, args, container=None, on_dirty=None):
+        """container: build into this frame (a tab of the White Rabbit window) instead of the whole window.
+        on_dirty(dirty) is then called instead of changing the window title."""
         self.root = root
+        self.container = container or root
+        self.on_dirty = on_dirty
         self.args = args
         self.selection = None    # (side, page index, 'top' | 'bottom' | 'full')
         self.dirty = False
@@ -477,9 +481,10 @@ class LayoutEditor:
         self.load_path, self.save_path = self.config_paths()
         self.layout, warnings = self.read_layout()
 
-        root.title("LED Matrix Layout Editor")
-        root.minsize(980, 640)
-        root.protocol("WM_DELETE_WINDOW", self.on_close)
+        if container is None:
+            root.title("LED Matrix Layout Editor")
+            root.minsize(980, 640)
+            root.protocol("WM_DELETE_WINDOW", self.on_close)
         self.build()
         self.refresh_all()
         if warnings:
@@ -510,7 +515,7 @@ class LayoutEditor:
 
     # Window
     def build(self):
-        outer = ttk.Frame(self.root, padding=12)
+        outer = ttk.Frame(self.container, padding=12)
         outer.pack(fill="both", expand=True)
         outer.columnconfigure(1, weight=1)
         outer.columnconfigure(2, weight=1)
@@ -550,7 +555,7 @@ class LayoutEditor:
         self.settings = SettingsPane(outer, self)
         self.settings.grid(row=0, column=3, sticky="nsew")
 
-        bar = ttk.Frame(self.root, padding=(12, 0, 12, 12))
+        bar = ttk.Frame(self.container, padding=(12, 0, 12, 12))
         bar.pack(fill="x")
         self.status = ttk.Label(bar, text="", foreground="#555555")
         self.status.pack(side="top", anchor="w", pady=(0, 6))
@@ -614,6 +619,9 @@ class LayoutEditor:
         self.settings.show(entry, f"{side.capitalize()} panel, page {index + 1}, {where}", side)
 
     def update_title(self):
+        if self.on_dirty is not None:
+            self.on_dirty(self.dirty)
+            return
         self.root.title(("* " if self.dirty else "") + "LED Matrix Layout Editor")
 
     def set_status(self, text):
@@ -904,17 +912,22 @@ class LayoutEditor:
         self.refresh_all()
         self.set_status("Reloaded the saved layout.")
 
-    def on_close(self):
+    def close(self):
+        """Ask about unsaved changes and stop the preview. Returns False if the user cancelled."""
         if self.dirty:
             answer = messagebox.askyesnocancel("Layout editor", "Apply your changes before closing?", parent=self.root)
             if answer is None:
-                return
+                return False
             if answer:
                 if not self.save():
-                    return
+                    return False
                 preview.apply_config()
         self.stop.set()
-        self.root.destroy()
+        return True
+
+    def on_close(self):
+        if self.close():
+            self.root.destroy()
 
 
 class _OncePerMessage(logging.Filter):
