@@ -142,3 +142,18 @@ def test_open_target_uac_cancel_is_silent(monkeypatch):
         raise e
     monkeypatch.setattr(external_apps.platform_utils, "open_path", cancelled)
     assert external_apps.open_target(Target("file", "x.exe"), "Open Hardware Monitor") is None
+
+
+def test_ohm_extracted_with_an_extra_folder(tmp_path):
+    env = fake_env(tmp_path)
+    exe = touch(tmp_path / "Users" / "me" / "Desktop" / "openhardwaremonitor-v0.9.6"
+                / "openhardwaremonitor-v0.9.6" / "OpenHardwareMonitor" / "OpenHardwareMonitor.exe")
+    assert find_open_hardware_monitor("", env, running=[]) == Target("file", exe)
+
+
+def test_ohm_on_a_desktop_moved_by_onedrive(tmp_path, monkeypatch):
+    env = fake_env(tmp_path)
+    desktop = tmp_path / "Users" / "me" / "OneDrive - Home" / "Desktop"
+    exe = touch(desktop / "OpenHardwareMonitor" / "OpenHardwareMonitor.exe")
+    monkeypatch.setattr(external_apps, "_known_folders", lambda: [str(desktop)])
+    assert find_open_hardware_monitor("", env, running=[]) == Target("file", exe)

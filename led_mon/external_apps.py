@@ -43,8 +43,9 @@ def _compact(name):
 def _find_exe_under(root, exe_name=OHM_EXE):
     """
     Looks for exe_name in root, and in folders in root whose name contains
-      "openhardwaremonitor" (and one level below them, which is how the zip unpacks:
-      openhardwaremonitor-v0.9.6\\OpenHardwareMonitor\\OpenHardwareMonitor.exe).
+      "openhardwaremonitor" or "hardwaremonitor", down to MAX_DEPTH folders below them
+      (the zip unpacks as openhardwaremonitor-v0.9.6\\OpenHardwareMonitor\\OpenHardwareMonitor.exe,
+      and Windows' Extract All can add another folder on top).
     """
     if not root or not os.path.isdir(root):
         return None
@@ -57,22 +58,73 @@ def _find_exe_under(root, exe_name=OHM_EXE):
         return None
     for entry in entries:
         try:
-            if not entry.is_dir() or "openhardwaremonitor" not in _compact(entry.name):
+            if not entry.is_dir() or "hardwaremonitor" not in _compact(entry.name):
                 continue
         except OSError:
             continue
-        candidate = os.path.join(entry.path, exe_name)
-        if os.path.isfile(candidate):
-            return candidate
-        try:
-            for sub in os.scandir(entry.path):
-                if sub.is_dir():
-                    candidate = os.path.join(sub.path, exe_name)
-                    if os.path.isfile(candidate):
-                        return candidate
-        except OSError:
-            continue
+        found = _find_exe_below(entry.path, exe_name, MAX_DEPTH)
+        if found:
+            return found
     return None
+
+
+MAX_DEPTH = 3
+
+
+def _find_exe_below(folder, exe_name, depth):
+    """exe_name in folder or up to depth folders below it, or None."""
+    candidate = os.path.join(folder, exe_name)
+    if os.path.isfile(candidate):
+        return candidate
+    if depth <= 0:
+        return None
+    try:
+        subs = [e.path for e in os.scandir(folder) if e.is_dir()]
+    except OSError:
+        return None
+    for sub in subs:
+        found = _find_exe_below(sub, exe_name, depth - 1)
+        if found:
+            return found
+    return None
+
+
+# Windows known folder ids: Desktop, Downloads, Documents. Their real place can differ from
+# %USERPROFILE%\\Desktop and so on, for example when OneDrive backs them up.
+KNOWN_FOLDERS = (
+    "{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}",
+    "{374DE290-123F-4565-9164-39C4925E467B}",
+    "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}",
+)
+
+
+def _known_folders():
+    """Where Windows says the Desktop, Downloads and Documents folders really are."""
+    if not platform_utils.IS_WINDOWS:
+        return []
+    import ctypes
+    from ctypes import wintypes
+    import uuid
+
+    class GUID(ctypes.Structure):
+        _fields_ = [("data", ctypes.c_byte * 16)]
+
+    shell32 = ctypes.windll.shell32
+    ole32 = ctypes.windll.ole32
+    folders = []
+    for folder_id in KNOWN_FOLDERS:
+        guid = GUID()
+        ctypes.memmove(guid.data, uuid.UUID(folder_id).bytes_le, 16)
+        path = wintypes.LPWSTR()
+        try:
+            if shell32.SHGetKnownFolderPath(ctypes.byref(guid), 0, None, ctypes.byref(path)) == 0:
+                folders.append(path.value)
+        except Exception as e:
+            log.debug(f"Known folder {folder_id}: {e}")
+        finally:
+            if path:
+                ole32.CoTaskMemFree(path)
+    return folders
 
 
 def _running_processes(exe_name):
@@ -93,7 +145,7 @@ def _running_processes(exe_name):
 
 
 def _ohm_search_roots(environ):
-    roots = []
+    roots = list(_known_folders())
     for var in ("ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"):
         if environ.get(var):
             roots.append(environ[var])
