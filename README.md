@@ -47,7 +47,8 @@ and comes back when you press *Stop* or *Back to system monitor*.
 - Brightness follows the laptop screen, or set it yourself.
 - Runs in the tray and starts with Windows. Keyboard shortcuts
   (`Ctrl`+`Alt`+`Shift` + `I` / `N` / `F` / `U`) show the app names, skip to
-  the next app, and freeze or unfreeze app switching.
+  the next app, and freeze or unfreeze app switching. Each one can be turned
+  off on the Keyboard shortcuts tab.
 
 ![The Panels tab with the layout editor](docs/screenshots/white-rabbit-panels.png)
 
@@ -82,6 +83,12 @@ flashes the bundled firmware: White Rabbit's (startup animation setting, extra
 patterns) or Framework's official 0.2.0, or any `.uf2` file you choose.
 
 ![The Firmware tab](docs/screenshots/white-rabbit-firmware.png)
+
+### Keyboard shortcuts tab
+
+Lists the monitor's keyboard shortcuts and what each one does, with a
+checkbox to turn each shortcut on or off. A shortcut that's off is left free
+for other programs, and the change works straight away without restarting.
 
 *Screenshots taken on Linux with simulated panels, so the window looks a little
 different from Windows.*
@@ -192,6 +199,11 @@ worked in led_mon or LED Matrix Control, but need checking again here.
 - [ ] Each Game of Life pattern starts, and *Stop* ends it
 - [ ] Snake and Ledris open their small window and play on the panels
 - [ ] Patterns, text, fill, clock, countdown and random equalizer work
+
+**Keyboard shortcuts tab**
+- [ ] All four shortcuts are listed with `Ctrl`+`Alt`+`Shift` keys
+- [ ] Unticking a shortcut stops it working straight away; ticking it again brings it back
+- [ ] The choice is remembered after quitting and starting White Rabbit again
 
 **Firmware tab**
 - [ ] *Installed firmware* shows the right version and whether the startup setting is there

@@ -25,7 +25,7 @@ def window_args(argv):
     parser = ArgumentParser(prog="WhiteRabbit --window")
     parser.add_argument("--window", action="store_true")
     parser.add_argument("--edit-layout", action="store_true")
-    parser.add_argument("--tab", choices=("panels", "startup", "play", "firmware"), default=None)
+    parser.add_argument("--tab", choices=("panels", "startup", "play", "firmware", "shortcuts"), default=None)
     parser.add_argument("--wait-for-monitor", action="store_true")
     parser.add_argument("--config-file", "-cf", default=None)
     args, _ = parser.parse_known_args(argv)

@@ -132,7 +132,10 @@ class WhiteRabbitWindow:
         self.notebook.add(self.play_tab, text="Games & patterns")
         self.firmware_tab = tabs.FirmwareTab(self.notebook, self)
         self.notebook.add(self.firmware_tab, text="Firmware")
-        tab = {"startup": self.startup_tab, "play": self.play_tab, "firmware": self.firmware_tab}.get(start_tab)
+        self.shortcuts_tab = tabs.ShortcutsTab(self.notebook, self)
+        self.notebook.add(self.shortcuts_tab, text="Keyboard shortcuts")
+        tab = {"startup": self.startup_tab, "play": self.play_tab, "firmware": self.firmware_tab,
+               "shortcuts": self.shortcuts_tab}.get(start_tab)
         if tab is not None:
             self.notebook.select(tab)
 

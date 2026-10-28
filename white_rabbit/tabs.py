@@ -6,7 +6,7 @@ import os
 import threading
 import webbrowser
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox, font as tkfont
 
 # Internal Dependencies
 from inputmodule.inputmodule import send_command, CommandVals, Game, GameControlVal
@@ -20,6 +20,7 @@ from inputmodule.inputmodule.ledmatrix import (
     set_startup_animation,
     show_string,
 )
+from led_mon import shortcuts
 from white_rabbit import firmware
 
 HINT = "#555555"
@@ -322,3 +323,46 @@ class FirmwareTab(ttk.Frame):
             # Give the panel back once it has restarted, then read its new version
             self.window.root.after(6000, lambda: (self.window.give_back([panel]), self.window_refresh()))
         self.window.act(lambda p: status(firmware.flash(p, path, status)), finished, panels=[panel])
+
+
+class ShortcutsTab(ttk.Frame):
+    """The monitor's keyboard shortcuts, each of which can be turned off."""
+
+    def __init__(self, master, window):
+        super().__init__(master, padding=6)
+        self.window = window
+        frame = section(self, "Keyboard shortcuts")
+        ttk.Label(frame, text="These work anywhere in Windows while White Rabbit runs in the tray. "
+                  "A shortcut that's turned off is left free for other programs to use.",
+                  foreground=HINT, wraplength=760, justify="left").grid(row=0, column=0, columnspan=4,
+                                                                         sticky="w", pady=(0, 8))
+        self.bold = tkfont.nametofont("TkDefaultFont").copy()
+        self.bold.configure(weight="bold")
+        for column, heading in enumerate(["On", "Keys", "Shortcut", "What it does"]):
+            ttk.Label(frame, text=heading, font=self.bold).grid(
+                row=1, column=column, sticky="w", padx=6)
+        enabled = shortcuts.load()
+        self.vars = {}
+        for row, (letter, name, description) in enumerate(shortcuts.SHORTCUTS, start=2):
+            var = tk.BooleanVar(value=enabled[letter])
+            self.vars[letter] = var
+            ttk.Checkbutton(frame, variable=var, command=self.changed).grid(row=row, column=0, padx=6, pady=2)
+            ttk.Label(frame, text=shortcuts.keys_text(letter)).grid(row=row, column=1, sticky="w", padx=6)
+            ttk.Label(frame, text=name).grid(row=row, column=2, sticky="w", padx=6)
+            ttk.Label(frame, text=description, foreground=HINT).grid(row=row, column=3, sticky="w", padx=6)
+        self.status = ttk.Label(self, text="", foreground=HINT)
+        self.status.pack(anchor="w", padx=12, pady=6)
+
+    def changed(self):
+        enabled = {letter: var.get() for letter, var in self.vars.items()}
+        if not shortcuts.save(enabled):
+            self.status.configure(text="Couldn't save the change (see the log).")
+            return
+        on = [shortcuts.keys_text(letter) for letter, is_on in enabled.items() if is_on]
+        summary = ("On: " + ", ".join(on)) if on else "All shortcuts are off."
+
+        def done(reply):
+            note = "" if reply else " The monitor isn't running; it will use this when it starts."
+            self.status.configure(text="Saved. " + summary + note)
+        self.window.in_background(lambda: self.window.link.request({"cmd": "shortcuts"}, timeout=5), done,
+                                  lambda e: self.status.configure(text=f"Saved, but the monitor didn't answer: {e}"))

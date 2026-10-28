@@ -25,6 +25,7 @@ from led_mon.serial_ports import close_all as close_all_ports
 from led_mon.rendering import make_base_app_functions, build_app_kwargs, render_panel
 from led_mon import control
 from led_mon import fps
+from led_mon import shortcuts
 from led_mon import app_settings
 
 # External Dependencies
@@ -185,12 +186,12 @@ def evcode_keyloop():
                     elif event.value == 0:
                         keys_pressed.discard(event.code)
 
-                    if (ecodes.KEY_LEFTALT in keys_pressed or ecodes.KEY_RIGHTALT in keys_pressed) and ecodes.KEY_F in keys_pressed:
+                    if (ecodes.KEY_LEFTALT in keys_pressed or ecodes.KEY_RIGHTALT in keys_pressed) and ecodes.KEY_F in keys_pressed and shortcuts.is_enabled('f'):
                         freeze_app_switching = True
-                    elif (ecodes.KEY_LEFTALT in keys_pressed or ecodes.KEY_RIGHTALT in keys_pressed) and ecodes.KEY_U in keys_pressed:
+                    elif (ecodes.KEY_LEFTALT in keys_pressed or ecodes.KEY_RIGHTALT in keys_pressed) and ecodes.KEY_U in keys_pressed and shortcuts.is_enabled('u'):
                         freeze_app_switching = False
 
-                    if (ecodes.KEY_LEFTALT in keys_pressed or ecodes.KEY_RIGHTALT in keys_pressed) and ecodes.KEY_N in keys_pressed:
+                    if (ecodes.KEY_LEFTALT in keys_pressed or ecodes.KEY_RIGHTALT in keys_pressed) and ecodes.KEY_N in keys_pressed and shortcuts.is_enabled('n'):
                         evdev_next_key_pressed = True
         except (PermissionError, FileNotFoundError, OSError) as e:
             log.warning(f"Warning: Cannot access keyboard device {kbd_path}: {e}")
@@ -412,6 +413,8 @@ def app(args, base_apps, plugin_apps):
             return
         try:
             char = key_char(key)
+            if char in shortcuts.LETTERS and not shortcuts.is_enabled(char):
+                return
             if char == 'i':
                 i_pressed = True
             elif char == 'n':
@@ -523,6 +526,11 @@ def app(args, base_apps, plugin_apps):
         if cmd == 'identify':
             request_identify()
             return {}
+        if cmd == 'shortcuts':
+            # The window turned shortcuts on or off in settings.json
+            enabled = shortcuts.reload()
+            start_hotkeys()
+            return {'shortcuts': enabled}
         if cmd in extra_control_handlers:
             return extra_control_handlers[cmd](message)
         return {'ok': False, 'error': f"Unknown command {cmd}"}
@@ -569,7 +577,7 @@ def app(args, base_apps, plugin_apps):
             active_keys = device.active_keys(verbose=True) if device else []
             evdev_id_key_pressed = True if (MODIFIER_KEYS[0] in active_keys or MODIFIER_KEYS[1] in active_keys) and KEY_I in active_keys and device else False
             pynput_id_key_pressed = i_pressed and alt_pressed
-            id_key_combo_active = (evdev_id_key_pressed or pynput_id_key_pressed) and not args.no_key_listener
+            id_key_combo_active = (evdev_id_key_pressed or pynput_id_key_pressed) and not args.no_key_listener and shortcuts.is_enabled('i')
             # Tray "Identify panels" works even with --no-key-listener
             id_key_combo_active = id_key_combo_active or time.monotonic() < id_display_until
             shared_state.id_key_press_active = id_key_combo_active
@@ -759,16 +767,35 @@ def app(args, base_apps, plugin_apps):
     if not PYNPUT_AVAILABLE and not IS_WINDOWS and not args.no_key_listener:
         log.warning("Info: pynput is unavailable; running in evdev-only mode. Use Ctrl+C to exit.")
 
+    hotkey_thread = None
+    hotkey_lock = threading.Lock()
+
+    def start_hotkeys():
+        """Register the shortcuts that are turned on (again, after a change), on Windows."""
+        nonlocal hotkey_thread
+        if not IS_WINDOWS or args.no_key_listener:
+            return
+        from led_mon import hotkeys
+        actions = {
+            'i': request_identify,
+            'n': request_next_app,
+            'f': lambda: set_freeze(True),
+            'u': lambda: set_freeze(False),
+        }
+        with hotkey_lock:
+            if hotkey_thread is not None:
+                hotkey_thread.stop()
+                hotkey_thread.join(3)
+                hotkey_thread = None
+            bindings = {letter: action for letter, action in actions.items() if shortcuts.is_enabled(letter)}
+            if bindings:
+                hotkey_thread = hotkeys.start(bindings)
+            else:
+                log.info("Keyboard shortcuts: all turned off")
+
     def run_main_loop():
         platform_utils.init_com_for_thread()
-        if IS_WINDOWS and not args.no_key_listener:
-            from led_mon import hotkeys
-            hotkeys.start({
-                'i': request_identify,
-                'n': request_next_app,
-                'f': lambda: set_freeze(True),
-                'u': lambda: set_freeze(False),
-            })
+        start_hotkeys()
         # Prefer pynput if available; fall back silently if it fails to start (common on Wayland)
         if PYNPUT_AVAILABLE and not args.no_key_listener:
             try:
