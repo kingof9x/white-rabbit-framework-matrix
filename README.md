@@ -146,31 +146,31 @@ worked in led_mon or LED Matrix Control, but need checking again here.
 
 **Install and start**
 - [ ] The installer installs without an admin prompt, and the panels and the window come up afterwards
-- [ ] The portable `WhiteRabbit.exe` starts and both panels light up
+- [x] The portable `WhiteRabbit.exe` starts and both panels light up
 - [ ] After logging in, only the tray icon starts (no window), and *Start with Windows* in the tray turns that on and off
-- [ ] Opening the app again, or the tray's *Open White Rabbit...*, shows the window (only one window at a time)
+- [x] Opening the app again, or the tray's *Open White Rabbit...*, shows the window (only one window at a time)
 - [ ] Installing a newer version over an old one keeps the settings and the layout
 - [ ] Uninstalling from *Settings > Apps* removes the app and the startup entry
-- [ ] An existing led_mon layout, brightness and `.env` are picked up on the first start
+- [x] An existing led_mon layout, brightness and `.env` are picked up on the first start
 
 **Sharing the panels between monitor and controls**
-- [ ] Starting a Game of Life pattern borrows only the ticked panel; the other keeps showing the monitor
-- [ ] *Stop* and *Back to system monitor* bring the monitor back, at the right brightness
-- [ ] Saving the startup animation plays it once, then the monitor comes back by itself after about 10 seconds
-- [ ] Closing the window while a game runs gives the panel back to the monitor
-- [ ] With the tray app quit, the window's controls still work on their own
+- [x] Starting a Game of Life pattern borrows only the ticked panel; the other keeps showing the monitor
+- [x] *Stop* and *Back to system monitor* bring the monitor back, at the right brightness
+- [x] Saving the startup animation plays it once, then the monitor comes back by itself after about 10 seconds
+- [x] Closing the window while a game runs gives the panel back to the monitor
+- [x] With the tray app quit, the window's controls still work on their own
 - [ ] If another program (like the old `ledmatrixgui.exe` or led_mon) holds a panel, the Firmware tab says so
 
 **Panels**
-- [ ] Left and right panels are detected the right way round; if not, the *Port* boxes on the Panels tab fix it
-- [ ] Unplugging and plugging back a panel: the app picks it up again
+- [x] Left and right panels are detected the right way round; if not, the *Port* boxes on the Panels tab fix it
+- [x] Unplugging and plugging back a panel: the app picks it up again
 - [ ] Sleep and wake (lid close / open) still work
 
 **Tray menu**
-- [ ] Left-click and right-click both open the menu
-- [ ] *Brightness* slider and *Follow screen brightness* work
-- [ ] *Stop animation* / *Start animation* turn the panels off and on
-- [ ] *Open Hardware Monitor*, *Open Framework Control*, *Open log*, *Quit* work; *Quit* turns the panels dark
+- [x] Left-click and right-click both open the menu
+- [x] *Brightness* slider and *Follow screen brightness* work
+- [x] *Stop animation* / *Start animation* turn the panels off and on
+- [x] *Open Hardware Monitor*, *Open Framework Control*, *Open log*, *Quit* work; *Quit* turns the panels dark
 - [ ] *Open Hardware Monitor* finds `OpenHardwareMonitor_x64.exe` in a folder on the Desktop
 - [ ] When it isn't found, *Find Open Hardware Monitor...* opens a normal Windows file window, remembers the choice and opens it
 
@@ -181,16 +181,16 @@ worked in led_mon or LED Matrix Control, but need checking again here.
 - [ ] Closing the window with unsaved layout changes asks whether to apply them
 
 **Monitor apps**
-- [ ] CPU cores shows every core; CPU graph and GPU graph move with the load
-- [ ] Disk, network and disk + network react to copying files and downloading
-- [ ] Memory + battery shows the battery and the charging animation
+- [x] CPU cores shows every core; CPU graph and GPU graph move with the load
+- [x] Disk, network and disk + network react to copying files and downloading
+- [x] Memory + battery shows the battery and the charging animation
 - [ ] Temperatures and fans show values with `framework_tool.exe`
 - [ ] Clock, weather (needs an API key) and equalizer work
 - [ ] FPS counter shows a game's frame rate after the one-time *Performance Log Users* setup
 - [ ] Keyboard shortcuts work and don't steal `Alt`+`F` from other programs
 
 **Startup animation tab**
-- [ ] *Always this one* plays the chosen animation at every power on *(confirmed in the old app)*
+- [x] *Always this one* plays the chosen animation at every power on *(confirmed in the old app)*
 - [ ] *Random out of these* only shows ticked animations over several restarts
 - [ ] *Random* still picks different animations
 - [ ] *None*: the panels stay dark until the app uses them
@@ -198,9 +198,9 @@ worked in led_mon or LED Matrix Control, but need checking again here.
 - [ ] With Framework's official firmware, the tab says the setting needs the White Rabbit firmware
 
 **Games & patterns tab**
-- [ ] Each Game of Life pattern starts, and *Stop* ends it
+- [x] Each Game of Life pattern starts, and *Stop* ends it
 - [ ] Patterns 2 to 5 run on the panels (needs firmware with them)
-- [ ] Snake and Ledris open their small window and play on the panels
+- [x] Snake and Ledris open their small window and play on the panels
 - [ ] Patterns, text, fill, clock, countdown and random equalizer work
 
 **Keyboard shortcuts tab**
@@ -209,13 +209,13 @@ worked in led_mon or LED Matrix Control, but need checking again here.
 - [ ] The choice is remembered after quitting and starting White Rabbit again
 
 **Firmware tab**
-- [ ] *Installed firmware* shows the right version and whether the startup setting is there
-- [ ] *Enter bootloader* puts the ticked panel into bootloader mode *(confirmed in the old app)*
-- [ ] *Flash* with the White Rabbit firmware works on each panel, and the monitor comes back afterwards
+- [x] *Installed firmware* shows the right version and whether the startup setting is there
+- [x] *Enter bootloader* puts the ticked panel into bootloader mode *(confirmed in the old app)*
+- [x] *Flash* with the White Rabbit firmware works on each panel, and the monitor comes back afterwards
 - [x] *Flash* with a `.uf2` file you choose works *(confirmed 2026-10-28 with the Patterns 2 to 5 test firmware)*
 - [ ] The bundled White Rabbit firmware includes Patterns 2 to 5 (builds made after 2026-10-28 06:00 UTC)
 - [ ] Flashing Framework's official firmware and back again works, and keeps the saved startup setting
-- [ ] No flicker while the monitor is running *(confirmed with the 0.2.0-based firmware)*
+- [x] No flicker while the monitor is running *(confirmed with the 0.2.0-based firmware)*
 
 ## Making a release
 
