@@ -46,6 +46,11 @@ def run(argv=None):
     platform_utils.load_env_file()
     platform_utils.setup_logging()
     try:
+        if "--find-ohm" in argv:
+            # The tray's Find Open Hardware Monitor... item: a file picker needs a main thread of its own
+            from led_mon import external_apps
+            external_apps.find_and_open_open_hardware_monitor()
+            return
         if "--window" in argv or "--edit-layout" in argv:
             args = window_args(argv)
             from white_rabbit.window import run_window

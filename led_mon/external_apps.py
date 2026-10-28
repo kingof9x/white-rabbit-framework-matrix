@@ -233,27 +233,46 @@ def find_open_hardware_monitor(configured_path="", environ=None, running=None):
     if shortcut:
         return Target("file", shortcut)
 
-    for root in _ohm_search_roots(environ):
+    roots = _ohm_search_roots(environ)
+    for root in roots:
         exe = _find_exe_under(root)
         if exe:
             return Target("file", exe)
+    log.info(f"Open Hardware Monitor not found. Looked in: {'; '.join(roots)}")
     return None
+
+
+def find_and_open_open_hardware_monitor():
+    """WhiteRabbit --find-ohm: ask where Open Hardware Monitor is, remember it in settings.json and open it."""
+    from led_mon import app_settings
+    path = ask_for_open_hardware_monitor()
+    if not path:
+        return
+    settings = app_settings.load_settings()
+    settings["open_hardware_monitor_path"] = path
+    app_settings.save_settings(settings)
+    message = open_target(find_open_hardware_monitor(path), "Open Hardware Monitor")
+    if message:
+        platform_utils.show_error(message)
 
 
 def ask_for_open_hardware_monitor():
     """Ask the user to pick OpenHardwareMonitor.exe. Returns its path, or None if cancelled.
 
-    Runs its own small Tk window, so it can be called from the tray's thread.
+    Must run on a program's main thread (White Rabbit starts itself with --find-ohm for this):
+    a Tk dialog on the tray's thread freezes.
     """
     import tkinter as tk
     from tkinter import filedialog
+    platform_utils.enable_dpi_awareness()
     root = tk.Tk()
     root.withdraw()
     root.attributes("-topmost", True)
+    start = next((f for f in _known_folders() if os.path.isdir(f)), os.path.expanduser("~"))
     try:
         path = filedialog.askopenfilename(
-            parent=root, title="Where is Open Hardware Monitor?",
-            filetypes=[("Open Hardware Monitor", OHM_EXE), ("Programs", "*.exe")])
+            parent=root, title="Where is OpenHardwareMonitor.exe?", initialdir=start,
+            filetypes=[("Programs", "*.exe"), ("All files", "*.*")])
     finally:
         root.destroy()
     if not path:

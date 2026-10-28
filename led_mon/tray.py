@@ -55,7 +55,9 @@ class AppFinder:
 
     def refresh(self):
         try:
-            self.ohm = external_apps.find_open_hardware_monitor(self.ohm_path)
+            # Read again each time: the Find Open Hardware Monitor window saves the path it was shown
+            configured = app_settings.load_settings().get("open_hardware_monitor_path") or self.ohm_path
+            self.ohm = external_apps.find_open_hardware_monitor(configured)
         except Exception as e:
             log.error(f"Error looking for Open Hardware Monitor: {e}")
             self.ohm = None
@@ -183,17 +185,14 @@ def run_tray(identify, next_app, set_freeze, is_frozen, reload_config, config_di
     def open_ohm(icon, item):
         finder.refresh()
         if finder.ohm is None:
-            # Not found in the usual places: let the user show where it is, and remember that
-            path = external_apps.ask_for_open_hardware_monitor()
-            if not path:
-                return
-            settings = app_settings.load_settings()
-            settings["open_hardware_monitor_path"] = path
-            app_settings.save_settings(settings)
-            finder.ohm_path = path
-            finder.refresh()
+            # Not found in the usual places: let the user show where it is. The file picker runs in
+            # its own process, since a dialog on the tray's thread freezes (it saves the path and opens it)
+            try:
+                platform_utils.launch_self("--find-ohm")
+            except Exception as e:
+                notify(icon, f"Could not open the file picker: {e}")
+            return
         notify(icon, external_apps.open_target(finder.ohm, "Open Hardware Monitor"))
-        icon.update_menu()
 
     def open_fc(icon, item):
         finder.refresh()
