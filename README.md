@@ -240,3 +240,11 @@ White Rabbit combines two open source projects, both MIT licensed (see
   itself is still built there.
 
 Thanks to everyone who worked on those.
+
+## Project status
+
+**Status:** Waiting on Callum  
+**Waiting on:** Callum: run the testing checklist  
+**Notes:** One tray app combining led_mon and the LED Matrix controls. Not released yet.  
+**Last updated:** 2026-10-28
+
