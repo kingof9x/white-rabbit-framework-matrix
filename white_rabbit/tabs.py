@@ -28,7 +28,8 @@ HINT = "#555555"
 STARTUP_PREVIEW_SECONDS = 10
 
 GAME_OF_LIFE = [
-    ("Current picture", 0), ("Pattern 1", 1), ("Blinker", 2), ("Toad", 3), ("Beacon", 4), ("Glider", 5),
+    ("Current picture", 0), ("Pattern 1", 1), ("Pattern 2", 17), ("Pattern 3", 18), ("Pattern 4", 19),
+    ("Pattern 5", 20), ("Blinker", 2), ("Toad", 3), ("Beacon", 4), ("Glider", 5),
     ("R-pentomino", 7), ("Acorn", 8), ("Diehard", 9), ("Light spaceship", 10), ("Medium spaceship", 11),
     ("Heavy spaceship", 12), ("Spaceship fleet", 13), ("Octagon", 14), ("Tumbler", 15), ("Caterer", 16),
 ]
@@ -151,7 +152,7 @@ class PlayTab(ttk.Frame):
                        command=lambda p=param: self.run(lambda d: send_command(d, CommandVals.StartGame,
                                                                                [Game.GameOfLife, p]))
                        ).grid(row=i // 6, column=i % 6, padx=2, pady=2)
-        ttk.Button(gol, text="Stop", command=self.stop).grid(row=3, column=0, padx=2, pady=(8, 2), sticky="w")
+        ttk.Button(gol, text="Stop", command=self.stop).grid(row=(len(GAME_OF_LIFE) + 5) // 6, column=0, padx=2, pady=(8, 2), sticky="w")
 
         games = section(self, "Games (played in a small window with the arrow keys)")
         ttk.Button(games, text="Snake", command=lambda: self.pygame("snake")).pack(side="left", padx=2)
