@@ -66,7 +66,7 @@ def test_ohm_unzipped_in_downloads(tmp_path):
 def test_ohm_ignores_unrelated_folders(tmp_path, monkeypatch):
     monkeypatch.setattr(external_apps.platform_utils, "app_dir", lambda: str(tmp_path / "app"))
     env = fake_env(tmp_path)
-    touch(tmp_path / "Users" / "me" / "Downloads" / "games" / "x" / "OpenHardwareMonitor.exe")
+    touch(tmp_path / "Program Files" / "games" / "x" / "OpenHardwareMonitor.exe")
     assert find_open_hardware_monitor("", env, running=[]) is None
 
 
@@ -157,3 +157,23 @@ def test_ohm_on_a_desktop_moved_by_onedrive(tmp_path, monkeypatch):
     exe = touch(desktop / "OpenHardwareMonitor" / "OpenHardwareMonitor.exe")
     monkeypatch.setattr(external_apps, "_known_folders", lambda: [str(desktop)])
     assert find_open_hardware_monitor("", env, running=[]) == Target("file", exe)
+
+
+def test_ohm_in_any_desktop_folder(tmp_path):
+    env = fake_env(tmp_path)
+    exe = touch(tmp_path / "Users" / "me" / "Desktop" / "OHM" / "OpenHardwareMonitor.exe")
+    assert find_open_hardware_monitor("", env, running=[]) == Target("file", exe)
+
+
+def test_libre_hardware_monitor_counts(tmp_path):
+    env = fake_env(tmp_path)
+    exe = touch(tmp_path / "Users" / "me" / "Desktop" / "LibreHardwareMonitor" / "LibreHardwareMonitor.exe")
+    assert find_open_hardware_monitor("", env, running=[]) == Target("file", exe)
+
+
+def test_ohm_x64_build_name(tmp_path):
+    env = fake_env(tmp_path)
+    exe = touch(tmp_path / "Users" / "me" / "Desktop" / "OpenHardwareMonitor" / "OpenHardwareMonitor_x64.exe")
+    assert find_open_hardware_monitor("", env, running=[]) == Target("file", exe)
+    assert external_apps.is_ohm_exe("OpenHardwareMonitor_x64.exe")
+    assert not external_apps.is_ohm_exe("OpenHardwareMonitorLib.dll")

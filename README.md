@@ -118,9 +118,9 @@ Something not working? Right-click the tray icon > *Open log*, or run
   Log Users* group. One-time setup in *Terminal (Admin)*:
   `Add-LocalGroupMember -SID S-1-5-32-559 -Member "$env:USERDOMAIN\$env:USERNAME"`,
   then sign out and back in.
-- **Open Hardware Monitor** has no installer, so the tray looks for its folder
-  in Program Files, your Desktop, Downloads and Documents, `C:\`, and next to
-  `WhiteRabbit.exe`. If it isn't in any of those, the tray item says *Find Open
+- **Open Hardware Monitor** (or Libre Hardware Monitor) has no installer, so the
+  tray looks anywhere in your Desktop, Downloads and Documents (three folders
+  deep), in Program Files, `C:\`, and next to `WhiteRabbit.exe`. If it isn't in any of those, the tray item says *Find Open
   Hardware Monitor...*: click it and pick `OpenHardwareMonitor.exe` once, and it
   is remembered. It asks for admin rights each time it starts (that's normal for it).
 - **Weather** needs an API key in `%APPDATA%\WhiteRabbit\.env` (see [`.env-example`](.env-example)).

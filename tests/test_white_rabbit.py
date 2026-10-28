@@ -252,7 +252,7 @@ def test_picked_ohm_path_is_saved_and_opened(monkeypatch, tmp_path):
     settings_file = tmp_path / "settings.json"
     monkeypatch.setattr(app_settings, "settings_path", lambda: str(settings_file))
     monkeypatch.setattr(external_apps, "ask_for_open_hardware_monitor", lambda: str(exe))
-    monkeypatch.setattr(external_apps, "_running_processes", lambda name: [])
+    monkeypatch.setattr(external_apps, "_running_processes", lambda *a, **k: [])
     opened = []
     monkeypatch.setattr(external_apps, "open_target", lambda target, name: opened.append(target.path))
     external_apps.find_and_open_open_hardware_monitor()

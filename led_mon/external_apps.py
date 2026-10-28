@@ -20,7 +20,11 @@ from led_mon import platform_utils
 log = logging.getLogger(__name__)
 
 OHM_EXE = "OpenHardwareMonitor.exe"
-OHM_SHORTCUT_PREFIXES = ("open hardware monitor", "openhardwaremonitor")
+# Libre Hardware Monitor is the maintained fork of Open Hardware Monitor; either one will do
+OHM_EXES = (OHM_EXE, "LibreHardwareMonitor.exe")
+# Other builds name the exe differently, e.g. OpenHardwareMonitor_x64.exe
+OHM_NAME_PREFIXES = ("openhardwaremonitor", "librehardwaremonitor")
+OHM_SHORTCUT_PREFIXES = ("open hardware monitor", "openhardwaremonitor", "libre hardware monitor", "librehardwaremonitor")
 FC_SHORTCUT_NAME = "Framework Control"
 FC_INSTALL_FOLDER = "FrameworkControl"
 FC_SERVICE_CONFIG = "FrameworkControlService.xml"
@@ -40,50 +44,76 @@ def _compact(name):
     return re.sub(r"[^a-z0-9]", "", name.lower())
 
 
-def _find_exe_under(root, exe_name=OHM_EXE):
+def _find_exe_under(root, exe_names=OHM_EXES, any_folder=False):
     """
-    Looks for exe_name in root, and in folders in root whose name contains
-      "openhardwaremonitor" or "hardwaremonitor", down to MAX_DEPTH folders below them
-      (the zip unpacks as openhardwaremonitor-v0.9.6\\OpenHardwareMonitor\\OpenHardwareMonitor.exe,
+    Looks for one of exe_names in root, and down to MAX_DEPTH folders below it: in every folder
+      when any_folder is set (the Desktop, Downloads and Documents), otherwise only in folders whose
+      name contains "hardwaremonitor" (the zip unpacks as
+      openhardwaremonitor-v0.9.6\\OpenHardwareMonitor\\OpenHardwareMonitor.exe,
       and Windows' Extract All can add another folder on top).
     """
     if not root or not os.path.isdir(root):
         return None
-    direct = os.path.join(root, exe_name)
-    if os.path.isfile(direct):
-        return direct
+    found = _exe_in(root, exe_names)
+    if found:
+        return found
     try:
         entries = list(os.scandir(root))
     except OSError:
         return None
+    budget = [MAX_FOLDERS]
     for entry in entries:
         try:
-            if not entry.is_dir() or "hardwaremonitor" not in _compact(entry.name):
+            if not entry.is_dir():
+                continue
+            if not any_folder and "hardwaremonitor" not in _compact(entry.name):
                 continue
         except OSError:
             continue
-        found = _find_exe_below(entry.path, exe_name, MAX_DEPTH)
+        found = _find_exe_below(entry.path, exe_names, MAX_DEPTH, budget)
         if found:
             return found
     return None
 
 
 MAX_DEPTH = 3
+# Most folders looked at below one search root, so a huge Downloads folder can't make the tray slow
+MAX_FOLDERS = 3000
 
 
-def _find_exe_below(folder, exe_name, depth):
-    """exe_name in folder or up to depth folders below it, or None."""
-    candidate = os.path.join(folder, exe_name)
-    if os.path.isfile(candidate):
-        return candidate
-    if depth <= 0:
+def is_ohm_exe(file_name):
+    """OpenHardwareMonitor.exe, and variants such as OpenHardwareMonitor_x64.exe or LibreHardwareMonitor.exe."""
+    lower = file_name.lower()
+    return lower.endswith(".exe") and _compact(lower[:-4]).startswith(OHM_NAME_PREFIXES)
+
+
+def _exe_in(folder, exe_names):
+    """The Open Hardware Monitor exe in folder: one of exe_names first, then any variant, or None."""
+    for name in exe_names:
+        candidate = os.path.join(folder, name)
+        if os.path.isfile(candidate):
+            return candidate
+    try:
+        variants = sorted(e.path for e in os.scandir(folder) if e.is_file() and is_ohm_exe(e.name))
+    except OSError:
         return None
+    return variants[0] if variants else None
+
+
+def _find_exe_below(folder, exe_names, depth, budget):
+    """One of exe_names in folder or up to depth folders below it, or None."""
+    budget[0] -= 1
+    if budget[0] < 0:
+        return None
+    found = _exe_in(folder, exe_names)
+    if found or depth <= 0:
+        return found
     try:
         subs = [e.path for e in os.scandir(folder) if e.is_dir()]
     except OSError:
         return None
     for sub in subs:
-        found = _find_exe_below(sub, exe_name, depth - 1)
+        found = _find_exe_below(sub, exe_names, depth - 1, budget)
         if found:
             return found
     return None
@@ -127,8 +157,8 @@ def _known_folders():
     return folders
 
 
-def _running_processes(exe_name):
-    """Returns [(pid, exe path or "")] for running processes with that exe name."""
+def _running_processes(exe_name=None, match=None):
+    """Returns [(pid, exe path or "")] for running processes with that exe name (or whose name match() accepts)."""
     try:
         import psutil
     except ImportError:
@@ -137,7 +167,7 @@ def _running_processes(exe_name):
     for proc in psutil.process_iter(["name", "exe"]):
         try:
             name = (proc.info.get("name") or "").lower()
-            if name == exe_name.lower():
+            if (match(name) if match else name == exe_name.lower()):
                 found.append((proc.pid, proc.info.get("exe") or ""))
         except Exception:
             continue
@@ -145,33 +175,37 @@ def _running_processes(exe_name):
 
 
 def _ohm_search_roots(environ):
-    roots = list(_known_folders())
-    for var in ("ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"):
-        if environ.get(var):
-            roots.append(environ[var])
-    local = environ.get("LOCALAPPDATA")
-    if local:
-        roots += [os.path.join(local, "Programs"), local]
+    """[(folder, any_folder)]: where to look, and whether to look inside every folder there."""
+    personal = list(_known_folders())
     home = environ.get("USERPROFILE")
     if home:
-        roots.append(home)
-        for sub in ("Desktop", "Downloads", "Documents", "Tools", "Apps"):
-            roots.append(os.path.join(home, sub))
+        personal += [os.path.join(home, sub) for sub in ("Desktop", "Downloads", "Documents")]
     onedrive = environ.get("OneDrive")
     if onedrive:
-        roots += [os.path.join(onedrive, "Desktop"), os.path.join(onedrive, "Documents")]
+        personal += [os.path.join(onedrive, "Desktop"), os.path.join(onedrive, "Documents")]
+    roots = [(folder, True) for folder in personal]
+    for var in ("ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"):
+        if environ.get(var):
+            roots.append((environ[var], False))
+    local = environ.get("LOCALAPPDATA")
+    if local:
+        roots += [(os.path.join(local, "Programs"), False), (local, False)]
+    if home:
+        roots.append((home, False))
+        for sub in ("Tools", "Apps"):
+            roots.append((os.path.join(home, sub), False))
     drive = environ.get("SystemDrive")
     if drive:
         drive_root = drive + os.sep
-        roots += [drive_root, os.path.join(drive_root, "Tools"), os.path.join(drive_root, "Apps")]
-    roots.append(platform_utils.app_dir())
+        roots += [(drive_root, False), (os.path.join(drive_root, "Tools"), False), (os.path.join(drive_root, "Apps"), False)]
+    roots.append((platform_utils.app_dir(), False))
     # Keep order, drop duplicates
     seen, unique = set(), []
-    for root in roots:
+    for root, any_folder in roots:
         key = os.path.normcase(os.path.normpath(root))
         if key not in seen:
             seen.add(key)
-            unique.append(root)
+            unique.append((root, any_folder))
     return unique
 
 
@@ -205,8 +239,9 @@ def find_open_hardware_monitor(configured_path="", environ=None, running=None):
       1. already running (so we don't start a second copy)
       2. the path in settings.json (the exe, or the folder it is in)
       3. a Start Menu shortcut
-      4. likely folders: Program Files, the user's Desktop/Downloads/Documents, C:\\,
-         and the folder this app is in
+      4. likely folders: anywhere in the user's Desktop/Downloads/Documents (3 folders deep),
+         Program Files, C:\\, and the folder this app is in
+    Libre Hardware Monitor counts too.
 
     Args:
         configured_path: open_hardware_monitor_path from settings.json
@@ -218,14 +253,14 @@ def find_open_hardware_monitor(configured_path="", environ=None, running=None):
     """
     environ = os.environ if environ is None else environ
     if running is None:
-        running = _running_processes(OHM_EXE)
+        running = _running_processes(match=is_ohm_exe)
     for pid, exe in running:
         return Target("running", exe, pid)
 
     if configured_path:
         path = os.path.expandvars(os.path.expanduser(configured_path.strip().strip('"')))
         if os.path.isdir(path):
-            path = os.path.join(path, OHM_EXE)
+            path = _exe_in(path, OHM_EXES) or os.path.join(path, OHM_EXE)
         if os.path.isfile(path):
             return Target("file", path)
 
@@ -234,11 +269,11 @@ def find_open_hardware_monitor(configured_path="", environ=None, running=None):
         return Target("file", shortcut)
 
     roots = _ohm_search_roots(environ)
-    for root in roots:
-        exe = _find_exe_under(root)
+    for root, any_folder in roots:
+        exe = _find_exe_under(root, any_folder=any_folder)
         if exe:
             return Target("file", exe)
-    log.info(f"Open Hardware Monitor not found. Looked in: {'; '.join(roots)}")
+    log.info(f"Open Hardware Monitor not found. Looked in: {'; '.join(root for root, _ in roots)}")
     return None
 
 
