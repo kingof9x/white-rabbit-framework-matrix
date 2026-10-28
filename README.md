@@ -139,8 +139,8 @@ Something not working? Right-click the tray icon > *Open log*, or run
 
 ## Testing checklist
 
-Everything here still needs testing on a real Framework Laptop 16 with two LED
-Matrix modules on Windows 11. Tick items off (edit this file, or mention them
+Tested on a real Framework Laptop 16 with two LED Matrix modules on Windows 11.
+Ticked items are confirmed (kept in step with Callum's Project Workbench). Tick items off (edit this file, or mention them
 in an issue) as they are confirmed. Items marked *(confirmed in the old app)*
 worked in led_mon or LED Matrix Control, but need checking again here.
 
