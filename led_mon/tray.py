@@ -4,7 +4,7 @@
 #   Open White Rabbit... / Brightness...
 #   Stop animation / Start animation   - the icon turns grey while stopped
 #   Identify panels / Next app / Freeze app switching
-#   Open Hardware Monitor               - only when it is found
+#   Open Hardware Monitor               - "Find Open Hardware Monitor..." (pick the exe) when it isn't found
 #   Open Framework Control              - only when it is installed
 #   Open config folder / Open log / Reload config
 #   Start with Windows                  - checkbox
@@ -14,7 +14,7 @@
 import logging
 
 # Internal Dependencies
-from led_mon import platform_utils, external_apps, startup
+from led_mon import platform_utils, external_apps, startup, app_settings
 
 log = logging.getLogger(__name__)
 
@@ -66,6 +66,10 @@ class AppFinder:
             self.framework_control = None
 
 
+def ohm_label(finder):
+    return "Open Hardware Monitor" if finder.ohm is not None else "Find Open Hardware Monitor..."
+
+
 def animation_label(paused):
     return "Start animation" if paused else "Stop animation"
 
@@ -95,7 +99,7 @@ def build_menu(pystray, actions, finder, is_paused, is_frozen, edit_layout_avail
         item("Next app", actions["next_app"]),
         item("Freeze app switching", actions["toggle_freeze"], checked=lambda i: is_frozen()),
         pystray.Menu.SEPARATOR,
-        item("Open Hardware Monitor", actions["open_ohm"], visible=lambda i: finder.ohm is not None),
+        item(lambda i: ohm_label(finder), actions["open_ohm"]),
         item("Open Framework Control", actions["open_fc"], visible=lambda i: finder.framework_control is not None),
         pystray.Menu.SEPARATOR,
         item("Open config folder", actions["open_folder"]),
@@ -178,7 +182,18 @@ def run_tray(identify, next_app, set_freeze, is_frozen, reload_config, config_di
 
     def open_ohm(icon, item):
         finder.refresh()
+        if finder.ohm is None:
+            # Not found in the usual places: let the user show where it is, and remember that
+            path = external_apps.ask_for_open_hardware_monitor()
+            if not path:
+                return
+            settings = app_settings.load_settings()
+            settings["open_hardware_monitor_path"] = path
+            app_settings.save_settings(settings)
+            finder.ohm_path = path
+            finder.refresh()
         notify(icon, external_apps.open_target(finder.ohm, "Open Hardware Monitor"))
+        icon.update_menu()
 
     def open_fc(icon, item):
         finder.refresh()

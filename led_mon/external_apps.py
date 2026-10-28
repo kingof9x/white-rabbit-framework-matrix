@@ -188,6 +188,28 @@ def find_open_hardware_monitor(configured_path="", environ=None, running=None):
     return None
 
 
+def ask_for_open_hardware_monitor():
+    """Ask the user to pick OpenHardwareMonitor.exe. Returns its path, or None if cancelled.
+
+    Runs its own small Tk window, so it can be called from the tray's thread.
+    """
+    import tkinter as tk
+    from tkinter import filedialog
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    try:
+        path = filedialog.askopenfilename(
+            parent=root, title="Where is Open Hardware Monitor?",
+            filetypes=[("Open Hardware Monitor", OHM_EXE), ("Programs", "*.exe")])
+    finally:
+        root.destroy()
+    if not path:
+        return None
+    log.info(f"Open Hardware Monitor chosen at {path}")
+    return os.path.normpath(path)
+
+
 # ---------------------------------------------------------------------------
 # Framework Control
 

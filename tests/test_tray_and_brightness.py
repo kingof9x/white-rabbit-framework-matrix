@@ -43,7 +43,7 @@ def make_menu(monkeypatch, state, startup_supported=True, edit_layout_available=
 def test_menu_items_and_found_apps(monkeypatch):
     menu, finder = make_menu(monkeypatch, {"paused": False})
     base = ["Open White Rabbit...", "Brightness...", "Stop animation", "Identify panels", "Next app",
-            "Freeze app switching", "Open config folder", "Open log", "Reload config", "Start with Windows", "Quit"]
+            "Freeze app switching", "Find Open Hardware Monitor...", "Open config folder", "Open log", "Reload config", "Start with Windows", "Quit"]
     assert visible_labels(menu) == base
     finder.ohm = object()
     finder.framework_control = object()
