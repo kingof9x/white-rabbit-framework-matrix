@@ -171,6 +171,8 @@ worked in led_mon or LED Matrix Control, but need checking again here.
 - [ ] *Brightness* slider and *Follow screen brightness* work
 - [ ] *Stop animation* / *Start animation* turn the panels off and on
 - [ ] *Open Hardware Monitor*, *Open Framework Control*, *Open log*, *Quit* work; *Quit* turns the panels dark
+- [ ] *Open Hardware Monitor* finds `OpenHardwareMonitor_x64.exe` in a folder on the Desktop
+- [ ] When it isn't found, *Find Open Hardware Monitor...* opens a normal Windows file window, remembers the choice and opens it
 
 **Panels tab (layout editor)**
 - [ ] Dragging apps onto panels, pages and settings all work; *Apply to panels* switches straight away *(confirmed in the old app)*
@@ -197,6 +199,7 @@ worked in led_mon or LED Matrix Control, but need checking again here.
 
 **Games & patterns tab**
 - [ ] Each Game of Life pattern starts, and *Stop* ends it
+- [ ] Patterns 2 to 5 run on the panels (needs firmware with them)
 - [ ] Snake and Ledris open their small window and play on the panels
 - [ ] Patterns, text, fill, clock, countdown and random equalizer work
 
@@ -209,6 +212,8 @@ worked in led_mon or LED Matrix Control, but need checking again here.
 - [ ] *Installed firmware* shows the right version and whether the startup setting is there
 - [ ] *Enter bootloader* puts the ticked panel into bootloader mode *(confirmed in the old app)*
 - [ ] *Flash* with the White Rabbit firmware works on each panel, and the monitor comes back afterwards
+- [x] *Flash* with a `.uf2` file you choose works *(confirmed 2026-10-28 with the Patterns 2 to 5 test firmware)*
+- [ ] The bundled White Rabbit firmware includes Patterns 2 to 5 (builds made after 2026-10-28 06:00 UTC)
 - [ ] Flashing Framework's official firmware and back again works, and keeps the saved startup setting
 - [ ] No flicker while the monitor is running *(confirmed with the 0.2.0-based firmware)*
 
@@ -261,7 +266,7 @@ Thanks to everyone who worked on those.
 ## Project status
 
 **Status:** Waiting on Callum  
-**Waiting on:** Callum: run the testing checklist  
-**Notes:** One tray app combining led_mon and the LED Matrix controls. Not released yet.  
+**Waiting on:** Callum: run the testing checklist, and merge PR #1 (Game of Life Patterns 2 to 5)  
+**Notes:** One tray app combining led_mon and the LED Matrix controls. Not released yet. Newest additions: Keyboard shortcuts tab, Open Hardware Monitor finder fixes.  
 **Last updated:** 2026-10-28
 
