@@ -1,5 +1,5 @@
 # App settings that are changed from the tray or the layout editor rather than in config.yaml:
-# the brightness level and where Open Hardware Monitor is. Stored as settings.json next to the config.
+# the brightness level and where Libre Hardware Monitor is. Stored as settings.json next to the config.
 
 # Built In Dependencies
 import os
@@ -17,8 +17,8 @@ DEFAULT_SETTINGS = {
     "follow_screen_brightness": True,
     # 0-100, used when follow_screen_brightness is off
     "brightness_level": 70,
-    # Full path to OpenHardwareMonitor.exe, or the folder it is in. Empty: look for it automatically.
-    "open_hardware_monitor_path": "",
+    # Full path to LibreHardwareMonitor.exe, or the folder it is in. Empty: look for it automatically.
+    "libre_hardware_monitor_path": "",
     # Turn the panels off while the lid is closed, the screen is off or the PC is going to sleep
     "turn_off_with_lid": True,
 }

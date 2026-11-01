@@ -32,7 +32,7 @@ def test_report_lists_ports_and_panels(tmp_path, monkeypatch):
     assert "COM4  location=1-3.2:x.0  usb=32AC:0020  LED Matrix  <- LED Matrix" in text
     assert "Left:  COM4  (USB location 1-3.2:x.0)" in text
     assert "Right: COM5  (USB location 1-3.3:x.0)" in text
-    assert "Open Hardware Monitor: not found" in text
+    assert "Libre Hardware Monitor: not found" in text
     assert "Framework Control:     not found" in text
 
 
