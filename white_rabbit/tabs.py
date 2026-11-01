@@ -241,8 +241,8 @@ class FirmwareTab(ttk.Frame):
         ttk.Button(installed, text="Check again", command=self.window_refresh).pack(anchor="w", pady=(6, 0))
 
         update = section(self, "Update firmware")
-        ttk.Label(update, text="Close other programs that use the LED panels first. Flashing works on one panel "
-                  "at a time: tick only that one at the bottom of the window.", foreground=HINT,
+        ttk.Label(update, text="Close other programs that use the LED panels first. The panels ticked at the "
+                  "bottom of the window are flashed, one after the other.", foreground=HINT,
                   wraplength=760, justify="left").pack(anchor="w", pady=(0, 6))
         self.bundled = firmware.bundled_firmware()
         choices = [label for label, _ in self.bundled] + [self.CHOOSE_FILE]
@@ -305,25 +305,33 @@ class FirmwareTab(ttk.Frame):
         return dict(self.bundled).get(label)
 
     def flash(self):
+        # Check the panels first: a message after the file picker was easy to miss, so it looked
+        # as if the chosen file was ignored
+        panels = self.window.selected_panels()
+        if not panels:
+            messagebox.showinfo("Flash firmware", "Tick the panels to flash at the bottom of the window first.",
+                                parent=self)
+            return
         path = self.firmware_path()
         if not path:
+            self.show("No firmware file chosen.")
             return
-        panels = self.window.selected_panels()
-        if len(panels) != 1:
-            self.show("Tick exactly one panel at the bottom of the window to flash it.")
+        where = " and ".join(f"{p.side}" for p in panels)
+        name = self.choice.get() if self.choice.get() != self.CHOOSE_FILE else path
+        if not messagebox.askyesno("Flash firmware",
+                                   f"Flash {os.path.basename(path)} onto the {where} "
+                                   f"panel{'s' if len(panels) > 1 else ''}?\n\n{name}", parent=self):
             return
-        panel = panels[0]
-        if not messagebox.askyesno("Flash firmware", f"Flash {os.path.basename(path)} onto the {panel.side} panel?\n\n"
-                                   f"{self.choice.get()}", parent=self):
-            return
+        self.show(f"Flashing {os.path.basename(path)}...")
         status = lambda text: self.window.call_soon(lambda: self.show(text))
 
         def finished(text):
-            if text != "Done.":  # otherwise keep the message from firmware.flash
-                self.show(text)
-            # Give the panel back once it has restarted, then read its new version
-            self.window.root.after(6000, lambda: (self.window.give_back([panel]), self.window_refresh()))
-        self.window.act(lambda p: status(firmware.flash(p, path, status)), finished, panels=[panel])
+            if text == "Done.":
+                text = f"Flashed {os.path.basename(path)} onto the {where} panel{'s' if len(panels) > 1 else ''}."
+            self.show(text)
+            # Give the panels back once they have restarted, then read their new versions
+            self.window.root.after(6000, lambda: (self.window.give_back(panels), self.window_refresh()))
+        self.window.act(lambda p: firmware.flash(p, path, status), finished, panels=panels)
 
 
 class ShortcutsTab(ttk.Frame):

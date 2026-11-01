@@ -206,10 +206,36 @@ def test_flash_enters_bootloader_and_copies(tmp_path):
         jumped.append(panel.device)
         drives.append(str(drive))
 
-    message = firmware.flash(panels.Panel("left", "COM4"), str(uf2), get_drives=lambda: list(drives), jump=jump)
+    restarted = []
+    message = firmware.flash(panels.Panel("left", "COM4"), str(uf2), get_drives=lambda: list(drives), jump=jump,
+                             sleep=lambda s: (drives.clear(), restarted.append(True)))
     assert jumped == ["COM4"]
     assert (drive / "NEW.UF2").read_bytes() == b"firmware"
     assert "Flashed 1 panel" in message
+    assert restarted  # waited for the panel to restart
+
+
+def test_flashing_two_panels_one_after_the_other(tmp_path):
+    """Each panel gets its own bootloader drive in turn; the second waits for the first to restart."""
+    uf2 = tmp_path / "ledmatrix.uf2"
+    uf2.write_bytes(b"firmware")
+    drives = []
+    flashed = []
+
+    def jump(panel):
+        drive = tmp_path / panel.device
+        drive.mkdir()
+        drives.append(str(drive))
+
+    def restart(seconds):
+        for d in drives:
+            if os.path.exists(os.path.join(d, "NEW.UF2")):
+                flashed.append(os.path.basename(d))
+        drives.clear()
+
+    for panel in (panels.Panel("left", "COM4"), panels.Panel("right", "COM5")):
+        firmware.flash(panel, str(uf2), get_drives=lambda: list(drives), jump=jump, sleep=restart)
+    assert flashed == ["COM4", "COM5"]
 
 
 def test_flash_without_bootloader_drive(tmp_path, monkeypatch):
