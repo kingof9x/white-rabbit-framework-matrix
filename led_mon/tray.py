@@ -7,6 +7,7 @@
 #   Open Hardware Monitor               - "Find Open Hardware Monitor..." (pick the exe) when it isn't found
 #   Open Framework Control              - only when it is installed
 #   Open config folder / Open log / Reload config
+#   Turn off when lid closes            - checkbox (also when the screen turns off or the PC sleeps)
 #   Start with Windows                  - checkbox
 #   Quit
 
@@ -88,7 +89,8 @@ def startup_checked(item):
         return False
 
 
-def build_menu(pystray, actions, finder, is_paused, is_frozen, edit_layout_available, startup_supported=None):
+def build_menu(pystray, actions, finder, is_paused, is_frozen, edit_layout_available, startup_supported=None,
+               is_turn_off_with_lid=None):
     """The tray menu. actions maps a name to the function called when that item is chosen."""
     startup_supported = startup.supported() if startup_supported is None else startup_supported
     item = pystray.MenuItem
@@ -108,6 +110,9 @@ def build_menu(pystray, actions, finder, is_paused, is_frozen, edit_layout_avail
         item("Open log", actions["open_log"]),
         item("Reload config", actions["reload_config"]),
         pystray.Menu.SEPARATOR,
+        item("Turn off when lid closes", actions.get("toggle_lid"),
+             checked=lambda i: bool(is_turn_off_with_lid and is_turn_off_with_lid()),
+             visible=is_turn_off_with_lid is not None and "toggle_lid" in actions),
         item("Start with Windows", actions["toggle_startup"], checked=startup_checked, visible=startup_supported),
         pystray.Menu.SEPARATOR,
         item("Quit", actions["quit"]),
@@ -132,7 +137,8 @@ def _icon_class(pystray, finder):
 
 
 def run_tray(identify, next_app, set_freeze, is_frozen, reload_config, config_dir, log_file, quit,
-             edit_layout=None, set_paused=None, is_paused=None, show_brightness=None, ohm_path=""):
+             edit_layout=None, set_paused=None, is_paused=None, show_brightness=None, ohm_path="",
+             set_turn_off_with_lid=None, is_turn_off_with_lid=None):
     """Show the tray icon and block until Quit is chosen."""
     import pystray
 
@@ -207,6 +213,13 @@ def run_tray(identify, next_app, set_freeze, is_frozen, reload_config, config_di
             notify(icon, f"Could not change the startup setting: {e}")
         icon.update_menu()
 
+    def toggle_lid(icon, item):
+        try:
+            set_turn_off_with_lid(not is_turn_off_with_lid())
+        except Exception as e:
+            notify(icon, f"Could not change the lid setting: {e}")
+        icon.update_menu()
+
     def on_quit(icon, item):
         log.info("Quit requested from tray")
         quit()
@@ -227,7 +240,12 @@ def run_tray(identify, next_app, set_freeze, is_frozen, reload_config, config_di
         "toggle_startup": toggle_startup,
         "quit": on_quit,
     }
-    menu = build_menu(pystray, actions, finder, is_paused, is_frozen, edit_layout is not None)
+    if set_turn_off_with_lid is not None and is_turn_off_with_lid is not None:
+        actions["toggle_lid"] = toggle_lid
+    else:
+        is_turn_off_with_lid = None
+    menu = build_menu(pystray, actions, finder, is_paused, is_frozen, edit_layout is not None,
+                      is_turn_off_with_lid=is_turn_off_with_lid)
     icon_class = _icon_class(pystray, finder)
     icon = icon_class(platform_utils.APP_NAME, make_icon_image(lit=not is_paused()), tooltip(is_paused()), menu)
     icon.run()
