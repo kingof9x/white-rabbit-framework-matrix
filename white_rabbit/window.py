@@ -134,16 +134,16 @@ class WhiteRabbitWindow:
         self.math_tab = math_tab.MathTab(self.notebook, self)
         self.notebook.add(self.math_tab, text="Math")
         self.music_tab = music.MusicTab(self.notebook, self)
-        self.notebook.add(self.music_tab, text="Music")
+        self.notebook.add(self.music_tab, text="Audio")
         self.firmware_tab = tabs.FirmwareTab(self.notebook, self)
         self.notebook.add(self.firmware_tab, text="Firmware")
         self.shortcuts_tab = tabs.ShortcutsTab(self.notebook, self)
         self.notebook.add(self.shortcuts_tab, text="Keyboard shortcuts")
-        tab = {"startup": self.startup_tab, "play": self.play_tab, "math": self.math_tab, "music": self.music_tab,
+        tab = {"startup": self.startup_tab, "play": self.play_tab, "math": self.math_tab, "audio": self.music_tab, "music": self.music_tab,
                "firmware": self.firmware_tab, "shortcuts": self.shortcuts_tab}.get(start_tab)
         if tab is not None:
             self.notebook.select(tab)
-        # The Music tab listens to the sound only while it is showing
+        # The Audio tab listens to the sound only while it is showing
         self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
         self.root.after(300, self.on_tab_changed)
 
@@ -297,7 +297,7 @@ class WhiteRabbitWindow:
         try:
             self.music_tab.set_visible(self.notebook.select() == str(self.music_tab))
         except Exception as e:
-            log.error(f"Could not start the Music tab's preview: {e}")
+            log.error(f"Could not start the Audio tab's preview: {e}")
 
     def on_layout_dirty(self, dirty):
         self.notebook.tab(self.panels_tab, text="Panels *" if dirty else "Panels")

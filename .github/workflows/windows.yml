@@ -136,9 +136,9 @@ jobs:
           $env:WHITE_RABBIT_SMOKE_TEST = "1"
           $env:APPDATA = "$PWD\smoke-appdata"
           $env:LOCALAPPDATA = "$PWD\smoke-appdata"
-          # The second run opens the Music tab, whose preview listens to the sound (the runner has no sound card)
+          # The second run opens the Audio tab, whose preview listens to the sound (the runner has no sound card)
           foreach ($exe in @("dist\WhiteRabbit.exe", "dist\WhiteRabbit\WhiteRabbit.exe")) {
-            foreach ($arguments in @("--window", "--window --tab music")) {
+            foreach ($arguments in @("--window", "--window --tab audio")) {
               Write-Host "== $exe $arguments"
               $p = Start-Process -FilePath $exe -ArgumentList $arguments -PassThru
               $null = $p.Handle

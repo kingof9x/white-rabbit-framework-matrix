@@ -190,7 +190,7 @@ class Equalizer():
         self.done = False
         self.device_name = None
         self.last_known_sink = None
-        # What it hears, for the Music tab: {'device', 'problem', 'loudness', 'silent'}
+        # What it hears, for the Audio tab: {'device', 'problem', 'loudness', 'silent'}
         self.hearing = {}
         self.queue = LatestFrameQueue()
         self.drawing_thread = DrawingThread(device_location, self.queue)
