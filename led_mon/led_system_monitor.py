@@ -623,7 +623,12 @@ def app(args, base_apps, plugin_apps):
             request_identify()
             return {}
         if cmd == 'music':
-            return handle_music_request(message)
+            reply = handle_music_request(message)
+            # What music mode hears, so the Music tab can show it
+            plugin = sys.modules.get('equalizer')
+            if music_running and plugin is not None and hasattr(plugin, 'hearing'):
+                reply['hearing'] = plugin.hearing()
+            return reply
         if cmd == 'shortcuts':
             # The window turned shortcuts on or off in settings.json
             enabled = shortcuts.reload()

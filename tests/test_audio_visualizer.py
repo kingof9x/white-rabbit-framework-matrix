@@ -101,18 +101,38 @@ def test_bars_fall_at_the_chosen_speed():
     assert after_silence("slow") > after_silence("normal") > after_silence("fast")
 
 
-def test_automatic_sensitivity_turns_up_quiet_music_but_not_room_hiss():
-    quiet_music = tone(1000, amplitude=0.003)
-    fixed = looks.Analyzer(9, "microphone", auto=False)
-    auto = looks.Analyzer(9, "microphone", auto=True)
+def test_automatic_sensitivity_turns_up_quiet_music():
+    quiet_music = tone(1000, amplitude=0.01)
+    fixed = looks.Analyzer(9, "playback", auto=False)
+    auto = looks.Analyzer(9, "playback", auto=True)
     for _ in range(200):
         auto.levels(quiet_music, 0.03)
     assert auto.levels(quiet_music, 0.03).max() > fixed.levels(quiet_music, 0.03).max()
-    hiss = np.random.default_rng(0).normal(0, 0.00003, (looks.FFT_SIZE, 2))
-    auto = looks.Analyzer(9, "microphone", auto=True)
-    for _ in range(200):
-        levels = auto.levels(hiss[:, 0], 0.03)
-    assert auto.auto_db <= 0 and levels.max() == 0
+
+
+def microphone(noise, music, frames, rng, start=0.0):
+    for i in range(frames):
+        x = rng.normal(0, noise, (looks.FFT_SIZE, 2))
+        if music:
+            x = x + looks.demo_samples(start + i * 0.03) * music
+        yield x
+
+
+@pytest.mark.parametrize("noise, music", [(0.00003, 0.0003), (0.0003, 0.002), (0.003, 0.02)])
+def test_microphone_shows_music_above_the_room_noise_at_any_volume(noise, music):
+    rng = np.random.default_rng(0)
+    v = looks.Visualizer({"style": "bars", "input-mode": "microphone"}, "left")
+    quiet = []
+    for x in microphone(noise, 0, 300, rng):
+        v.frame(x, 0.03)
+        quiet.append(v.is_silent())
+    # The room's hiss alone counts as silence nearly all the time
+    assert sum(quiet[-100:]) >= 90
+    heard = []
+    for x in microphone(noise, music, 150, rng, start=9.0):
+        v.frame(x, 0.03)
+        heard.append(v.loudness)
+    assert np.mean(heard) > 3 * v.silence_sum
 
 
 def test_sensitivity_makes_bars_taller():
@@ -238,3 +258,32 @@ def test_tray_music_mode_checkbox(monkeypatch):
     menu = tray.build_menu(pystray, {k: v for k, v in actions.items() if k != "toggle_music"}, tray.AppFinder(),
                            lambda: False, lambda: False, True, startup_supported=True)
     assert not [i for i in menu.items if str(i.text) == "Music mode" and i.visible]
+
+
+def test_music_tab_says_what_music_mode_hears():
+    pytest.importorskip("tkinter")
+    from white_rabbit.music import hearing_text
+    assert hearing_text(None) == "Music mode is starting..."
+    text = hearing_text({"left": {"device": "USB Mic", "silent": True},
+                         "right": {"device": "USB Mic", "silent": False, "problem": None}})
+    assert "left panel: too quiet (USB Mic)" in text and "right panel: hearing sound (USB Mic)" in text
+    text = hearing_text({"left": {"device": "Microphone Array", "problem": "USB Mic wasn't found"}})
+    assert "USB Mic wasn't found" in text
+
+
+def test_the_visualizer_app_reports_what_it_hears():
+    try:
+        importlib.import_module("led_mon.drawing")  # loads the plugins
+    except Exception as e:
+        pytest.skip(f"full dependencies not installed: {e}")
+    plugin = sys.modules.get("equalizer")
+    if plugin is None:
+        pytest.skip("plugins not loaded")
+
+    class Fake:
+        hearing = {"device": "USB Mic", "loudness": 12, "silent": False}
+    plugin.equalizers["left"] = Fake()
+    try:
+        assert plugin.hearing() == {"left": {"device": "USB Mic", "loudness": 12, "silent": False}}
+    finally:
+        plugin.equalizers.pop("left", None)

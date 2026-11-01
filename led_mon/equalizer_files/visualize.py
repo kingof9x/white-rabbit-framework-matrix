@@ -190,6 +190,8 @@ class Equalizer():
         self.done = False
         self.device_name = None
         self.last_known_sink = None
+        # What it hears, for the Music tab: {'device', 'problem', 'loudness', 'silent'}
+        self.hearing = {}
         self.queue = queue.Queue(2)
         self.drawing_thread = DrawingThread(device_location, self.queue)
         self.drawing_thread.start()
@@ -347,6 +349,10 @@ class Equalizer():
                 now = time.monotonic()
                 dt, last_frame = now - last_frame, now
                 grid = visualizer.frame(capture.snapshot(), dt)
+                self.hearing = {'device': getattr(capture, 'device_name', None),
+                                'problem': getattr(capture, 'problem', None),
+                                'loudness': visualizer.loudness, 'silent': visualizer.is_silent(),
+                                'input': input_mode}
                 if not shared_state.id_key_press_active:
                     if visualizer.is_silent():
                         resume_since = None

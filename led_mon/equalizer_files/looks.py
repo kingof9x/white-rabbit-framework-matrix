@@ -87,9 +87,19 @@ AUTO_LIMIT_DB = 20.0
 AUTO_MIN_SIGNAL_DB = 15.0
 AUTO_DOWN_DB_PER_SEC = 25.0
 AUTO_UP_DB_PER_SEC = 5.0
+# Microphones: the bars show how far each band is above the room's background noise, which is the
+# quietest each band has been over the last MIC_FLOOR_SECONDS. A microphone's own level varies a lot
+# from one laptop or headset to another, so this works whatever the microphone's volume is.
+MIC_FLOOR_SECONDS = 10.0
+MIC_FLOOR_STEP = 0.1
+MIC_FLOOR_PERCENTILE = 30
+MIC_MARGIN_DB = 6.0
+MIC_MIN_SPAN_DB = 12.0
+MIC_FIXED_SPAN_DB = 30.0
+MIC_PEAK_FALL_DB_PER_SEC = 1.5
 # Bars shorter than this count as nothing; the sum of the bars at or below SILENCE_SUM counts as silence
 DEFAULT_NOISE_GATE = {"playback": 1, "microphone": 2}
-DEFAULT_SILENCE_SUM = {"playback": 2, "microphone": 6}
+DEFAULT_SILENCE_SUM = {"playback": 2, "microphone": 8}
 
 
 def _bool(value, default=False):
@@ -190,6 +200,12 @@ class Analyzer:
         self.offset_db = (int(sensitivity) - 5) * SENSITIVITY_STEP_DB + gain_db
         self.auto = bool(auto)
         self.auto_db = 0.0
+        self.microphone = input_mode == "microphone"
+        self.sensitivity = int(sensitivity)
+        self.gain_db = gain_db
+        self.history = []
+        self.history_wait = 0.0
+        self.peak_above = MIC_MIN_SPAN_DB
         if noise_gate is None:
             noise_gate = DEFAULT_NOISE_GATE.get(input_mode, 1)
         self.noise_gate = max(0, min(MAX_LEVEL, int(noise_gate)))
@@ -204,7 +220,34 @@ class Analyzer:
         rms = np.array([math.sqrt(2.0 * power[idx].sum()) for idx in self.bins]) / (self.fft_size * self.window_rms)
         return 20.0 * np.log10(rms + 1e-10)
 
+    def microphone_levels(self, samples, dt):
+        db = self.band_db(samples) + self.gain_db
+        if not self.history:
+            self.history = [db]
+        self.history_wait += dt
+        if self.history_wait >= MIC_FLOOR_STEP:
+            self.history_wait = 0.0
+            self.history.append(db)
+            del self.history[:-int(MIC_FLOOR_SECONDS / MIC_FLOOR_STEP)]
+        # A low percentile rather than the minimum: a band of noise flickers by several dB from frame to frame
+        floor = np.percentile(self.history, MIC_FLOOR_PERCENTILE, axis=0)
+        above = db - floor - MIC_MARGIN_DB
+        if self.auto:
+            # The loudest recent sound fills the panel, but background noise is never stretched to fill it
+            self.peak_above = max(float(above.max()), self.peak_above - MIC_PEAK_FALL_DB_PER_SEC * dt,
+                                  MIC_MIN_SPAN_DB)
+            span = self.peak_above * 1.1
+        else:
+            span = MIC_FIXED_SPAN_DB
+        # Each sensitivity step above 5 makes the bars about 15% taller
+        span *= 0.87 ** (self.sensitivity - 5)
+        levels = np.clip(above / span * MAX_LEVEL, 0, MAX_LEVEL)
+        levels[levels < self.noise_gate] = 0
+        return levels
+
     def levels(self, samples, dt=0.03):
+        if self.microphone:
+            return self.microphone_levels(samples, dt)
         db = self.band_db(samples) + self.offset_db
         if self.auto:
             loudest = float(db.max())
@@ -412,6 +455,9 @@ class Visualizer:
             loud = [db + self.meter_auto for db in loud]
         for i, db in enumerate(loud):
             value = max(0.0, min(1.0, (db - bottom) / (top - bottom))) * HEIGHT
+            if self.analyzer.microphone:
+                # A microphone is measured against the room's noise, like the bars
+                value = min(1.0, 1.4 * float(np.sqrt(np.mean((self.shown / MAX_LEVEL) ** 2)))) * HEIGHT
             if self.loudness <= self.silence_sum:
                 value = 0.0
             self.meter[i] = max(value, self.meter[i] - self.fall * dt)

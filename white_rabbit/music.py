@@ -42,6 +42,26 @@ def loudness_db(samples):
     return 20.0 * math.log10(peak) if peak > 0 else -120.0
 
 
+def hearing_text(hearing):
+    """One line about what music mode is hearing, from the monitor's reply."""
+    if not hearing:
+        return "Music mode is starting..."
+    parts = []
+    for side in ("left", "right"):
+        h = hearing.get(side)
+        if not h:
+            continue
+        device = h.get("device") or "no sound device yet"
+        if h.get("problem"):
+            state = h["problem"]
+        elif h.get("silent"):
+            state = "too quiet"
+        else:
+            state = "hearing sound"
+        parts.append(f"{side} panel: {state} ({device})")
+    return "Music mode is listening. " + "; ".join(parts) if parts else "Music mode is starting..."
+
+
 class MusicTab(ttk.Frame):
 
     def __init__(self, master, window):
@@ -68,6 +88,8 @@ class MusicTab(ttk.Frame):
         self.mode_button.pack(side="left")
         self.mode_status = ttk.Label(row, text="", foreground=HINT)
         self.mode_status.pack(side="left", padx=10)
+        self.mode_hearing = ttk.Label(mode, text="", foreground=HINT)
+        self.mode_hearing.pack(anchor="w", pady=(4, 0))
 
         body = ttk.Frame(self)
         body.pack(fill="both", expand=True)
@@ -249,6 +271,14 @@ class MusicTab(ttk.Frame):
         self.mode_button.configure(text="Turn music mode off" if self.music_on else "Turn music mode on")
         self.mode_status.configure(text="On: both panels show the audio visualizer." if self.music_on else
                                    "Off: the panels show your layout.")
+        self.mode_hearing.configure(text=hearing_text(reply.get("hearing")) if self.music_on else "")
+
+    def poll_music_mode(self):
+        """While the tab shows, keep the music mode line up to date (what the panels hear)."""
+        if not self.visible:
+            return
+        self.check_music_mode()
+        self.after(2000, self.poll_music_mode)
 
     # The preview
     def set_visible(self, visible):
@@ -256,7 +286,7 @@ class MusicTab(ttk.Frame):
             return
         self.visible = visible
         if visible:
-            self.check_music_mode()
+            self.poll_music_mode()
             self.listen()
             self.last_frame_time = time.monotonic()
             self.after(FRAME_MS, self.tick)
@@ -305,7 +335,7 @@ class MusicTab(ttk.Frame):
             if visualizer is None:
                 visualizer = self.visualizers[side] = looks.Visualizer(self.settings, side)
             self.draw_panel(side, visualizer.frame(samples, min(dt, 0.5)))
-        self.show_sound_check(samples)
+        self.show_sound_check(samples, self.visualizers["left"].is_silent())
 
     def draw_panel(self, side, grid):
         levels = np.round(np.asarray(grid) * 20) / 20
@@ -317,7 +347,7 @@ class MusicTab(ttk.Frame):
                     self.canvas.itemconfigure(self.leds[side][x][y], fill=led_color(value))
         self.shown[side] = levels
 
-    def show_sound_check(self, samples):
+    def show_sound_check(self, samples, silent):
         db = loudness_db(samples[-2048:])
         fraction = max(0.0, min(1.0, (db + 80.0) / 80.0))
         self.meter.coords(self.meter_bar, 0, 0, int(200 * fraction), 12)
@@ -328,6 +358,10 @@ class MusicTab(ttk.Frame):
             text = self.capture.problem
         elif db <= -100:
             text = ("Nothing is playing" if self.settings["input-mode"] == "playback" else "Silence") + f" ({name})"
+        elif silent:
+            text = (f"Listening to {name}, but it's too quiet for the bars. Play music nearer the microphone, "
+                    "or turn the sensitivity up." if self.settings["input-mode"] == "microphone" else
+                    f"Listening to {name}, but it's too quiet for the bars. Turn the volume or the sensitivity up.")
         else:
             text = f"Hearing sound from {name}"
         self.hearing.configure(text=text)

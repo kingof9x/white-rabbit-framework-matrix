@@ -98,6 +98,10 @@ def run_equalizer(_, grid, foreground_value, idx, **kwargs):
     if len(equalizers) > 2:
         log.info(f"run_equalizer: Active equalizers: {len(equalizers)}")
     
+def hearing():
+    """What each panel's audio visualizer hears right now: {side: {'device', 'problem', 'loudness', 'silent'}}."""
+    return {side: dict(eq.hearing) for side, eq in list(equalizers.items()) if eq.hearing}
+
 def dispose_equalizer(**kwargs):
     side = kwargs.get('side', None)
     if side is None:
