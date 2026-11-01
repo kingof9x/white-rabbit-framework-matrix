@@ -78,7 +78,8 @@ if IS_WINDOWS:
         kids=[
             StringFileInfo([StringTable('040904B0', [
                 StringStruct('CompanyName', 'kingof9x'),
-                StringStruct('FileDescription', 'White Rabbit: LED Matrix app for the Framework 16'),
+                # Windows shows this name in Settings' list of tray icons and in Task Manager
+                StringStruct('FileDescription', 'White Rabbit'),
                 StringStruct('FileVersion', app_version),
                 StringStruct('InternalName', 'WhiteRabbit'),
                 StringStruct('LegalCopyright', 'MIT License'),
