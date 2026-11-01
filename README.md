@@ -120,9 +120,11 @@ Something not working? Right-click the tray icon > *Open log*, or run
 
 ### Good to know
 
-- **Temperatures and fans** use Framework's `framework_tool.exe`: download it
-  from the [framework-system releases](https://github.com/FrameworkComputer/framework-system/releases)
-  and put it next to `WhiteRabbit.exe` (installed app: `%LOCALAPPDATA%\Programs\WhiteRabbit`).
+- **Temperatures and fans** come from [Framework Control](https://github.com/ozturkkl/framework-control):
+  its service reads them with system rights, so White Rabbit needs no admin prompt. Without it,
+  the app falls back to Framework's `framework_tool.exe`
+  ([framework-system releases](https://github.com/FrameworkComputer/framework-system/releases)),
+  but that only works when White Rabbit runs as admin.
 - **FPS counter** uses Intel's PresentMon, which the installer includes. Windows
   only lets programs read frame timing when the account is in the *Performance
   Log Users* group. One-time setup in *Terminal (Admin)*:

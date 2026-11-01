@@ -51,8 +51,8 @@ APPS = [
     AppInfo("mem-bat", "Memory + battery", "Memory use on top, battery level below (pulses when charging).", HALF),
     AppInfo("disk", "Disk", "Disk read (left bar) and write (right bar) activity.", HALF),
     AppInfo("net", "Network", "Upload (left bar) and download (right bar) activity.", HALF),
-    AppInfo("temp", "Temperatures", "Up to eight temperature sensors as spirals. On Windows this needs framework_tool.", HALF),
-    AppInfo("fan", "Fans", "Speed of the two fans as bars. On Windows this needs framework_tool.", HALF),
+    AppInfo("temp", "Temperatures", "Up to eight temperature sensors as spirals. On Windows this needs Framework Control (or framework_tool with admin rights).", HALF),
+    AppInfo("fan", "Fans", "Speed of the two fans as bars. On Windows this needs Framework Control (or framework_tool with admin rights).", HALF),
     AppInfo("time", "Clock", "The current time.", FULL, [
         Setting("fmt_24_hour", "24-hour clock", "bool", False),
         Setting("timezone", "Time zone", "text", "", help="Blank for this computer's time zone, or an IANA name such as Europe/London"),

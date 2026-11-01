@@ -18,6 +18,8 @@ log = logging.getLogger(__name__)
 
 CACHE_SEC = 2.0
 TIMEOUT_SEC = 10
+# WinError 740: the exe asks for admin rights and the app isn't running as admin
+ERROR_ELEVATION_REQUIRED = 740
 
 # e.g. "  F75303_Local:  45 C"  /  "  APU:           60 C"
 _TEMP_RE = re.compile(r'^\s*(?P<name>[^:]+):\s+(?P<value>-?\d+(?:\.\d+)?)\s*C\s*$')
@@ -65,6 +67,8 @@ class FrameworkToolThermal:
         self._refreshing = False
         self._warned = False
         self._tool = None
+        # Set when Windows refuses to start the tool without admin rights; it won't work until a restart
+        self._needs_admin = False
 
     def _warn_once(self, message):
         if not self._warned:
@@ -96,6 +100,13 @@ class FrameworkToolThermal:
                     self._warn_once(f"framework_tool --thermal gave no readings: {output.strip()[:200]}")
                 with self._lock:
                     self._values = values
+        except OSError as e:
+            if getattr(e, "winerror", None) == ERROR_ELEVATION_REQUIRED:
+                self._needs_admin = True
+                self._warn_once("framework_tool needs admin rights, so it won't be run again; install Framework "
+                                "Control for the temperature and fan apps")
+            else:
+                self._warn_once(f"framework_tool --thermal failed; temperature and fan apps will be empty: {e}")
         except Exception as e:
             self._warn_once(f"framework_tool --thermal failed; temperature and fan apps will be empty: {e}")
         finally:
@@ -106,7 +117,7 @@ class FrameworkToolThermal:
         """Return ([temps], [fan RPMs]) from the last reading, starting a refresh if it is stale."""
         with self._lock:
             now = time.monotonic()
-            if not self._refreshing and now - self._last_refresh >= CACHE_SEC:
+            if not self._refreshing and not self._needs_admin and now - self._last_refresh >= CACHE_SEC:
                 self._refreshing = True
                 self._last_refresh = now
                 threading.Thread(target=self._refresh, daemon=True).start()
