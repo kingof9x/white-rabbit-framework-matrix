@@ -185,6 +185,10 @@ Something not working? Right-click the tray icon > *Open log*, or run
   Log Users* group. One-time setup in *Terminal (Admin)*:
   `Add-LocalGroupMember -SID S-1-5-32-559 -Member "$env:USERDOMAIN\$env:USERNAME"`,
   then sign out and back in.
+  In the FPS counter's settings, *Game to watch* starts on *Automatic*: it shows the
+  full-screen game in front and keeps showing it while you switch to other windows. To
+  watch one game all the time, open the list and pick it by its window title; apps
+  drawing frames right now are at the top with their FPS.
 - **[Libre Hardware Monitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases)** has no installer, so the
   tray looks anywhere in your Desktop, Downloads and Documents (three folders
   deep), in Program Files, `C:\`, and next to `WhiteRabbit.exe`. If it isn't in any of those, the tray item says *Find Libre

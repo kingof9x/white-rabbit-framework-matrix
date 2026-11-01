@@ -5,11 +5,14 @@
 # Built In Dependencies
 import os
 import copy
+import logging
 from dataclasses import dataclass, field
 
 # Internal Dependencies
 from led_mon.platform_utils import package_dir
 from led_mon.equalizer_files import looks
+
+log = logging.getLogger(__name__)
 
 HALF = "half"
 FULL = "full"
@@ -104,8 +107,9 @@ APPS = [
        fixed_args={"external-filter": False, "border": False}),
     AppInfo("fps", "FPS counter", "Frames per second of a game, with a graph of the last few seconds below. "
             "Windows only, and needs a one-time setup (see the README); shows ? until then.", FULL, [
-        Setting("process", "App to watch", "text", "",
-                help="Blank: whichever app is in front. Or the program's file name, such as eldenring.exe"),
+        Setting("process", "Game to watch", "process", "",
+                help="Automatic follows the full-screen game in front and keeps it while you switch to other "
+                     "windows. Or pick a game from the list; games drawing frames right now are at the top."),
     ]),
     AppInfo("snap", "Picture", "A still pattern from the snapshot files.", FULL, [
         Setting("file", "Picture", "snapshot", None),
@@ -187,7 +191,7 @@ def new_app(name, side):
             value = files[0] if files else None
         else:
             value = copy.deepcopy(s.default)
-        if value in (None, "", []) and s.kind in ("text", "list", "snapshot", "gpu", "sensor", "microphone"):
+        if value in (None, "", []) and s.kind in ("text", "process", "list", "snapshot", "gpu", "sensor", "microphone"):
             continue
         if s.target == APP:
             entry[s.key] = value
@@ -217,3 +221,15 @@ def label(entry):
     if entry is None:
         return "(empty)"
     return get(entry["name"]).label
+
+
+def running_apps():
+    """[(exe name, window title, FPS now)] for the FPS counter's game picker, apps drawing frames first."""
+    from led_mon import fps
+    # The editor's own trace session (as in its preview), so listing doesn't stop the monitor's capture
+    fps.SESSION_NAME = "led_mon_fps_preview"
+    try:
+        return fps.running_apps()
+    except Exception as e:
+        log.debug(f"Could not list the open apps: {e}")
+        return []
