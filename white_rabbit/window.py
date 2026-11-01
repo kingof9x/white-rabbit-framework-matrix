@@ -356,6 +356,23 @@ def run_window(args, start_tab=None, wait=False):
     window = WhiteRabbitWindow(root, args, start_tab)
     if os.environ.get("WHITE_RABBIT_SMOKE_TEST"):
         # CI: check that the window opens with all its tabs, then close
+        def check_sensor_source():
+            # Pick each temperature and fan source on the Panels tab and check it is saved
+            editor = window.editor
+            if editor is None or not hasattr(editor, "sensor_var"):
+                return
+            from led_mon import app_settings, sensor_sources
+            for key, label in list(sensor_sources.SOURCES[1:]) + [sensor_sources.SOURCES[0]]:
+                editor.sensor_var.set(label)
+                editor.on_sensor_source_changed()
+                saved = app_settings.load_settings().get(sensor_sources.SETTING)
+                if saved != key:
+                    log.error(f"Smoke test failed: picked {label}, settings.json has {saved}")
+                else:
+                    log.info(f"Smoke test: temperature and fan source {label} saved; help: {editor.sensor_help.cget('text')}")
+
+        root.after(3000, check_sensor_source)
+
         def finish():
             if window.editor is not None:
                 window.editor.stop.set()
