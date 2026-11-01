@@ -27,6 +27,24 @@ _TEMP_RE = re.compile(r'^\s*(?P<name>[^:]+):\s+(?P<value>-?\d+(?:\.\d+)?)\s*C\s*
 _FAN_RE = re.compile(r'^\s*(?P<name>[^:]+):\s+(?P<value>\d+)\s*RPM(?P<stalled>\s*\(Stalled\))?', re.IGNORECASE)
 
 
+def named_temps(text):
+    """[(sensor name, C)] from `framework_tool --thermal` output, in the order it lists them."""
+    temps = []
+    seen = set()
+    for line in text.splitlines():
+        if _FAN_RE.match(line):
+            continue
+        m = _TEMP_RE.match(line)
+        if m:
+            name = m.group('name').strip()
+            unique, n = name, 2
+            while unique in seen:
+                unique, n = f"{name} {n}", n + 1
+            seen.add(unique)
+            temps.append((unique, float(m.group('value'))))
+    return temps
+
+
 def parse_thermal(text):
     """Parse `framework_tool --thermal` output into ([temps in C], [fan RPMs])."""
     temps = []
@@ -79,6 +97,9 @@ class FrameworkToolThermal:
         self._needs_admin = False
         self._answered = False
         self.error = ""
+        self._named = []
+        # Seconds between readings (the refresh setting on the Panels tab)
+        self.interval = CACHE_SEC
 
     def _warn_once(self, message):
         if not self._warned:
@@ -112,8 +133,10 @@ class FrameworkToolThermal:
                 if not values[0] and not values[1]:
                     self.error = "it gave no readings"
                     self._warn_once(f"framework_tool --thermal gave no readings: {output.strip()[:200]}")
+                named = named_temps(output)
                 with self._lock:
                     self._values = values
+                    self._named = named
         except OSError as e:
             if getattr(e, "winerror", None) == ERROR_ELEVATION_REQUIRED:
                 self._needs_admin = True
@@ -136,11 +159,16 @@ class FrameworkToolThermal:
         """True once the first run has finished, whether or not it worked."""
         return self._answered
 
+    def named(self):
+        """[(sensor name, C)] from the last reading."""
+        with self._lock:
+            return list(self._named)
+
     def get(self):
         """Return ([temps], [fan RPMs]) from the last reading, starting a refresh if it is stale."""
         with self._lock:
             now = time.monotonic()
-            if not self._refreshing and not self._needs_admin and now - self._last_refresh >= CACHE_SEC:
+            if not self._refreshing and not self._needs_admin and now - self._last_refresh >= self.interval:
                 self._refreshing = True
                 self._last_refresh = now
                 threading.Thread(target=self._refresh, daemon=True).start()

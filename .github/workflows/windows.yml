@@ -148,6 +148,7 @@ jobs:
               if ($p.ExitCode -ne 0) { throw "$exe $arguments exited with $($p.ExitCode)" }
               if (Select-String -Path $log -Pattern "Traceback|couldn.t start|Smoke test failed|preview failed" -Quiet) { throw "$exe $arguments logged an error" }
               if (-not (Select-String -Path $log -Pattern "Smoke test: temperature and fan source" -Quiet)) { throw "$exe $arguments didn't check the temperature and fan source" }
+              if (-not (Select-String -Path $log -Pattern "Smoke test: temperature and fan refresh" -Quiet)) { throw "$exe $arguments didn't check the refresh setting" }
             }
           }
 
@@ -213,6 +214,7 @@ jobs:
           if ($outputs["auto"] -notmatch "Framework Control: 4 temperatures \[44, 43, 41, 40\], 2 fans \[0, 0\]") { throw "Framework Control wasn't read" }
           foreach ($choice in @("auto", "framework_control")) {
             if ($outputs[$choice] -notmatch "Panels get: temperatures from Framework Control, fans from Framework Control") { throw "$choice didn't use Framework Control" }
+            if ($outputs[$choice] -notmatch "Temperatures app can show: cpu@4c \(44 C\), apu_f75303@4d \(43 C\)") { throw "$choice didn't list Framework Control's sensors" }
           }
           # A fixed choice of another source must not use Framework Control's readings
           foreach ($choice in @("libre_hardware_monitor", "framework_tool")) {

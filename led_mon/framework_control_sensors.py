@@ -28,8 +28,8 @@ def _rank(name):
     return 3
 
 
-def parse_thermal(data):
-    """Turn /api/thermal JSON ({"temps": {name: C}, "fans": [{name, rpm}]}) into ([temps in C], [fan RPMs])."""
+def named_temps(data):
+    """[(sensor name, C)] from /api/thermal JSON, CPU first. Sensors reading 0 (not powered) are left out."""
     temps = []
     for name, value in (data.get("temps") or {}).items():
         try:
@@ -38,14 +38,20 @@ def parse_thermal(data):
             continue
         # 0: the sensor isn't powered, e.g. the GPU module's sensors while it is off
         if value > 0:
-            temps.append((_rank(name), name, value))
+            temps.append((_rank(name), str(name), value))
+    return [(name, value) for _, name, value in sorted(temps)]
+
+
+def parse_thermal(data):
+    """Turn /api/thermal JSON ({"temps": {name: C}, "fans": [{name, rpm}]}) into ([temps in C], [fan RPMs])."""
+    temps = named_temps(data)
     fans = []
     for fan in data.get("fans") or []:
         try:
             fans.append(max(0, int(fan.get("rpm"))))
         except (TypeError, ValueError, AttributeError):
             continue
-    return [t for _, _, t in sorted(temps)], fans
+    return [value for _, value in temps], fans
 
 
 def _fetch():
@@ -76,6 +82,9 @@ class FrameworkControlSensors:
         self._refreshing = False
         self._available = None
         self.error = ""
+        self._named = []
+        # Seconds between readings (the refresh setting on the Panels tab)
+        self.interval = CACHE_SEC
 
     def _set_available(self, available, reason=""):
         if available != self._available:
@@ -89,15 +98,18 @@ class FrameworkControlSensors:
         try:
             data = self._fetcher()
             values = parse_thermal(data) if data else ([], [])
+            named = named_temps(data) if data else []
             available, reason = bool(data), "" if data else " (not installed)"
             self.error = "" if data else "not installed"
         except Exception as e:
             values = ([], [])
+            named = []
             available, reason = False, f" ({e})"
             self.error = f"didn't answer ({e})"
         # Store the values before saying it answered, so a reader never sees "answered" with old values
         with self._lock:
             self._values = values
+            self._named = named
             self._refreshing = False
         self._set_available(available, reason)
 
@@ -106,11 +118,16 @@ class FrameworkControlSensors:
         """True once the first refresh has finished, whether or not Framework Control was there."""
         return self._available is not None
 
+    def named(self):
+        """[(sensor name, C)] from the last reading."""
+        with self._lock:
+            return list(self._named)
+
     def get(self):
         """Return ([temps], [fan RPMs]) from the last reading, starting a refresh if it is stale."""
         with self._lock:
             now = time.monotonic()
-            if not self._refreshing and now - self._last_refresh >= CACHE_SEC:
+            if not self._refreshing and now - self._last_refresh >= self.interval:
                 self._refreshing = True
                 self._last_refresh = now
                 threading.Thread(target=self._refresh, daemon=True).start()

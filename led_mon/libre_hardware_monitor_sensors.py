@@ -55,6 +55,46 @@ def _index(sensor):
         return 0
 
 
+_HARDWARE_NAMES = (("/amdcpu", "CPU"), ("/intelcpu", "CPU"), ("/cpu", "CPU"), ("/gpu", "GPU"), ("/nvme", "SSD"),
+                   ("/hdd", "Drive"), ("/ssd", "SSD"), ("/storage", "Drive"), ("/lpc", "Board"),
+                   ("/motherboard", "Board"), ("/ram", "Memory"), ("/memory", "Memory"), ("/battery", "Battery"))
+
+
+def _hardware_name(parent):
+    lower = (parent or "").lower()
+    for prefix, name in _HARDWARE_NAMES:
+        if lower.startswith(prefix):
+            # A second drive or GPU gets its number: "SSD 2"
+            number = lower.rstrip("/").rsplit("/", 1)[-1]
+            return f"{name} {int(number) + 1}" if number.isdigit() and int(number) > 0 else name
+    return parent.strip("/") or "Other"
+
+
+def named_temps(sensors):
+    """[(sensor name, C)] for every temperature it reads, e.g. ("CPU: Core (Tctl/Tdie)", 55.0); CPU first."""
+    temps = []
+    for sensor in sensors:
+        if (_field(sensor, "SensorType") or "").lower() != "temperature":
+            continue
+        try:
+            value = float(_field(sensor, "Value"))
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            parent = _field(sensor, "Parent") or ""
+            name = f"{_hardware_name(parent)}: {_field(sensor, 'Name') or '?'}"
+            temps.append(((_hardware_rank(parent), parent, _sensor_rank(_field(sensor, "Name")), _index(sensor)),
+                          name, value))
+    named, seen = [], set()
+    for _, name, value in sorted(temps):
+        unique, n = name, 2
+        while unique in seen:
+            unique, n = f"{name} {n}", n + 1
+        seen.add(unique)
+        named.append((unique, value))
+    return named
+
+
 def parse_sensors(sensors):
     """Turn Libre Hardware Monitor's WMI Sensor rows into ([temps in C], [fan RPMs])."""
     temps_by_hardware = {}
@@ -103,6 +143,9 @@ class LibreHardwareMonitorSensors:
         self._refreshing = False
         self._available = None
         self.error = ""
+        self._named = []
+        # Seconds between readings (the refresh setting on the Panels tab)
+        self.interval = CACHE_SEC
 
     def _set_available(self, available, reason=""):
         if available != self._available:
@@ -114,15 +157,19 @@ class LibreHardwareMonitorSensors:
 
     def _refresh(self):
         try:
-            values = parse_sensors(self._query())
+            rows = list(self._query())
+            values = parse_sensors(rows)
+            named = named_temps(rows)
             self.error = "" if values[0] or values[1] else "it gave no temperatures or fans (is it running as admin?)"
-            available, reason, wait = True, "", CACHE_SEC
+            available, reason, wait = True, "", self.interval
         except Exception as e:
             values = ([], [])
+            named = []
             self.error = f"not running ({e})"
-            available, reason, wait = False, f" (not running: {e})", RETRY_SEC
+            available, reason, wait = False, f" (not running: {e})", max(RETRY_SEC, self.interval)
         with self._lock:
             self._values = values
+            self._named = named
             self._wait = wait
             self._refreshing = False
         self._set_available(available, reason)
@@ -131,6 +178,11 @@ class LibreHardwareMonitorSensors:
     def answered(self):
         """True once the first refresh has finished, whether or not Libre Hardware Monitor was there."""
         return self._available is not None
+
+    def named(self):
+        """[(sensor name, C)] from the last reading."""
+        with self._lock:
+            return list(self._named)
 
     def get(self):
         """Return ([temps], [fan RPMs]) from the last reading, starting a refresh if it is stale."""

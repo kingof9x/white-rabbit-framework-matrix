@@ -45,12 +45,48 @@ HELP = {
                     "running as admin; otherwise Windows refuses to start it.",
 }
 
+# How often each source is read, in seconds ("sensor_refresh_seconds" in settings.json)
+REFRESH_SETTING = "sensor_refresh_seconds"
+DEFAULT_REFRESH = 2.0
+REFRESH_CHOICES = (1, 2, 5, 10, 30)
+REFRESH_HELP = ("How often the temperatures and fans are read. Shorter follows changes faster; "
+                "framework_tool and Libre Hardware Monitor use a little more CPU when read often.")
+
 # Readings older than this mean no panel is showing the Temperatures or Fans app
 STALE_SEC = 10.0
 
 
 def normalize(choice):
     return choice if choice in LABELS else AUTO
+
+
+def normalize_refresh(seconds):
+    try:
+        return max(0.5, min(60.0, float(seconds)))
+    except (TypeError, ValueError):
+        return DEFAULT_REFRESH
+
+
+def to_unit(celsius, unit):
+    """A temperature in the unit picked for the Temperatures app: C (as read) or F."""
+    return celsius * 9 / 5 + 32 if str(unit).upper().startswith("F") else celsius
+
+
+def pick(named, chosen, count=3):
+    """The values to show: for each place, the chosen sensor's reading, or (when none is chosen) the next
+    sensor in the source's own order that isn't shown elsewhere. A chosen sensor that gives no reading
+    right now shows as None."""
+    values = dict(named)
+    chosen = list(chosen or [])[:count] + [""] * (count - len(list(chosen or [])[:count]))
+    taken = {name for name in chosen if name}
+    spare = [name for name, _ in named if name not in taken]
+    result = []
+    for name in chosen:
+        if name:
+            result.append(values.get(name))
+        else:
+            result.append(values[spare.pop(0)] if spare else None)
+    return result
 
 
 def default_readers():
@@ -85,17 +121,28 @@ class SensorSource:
         self.fans_from = None
         self._counts = (0, 0)
         self._last_read = 0.0
+        self.refresh = DEFAULT_REFRESH
         self.reload()
 
     @property
     def readers(self):
         if self._readers is None:
             self._readers = default_readers()
+            self._apply_refresh()
         return self._readers
+
+    def _apply_refresh(self):
+        if self._readers is None:
+            return
+        for reader in self._readers.values():
+            reader.interval = self.refresh
 
     def reload(self):
         """Read the choice from settings.json again (the window changed it)."""
-        choice = normalize(app_settings.load_settings(self.path).get(SETTING, AUTO))
+        settings = app_settings.load_settings(self.path)
+        choice = normalize(settings.get(SETTING, AUTO))
+        self.refresh = normalize_refresh(settings.get(REFRESH_SETTING, DEFAULT_REFRESH))
+        self._apply_refresh()
         with self._lock:
             changed = choice != self.choice
             self.choice = choice
@@ -116,6 +163,24 @@ class SensorSource:
             self.choice = choice
             self.temps_from = self.fans_from = None
         return choice
+
+    def set_refresh(self, seconds, save=True):
+        self.refresh = normalize_refresh(seconds)
+        if save:
+            settings = app_settings.load_settings(self.path)
+            settings[REFRESH_SETTING] = self.refresh
+            app_settings.save_settings(settings, self.path)
+        self._apply_refresh()
+        return self.refresh
+
+    def named_temps(self):
+        """[(sensor name, C)] from the source the temperatures come from right now (call readings() first)."""
+        with self._lock:
+            key = self.temps_from or (self.choice if self.choice != AUTO else None)
+        if not key:
+            return []
+        reader = self.readers[key]
+        return reader.named() if hasattr(reader, "named") else []
 
     def readings(self):
         """([temps in C], [fan RPMs]) from the chosen source."""
@@ -148,7 +213,7 @@ class SensorSource:
         """For the Panels tab: the choice, and where the last readings came from."""
         with self._lock:
             reading = time.monotonic() - self._last_read < STALE_SEC
-            state = {"choice": self.choice, "reading": reading,
+            state = {"choice": self.choice, "reading": reading, "refresh": self.refresh,
                      "temps_from": self.temps_from, "fans_from": self.fans_from,
                      "temps": self._counts[0], "fans": self._counts[1]}
         if reading:
@@ -159,6 +224,7 @@ class SensorSource:
                 if reader.answered and getattr(reader, "error", ""):
                     errors[key] = reader.error
             state["errors"] = errors
+            state["sensors"] = [name for name, _ in self.named_temps()]
         return state
 
 
@@ -200,6 +266,30 @@ def windows_readings():
     return current().readings()
 
 
+def psutil_named_temps():
+    """[(sensor name, C)] from psutil (Linux; psutil can't read sensors on Windows)."""
+    import psutil
+    named = []
+    for group, entries in (getattr(psutil, "sensors_temperatures", lambda: {})() or {}).items():
+        for i, entry in enumerate(entries):
+            if entry.current and entry.current > 0:
+                named.append((f"{group}: {entry.label or i + 1}", float(entry.current)))
+    return named
+
+
+def named_temps():
+    """[(sensor name, C)] on this computer: from the chosen source on Windows, psutil elsewhere."""
+    from led_mon.platform_utils import IS_WINDOWS
+    return windows_named_temps() if IS_WINDOWS else psutil_named_temps()
+
+
+def windows_named_temps():
+    """[(sensor name, C)] for the Temperatures app on Windows."""
+    source = current()
+    source.readings()
+    return source.named_temps()
+
+
 def diagnose_lines(read_once=None, settings_path=None, wait_sec=8.0):
     """The --diagnose section: the chosen source, each source read directly, and what the choice gives."""
     lines = ["Temperatures and fans:"]
@@ -225,4 +315,7 @@ def diagnose_lines(read_once=None, settings_path=None, wait_sec=8.0):
     source.readings()
     lines.append(f"  Panels get: temperatures from {LABELS.get(source.temps_from, 'nowhere')}, "
                  f"fans from {LABELS.get(source.fans_from, 'nowhere')}")
+    named = source.named_temps()
+    lines.append(f"  Read every {source.refresh:g} s. Sensors the Temperatures app can show: "
+                 + (", ".join(f"{name} ({value:.0f} C)" for name, value in named) or "none"))
     return lines
