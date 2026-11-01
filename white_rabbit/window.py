@@ -1,6 +1,6 @@
 # The White Rabbit window: the layout editor and the LED Matrix controls in one place.
 #
-# Tabs: Panels (layout editor), Startup animation, Games & patterns, Math, Firmware, Keyboard shortcuts.
+# Tabs: Panels (layout editor), Startup animation, Games & patterns, Math, Music, Firmware, Keyboard shortcuts.
 # The bar at the bottom picks which panels the controls act on, and shows whether each panel is
 # showing the system monitor or something from this window. Playing a game or showing a pattern
 # borrows the panel from the monitor; "Back to system monitor" returns it.
@@ -15,7 +15,7 @@ from tkinter import ttk
 
 # Internal Dependencies
 from led_mon import platform_utils
-from white_rabbit import bridge, math_tab, panels as panels_mod, tabs
+from white_rabbit import bridge, math_tab, music, panels as panels_mod, tabs
 
 log = logging.getLogger(__name__)
 
@@ -133,11 +133,13 @@ class WhiteRabbitWindow:
         self.notebook.add(self.play_tab, text="Games & patterns")
         self.math_tab = math_tab.MathTab(self.notebook, self)
         self.notebook.add(self.math_tab, text="Math")
+        self.music_tab = music.MusicTab(self.notebook, self)
+        self.notebook.add(self.music_tab, text="Music")
         self.firmware_tab = tabs.FirmwareTab(self.notebook, self)
         self.notebook.add(self.firmware_tab, text="Firmware")
         self.shortcuts_tab = tabs.ShortcutsTab(self.notebook, self)
         self.notebook.add(self.shortcuts_tab, text="Keyboard shortcuts")
-        tab = {"startup": self.startup_tab, "play": self.play_tab, "music": self.music_tab,
+        tab = {"startup": self.startup_tab, "play": self.play_tab, "math": self.math_tab, "music": self.music_tab,
                "firmware": self.firmware_tab, "shortcuts": self.shortcuts_tab}.get(start_tab)
         if tab is not None:
             self.notebook.select(tab)
