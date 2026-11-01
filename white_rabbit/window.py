@@ -107,10 +107,11 @@ class WhiteRabbitWindow:
         root.minsize(1000, 700)
         root.protocol("WM_DELETE_WINDOW", self.on_close)
 
+        # The bar is packed first so it stays visible when a tab is taller than the window
+        self.bar = ttk.Frame(root, padding=(12, 6, 12, 10))
+        self.bar.pack(side="bottom", fill="x")
         self.notebook = ttk.Notebook(root)
         self.notebook.pack(fill="both", expand=True)
-        self.bar = ttk.Frame(root, padding=(12, 6, 12, 10))
-        self.bar.pack(fill="x")
 
         self.panels = panels_mod.find_panels(self.read_config())
         self.panel_vars = {}

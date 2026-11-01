@@ -6,6 +6,7 @@
 
 # Built In Dependencies
 import time
+import logging
 import threading
 import tkinter as tk
 from tkinter import ttk
@@ -15,6 +16,8 @@ import numpy as np
 
 # Internal Dependencies
 from white_rabbit import math_sims as sims
+
+log = logging.getLogger(__name__)
 
 HINT = "#555555"
 LED_SIZE = 8          # preview pixels per LED
@@ -92,6 +95,39 @@ class Preview(tk.Canvas):
         self.shown = frame.copy()
 
 
+class ScrollFrame(ttk.Frame):
+    """A frame with a vertical scrollbar that appears when its contents don't fit."""
+
+    def __init__(self, master):
+        super().__init__(master)
+        self.canvas = tk.Canvas(self, highlightthickness=0, borderwidth=0)
+        self.bar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
+        self.canvas.configure(yscrollcommand=self.bar.set)
+        self.canvas.pack(side="left", fill="both", expand=True)
+        self.inner = ttk.Frame(self.canvas)
+        self.window = self.canvas.create_window(0, 0, window=self.inner, anchor="nw")
+        self.inner.bind("<Configure>", lambda e: self.fit())
+        self.canvas.bind("<Configure>", lambda e: (self.canvas.itemconfigure(self.window, width=e.width), self.fit()))
+        self.bind_all("<MouseWheel>", self.wheel, add="+")
+
+    def fit(self):
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        if self.inner.winfo_reqheight() > self.canvas.winfo_height() > 1:
+            if not self.bar.winfo_ismapped():
+                self.bar.pack(side="right", fill="y")
+        elif self.bar.winfo_ismapped():
+            self.bar.pack_forget()
+            self.canvas.yview_moveto(0)
+
+    def wheel(self, event):
+        # Only when the mouse is over this frame and there is something to scroll
+        widget = self.winfo_containing(event.x_root, event.y_root)
+        while widget is not None and widget is not self:
+            widget = widget.master
+        if widget is self and self.bar.winfo_ismapped():
+            self.canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
+
+
 class MathTab(ttk.Frame):
     """Graphs and simulations on the LED panels."""
 
@@ -127,8 +163,10 @@ class MathTab(ttk.Frame):
         self.preview.pack(anchor="n")
         self.preview_note = ttk.Label(right, text="", foreground=HINT, wraplength=200, justify="left")
         self.preview_note.pack(anchor="w", pady=(4, 0))
-        left = ttk.Frame(body)
-        left.pack(side="left", fill="both", expand=True)
+        # Scrolls when the window is small or Windows display scaling makes everything bigger
+        scroller = ScrollFrame(body)
+        scroller.pack(side="left", fill="both", expand=True)
+        left = scroller.inner
 
         self.build_graphs(section(left, "Graphs"))
         self.build_life(section(left, "Game of Life and other Life-like rules"))
@@ -154,24 +192,25 @@ class MathTab(ttk.Frame):
         ttk.Button(frame, text="Show", command=self.show_graph).grid(row=0, column=2, padx=2)
         ttk.Button(frame, text="Random graphs", command=self.random_graphs).grid(row=0, column=3, padx=2)
         self.axes = tk.BooleanVar(value=True)
-        ttk.Checkbutton(frame, text="Show the axes (dim)", variable=self.axes).grid(row=0, column=4, padx=8)
+        ttk.Checkbutton(frame, text="Show the axes (dim)", variable=self.axes).grid(row=3, column=0, columnspan=5,
+                                                                                    sticky="w", pady=(4, 0))
 
         ttk.Label(frame, text="Your own: y =").grid(row=1, column=0, sticky="w", pady=(6, 0))
         own = ttk.Frame(frame)
         own.grid(row=1, column=1, columnspan=4, sticky="w", pady=(6, 0))
-        self.formula = ttk.Entry(own, width=26)
+        self.formula = ttk.Entry(own, width=18)
         self.formula.insert(0, "sin(x) * x")
         self.formula.pack(side="left", padx=4)
+        ttk.Button(own, text="Show", command=self.show_formula).pack(side="left", padx=(0, 8))
         self.formula.bind("<Return>", lambda e: self.show_formula())
         ttk.Label(own, text="x from").pack(side="left")
-        self.x_from = ttk.Entry(own, width=6)
+        self.x_from = ttk.Entry(own, width=5)
         self.x_from.insert(0, "-10")
         self.x_from.pack(side="left", padx=2)
         ttk.Label(own, text="to").pack(side="left")
-        self.x_to = ttk.Entry(own, width=6)
+        self.x_to = ttk.Entry(own, width=5)
         self.x_to.insert(0, "10")
         self.x_to.pack(side="left", padx=2)
-        ttk.Button(own, text="Show", command=self.show_formula).pack(side="left", padx=4)
         ttk.Label(frame, text="x runs down the panels and y across. Use + - * / ^, sin, cos, tan, sqrt, exp, log, "
                   "abs, pi... Put t in it to make it move, like sin(x - t).", foreground=HINT, wraplength=720,
                   justify="left").grid(row=2, column=0, columnspan=5, sticky="w", pady=(4, 0))
@@ -182,8 +221,9 @@ class MathTab(ttk.Frame):
         self.rule.current(0)
         self.rule.grid(row=0, column=1, sticky="w", padx=4)
         self.rule.bind("<<ComboboxSelected>>", lambda e: self.rule_changed())
+        ttk.Button(frame, text="Start", command=self.start_life).grid(row=0, column=2, sticky="w", padx=8)
         custom = ttk.Frame(frame)
-        custom.grid(row=0, column=2, sticky="w", padx=8)
+        custom.grid(row=2, column=1, columnspan=2, sticky="w", padx=4, pady=(4, 0))
         ttk.Label(custom, text="Born with").pack(side="left")
         self.birth = ttk.Entry(custom, width=6)
         self.birth.pack(side="left", padx=2)
@@ -194,20 +234,24 @@ class MathTab(ttk.Frame):
         self.life_start = ttk.Combobox(frame, values=sims.STARTS, state="readonly", width=22)
         self.life_start.current(0)
         self.life_start.grid(row=1, column=1, sticky="w", padx=4, pady=(4, 0))
-        ttk.Button(frame, text="Start", command=self.start_life).grid(row=1, column=2, sticky="w", padx=8, pady=(4, 0))
         self.rule_changed()
 
     def build_traffic(self, frame):
-        ttk.Label(frame, text="Cars going across (bright) and down (dim) take turns to move. "
-                  "Busy roads jam up for good.", foreground=HINT).pack(side="left")
-        ttk.Button(frame, text="Start", command=self.start_traffic).pack(side="right")
-        self.traffic_density = tk.Scale(frame, from_=5, to=80, orient="horizontal", length=140, showvalue=True)
+        row = ttk.Frame(frame)
+        row.pack(fill="x")
+        ttk.Button(row, text="Start", command=self.start_traffic).pack(side="left")
+        ttk.Label(row, text="Roads:").pack(side="left", padx=(12, 0))
+        self.traffic_density = tk.Scale(row, from_=5, to=80, orient="horizontal", length=140, showvalue=True)
         self.traffic_density.set(35)
-        self.traffic_density.pack(side="right", padx=4)
-        ttk.Label(frame, text="% full").pack(side="right")
+        self.traffic_density.pack(side="left", padx=4)
+        ttk.Label(row, text="% full").pack(side="left")
+        ttk.Label(frame, text="Cars going across (bright) and down (dim) take turns to move. "
+                  "Busy roads jam up for good.", foreground=HINT, wraplength=640, justify="left"
+                  ).pack(anchor="w", pady=(4, 0))
 
     def build_gas(self, frame):
-        ttk.Label(frame, text="Start:").pack(side="left")
+        ttk.Button(frame, text="Start", command=self.start_gas).pack(side="left")
+        ttk.Label(frame, text="Begin with:").pack(side="left", padx=(12, 0))
         self.gas_start = ttk.Combobox(frame, values=sims.HPP_STARTS, state="readonly", width=16)
         self.gas_start.current(0)
         self.gas_start.pack(side="left", padx=4)
@@ -215,12 +259,12 @@ class MathTab(ttk.Frame):
         self.gas_density = tk.Scale(frame, from_=5, to=100, orient="horizontal", length=140, showvalue=True)
         self.gas_density.set(30)
         self.gas_density.pack(side="left", padx=4)
-        ttk.Button(frame, text="Start", command=self.start_gas).pack(side="right")
 
     def build_automata(self, frame):
+        ttk.Button(frame, text="Start", command=self.start_automaton).pack(side="left")
         self.kind = ttk.Combobox(frame, values=sims.AUTOMATA_KINDS, state="readonly", width=32)
         self.kind.current(0)
-        self.kind.pack(side="left")
+        self.kind.pack(side="left", padx=(12, 0))
         self.kind.bind("<<ComboboxSelected>>", lambda e: self.kind_changed())
         ttk.Label(frame, text="Number:").pack(side="left", padx=(12, 0))
         self.rule_number = tk.Spinbox(frame, from_=0, to=255, width=6)
@@ -229,7 +273,6 @@ class MathTab(ttk.Frame):
         self.automaton_start = ttk.Combobox(frame, values=sims.AUTOMATA_STARTS, state="readonly", width=12)
         self.automaton_start.current(0)
         self.automaton_start.pack(side="left", padx=4)
-        ttk.Button(frame, text="Start", command=self.start_automaton).pack(side="right")
         self.kind_changed()
 
     def rule_changed(self):
@@ -329,7 +372,8 @@ class MathTab(ttk.Frame):
         # Ends a clock or equalizer from the other tab, and any earlier animation from this one
         reset_thread()
         set_status("math")
-        self.show(title)
+        where = " and ".join(f"{p.side} panel" for p in panels)
+        self.show(f"{title}, on the {where}." if panels else title)
         self.preview_note.configure(text="" if panels else "No panel is ticked, so this only shows here.")
         threading.Thread(target=self.run, args=(run_id, panels, frames), daemon=True).start()
 
@@ -359,6 +403,7 @@ class MathTab(ttk.Frame):
                 else:
                     next_at = time.monotonic()
         except Exception as e:
+            log.exception("The Math tab animation stopped")
             if run_id == self.run_id:
                 self.show_soon(f"Stopped: {e}")
         finally:
