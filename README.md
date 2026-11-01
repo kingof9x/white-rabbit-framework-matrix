@@ -144,8 +144,10 @@ Something not working? Right-click the tray icon > *Open log*, or run
 
 ### Good to know
 
-- **Temperatures and fans**: pick where they come from on the Panels tab, under
-  *Temperatures and fans from* (saved as `sensor_source` in `settings.json`):
+- **Temperatures and fans**: on the Panels tab, click the Temperatures or Fans app on a panel. Its
+  settings (on the right) choose which sensor each of the three numbers shows and Celsius or Fahrenheit,
+  plus, for all panels, where readings come from (*Read from*, saved as `sensor_source` in `settings.json`)
+  and how often (*Read every*, `sensor_refresh_seconds`):
   - *Automatic* (default): tries each of the ones below in that order and uses the first that gives readings.
   - *[Framework Control](https://github.com/ozturkkl/framework-control)*: its service reads them with
     system rights, so nothing has to be open and White Rabbit needs no admin prompt. On a Framework 16
