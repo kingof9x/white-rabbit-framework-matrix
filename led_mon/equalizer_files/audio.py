@@ -21,6 +21,23 @@ from led_mon.equalizer_files.looks import FFT_SIZE, SAMPLE_RATE
 
 log = logging.getLogger(__name__)
 
+# soundcard initialises COM when it is first imported, and fails ("Error 0x100000001") if that import
+# happens on a thread where COM is already set up. So import it here, when the app loads (the plugins
+# load on the main thread), rather than inside a recording thread.
+sc = None
+_soundcard_error = None
+if IS_WINDOWS:
+    try:
+        import soundcard as sc
+    except Exception as e:  # e.g. no audio service
+        _soundcard_error = e
+
+
+def _soundcard():
+    if sc is None:
+        raise RuntimeError(f"Windows audio isn't available: {_soundcard_error}")
+    return sc
+
 CHUNK_SIZE = 1024
 # Windows: how often to look for a new default output device (or a microphone plugged in)
 DEVICE_CHECK_SEC = 3
@@ -43,7 +60,7 @@ def list_microphones():
     names = []
     try:
         if IS_WINDOWS:
-            import soundcard as sc
+            sc = _soundcard()
             _com_init_mta()
             names = [m.name for m in sc.all_microphones(include_loopback=False)]
         else:
@@ -131,7 +148,7 @@ class Capture:
 
     # Windows
     def _resolve_source(self):
-        import soundcard as sc
+        sc = _soundcard()
         if self.input_mode == "playback":
             speaker = sc.default_speaker()
             return sc.get_microphone(speaker.id, include_loopback=True), speaker.name

@@ -181,6 +181,8 @@ class WhiteRabbitWindow:
             text = "The system monitor isn't running"
         elif borrowed:
             text = "Showing White Rabbit controls on: " + ", ".join(f"{p.side} panel" for p in borrowed)
+        elif getattr(getattr(self, "music_tab", None), "music_on", False):
+            text = "Panels are showing music mode"
         else:
             text = "Panels are showing the system monitor"
         self.bar_status.configure(text=text)

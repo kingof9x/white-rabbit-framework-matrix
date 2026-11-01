@@ -303,3 +303,28 @@ def test_music_mode_takes_back_panels_lent_to_the_window():
     finally:
         monitor.set_music_mode(False)
         serial_ports.release(["COM9"])
+
+
+def test_soundcard_is_imported_when_the_app_loads_on_windows():
+    # Imported inside a recording thread, soundcard fails with "Error 0x100000001"
+    from led_mon.platform_utils import IS_WINDOWS
+    if not IS_WINDOWS:
+        pytest.skip("Windows audio")
+    pytest.importorskip("soundcard")
+    assert audio.sc is not None, audio._soundcard_error
+
+
+def test_recording_thread_can_use_soundcard_on_windows():
+    from led_mon.platform_utils import IS_WINDOWS
+    if not IS_WINDOWS:
+        pytest.skip("Windows audio")
+    pytest.importorskip("soundcard")
+    import time
+    capture = audio.Capture("playback")
+    capture.start()
+    try:
+        time.sleep(3)
+        # The CI machine may have no sound device, but the COM error from a late import must be gone
+        assert "0x100000001" not in str(capture.problem or "")
+    finally:
+        capture.stop()

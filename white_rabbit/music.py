@@ -275,6 +275,7 @@ class MusicTab(ttk.Frame):
             self.mode_status.configure(text="The system monitor isn't running, so music mode can't start.")
             return
         self.music_on = bool(reply["music_mode"])
+        self.window.update_bar()
         self.mode_button.configure(text="Turn music mode off" if self.music_on else "Turn music mode on")
         self.mode_status.configure(text="On: both panels show the audio visualizer." if self.music_on else
                                    "Off: the panels show your layout.")
