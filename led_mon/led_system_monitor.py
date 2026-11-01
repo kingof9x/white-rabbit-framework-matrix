@@ -136,10 +136,10 @@ def set_paused(paused):
 def is_paused():
     return display_paused.is_set()
 
-# Music mode (tray, Ctrl+Alt+Shift+M or the window's Music tab): both panels show the audio visualizer,
-# with the look last picked in the Music tab, until it is turned off. Not remembered after a restart.
+# Music mode (tray, Ctrl+Alt+Shift+M or the window's Audio tab): both panels show the audio visualizer,
+# with the look last picked in the Audio tab, until it is turned off. Not remembered after a restart.
 music_mode = threading.Event()
-# Set when the Music tab changes the look, so the visualizer starts again with it
+# Set when the Audio tab changes the look, so the visualizer starts again with it
 music_restart = threading.Event()
 
 def set_music_mode(on):
@@ -564,7 +564,7 @@ def app(args, base_apps, plugin_apps):
             music_restart.clear()
             stop_music()
         if not music_running:
-            # Read the Music tab's choices when music mode starts (or the tab changed them)
+            # Read the Audio tab's choices when music mode starts (or the tab changed them)
             music_args.clear()
             music_args.update(app_settings.load_music())
         music_running = True
@@ -632,7 +632,7 @@ def app(args, base_apps, plugin_apps):
             return {}
         if cmd == 'music':
             reply = handle_music_request(message)
-            # What music mode hears, so the Music tab can show it
+            # What music mode hears, so the Audio tab can show it
             plugin = sys.modules.get('equalizer')
             if music_running and plugin is not None and hasattr(plugin, 'hearing'):
                 reply['hearing'] = plugin.hearing()

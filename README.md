@@ -79,7 +79,7 @@ and a random equalizer.
 
 *Where each extra Game of Life pattern starts on the 9 x 34 matrix.*
 
-### Music tab
+### Audio tab
 
 An audio visualizer that moves with what the laptop is playing, or with what a
 microphone hears (pick any microphone Windows has).

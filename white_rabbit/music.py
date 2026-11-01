@@ -1,4 +1,4 @@
-# The Music tab: music mode, and the look and sound input the audio visualizer uses for it.
+# The Audio tab: music mode, and the look and sound input the audio visualizer uses for it.
 #
 # Changes are saved straight away (as "music" in settings.json) and the monitor picks them up while
 # music mode is on. The preview plays the real sound through the same code the panels use, so it
@@ -312,7 +312,7 @@ class MusicTab(ttk.Frame):
             self.capture = audio.acquire(*key)
             self.capture_key = key
         except Exception as e:
-            log.warning(f"The Music tab couldn't listen: {e}")
+            log.warning(f"The Audio tab couldn't listen: {e}")
             self.hearing.configure(text=f"Couldn't listen: {e}")
 
     def stop_listening(self):
@@ -321,7 +321,7 @@ class MusicTab(ttk.Frame):
             try:
                 audio.release(self.capture)
             except Exception as e:
-                log.debug(f"Stopping the Music tab's recording: {e}")
+                log.debug(f"Stopping the Audio tab's recording: {e}")
         self.capture = None
         self.capture_key = None
 
@@ -331,7 +331,7 @@ class MusicTab(ttk.Frame):
         try:
             self.draw_frame()
         except Exception as e:
-            log.error(f"Music tab preview failed: {e}")
+            log.error(f"Audio tab preview failed: {e}")
         self.after(FRAME_MS, self.tick)
 
     def draw_frame(self):

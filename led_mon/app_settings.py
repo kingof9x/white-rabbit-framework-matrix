@@ -21,7 +21,7 @@ DEFAULT_SETTINGS = {
     "libre_hardware_monitor_path": "",
     # Turn the panels off while the lid is closed, the screen is off or the PC is going to sleep
     "turn_off_with_lid": True,
-    # Music mode's audio visualizer: the look and input last picked in the Music tab (see
+    # Music mode's audio visualizer: the look and input last picked in the Audio tab (see
     # led_mon/equalizer_files/looks.py for the keys)
     "music": {},
     # Where the Temperatures and Fans apps read from on Windows: auto, framework_control,

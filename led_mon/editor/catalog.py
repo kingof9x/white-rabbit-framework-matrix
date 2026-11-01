@@ -83,7 +83,7 @@ APPS = [
     ], fixed_args={"id_key_override": ["forecast", "weather_forecast", "weather_current"]}),
     # Still called "equalizer" in config files, so existing layouts keep working
     AppInfo("equalizer", "Audio visualizer", "Moves with the music: what the laptop plays, or what a microphone "
-            "hears. The Music tab shows a preview of each look.", FULL, [
+            "hears. The Audio tab shows a preview of each look.", FULL, [
         Setting("input-mode", "Listen to", "choice", "playback", looks.INPUT_MODES,
                 labels=tuple(looks.INPUT_LABELS[m] for m in looks.INPUT_MODES)),
         Setting("input-device", "Microphone", "microphone", "",
