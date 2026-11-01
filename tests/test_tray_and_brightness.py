@@ -156,3 +156,38 @@ def test_tray_brightness_window_opens_changes_and_closes(tmp_path):
     popup.stop()
     assert found["label"] == "40%"
     assert app_settings.Brightness(str(tmp_path / "settings.json")).get() == {"follow_screen": False, "level": 40}
+
+
+def test_tray_icon_is_one_colour_and_sharp_at_every_tray_size():
+    pytest.importorskip("PIL")
+    from led_mon import tray
+    for size in (16, 20, 24, 28, 32, 36, 40, 48):
+        for light in (False, True):
+            img = tray.make_tray_icon_image(size, lit=True, light_taskbar=light)
+            assert img.size == (size, size)
+            colors = {c for _, c in img.getcolors(4096)}
+            ink = (0, 0, 0) if light else (255, 255, 255)
+            # Only the ink colour, at full strength or the dim dot strength: no blurred edges
+            assert {c[:3] for c in colors if c[3]} == {ink}
+            assert {c[3] for c in colors} <= {0, tray.TRAY_OFF_ALPHA, 255}
+
+
+def test_tray_icon_dims_when_stopped():
+    pytest.importorskip("PIL")
+    from led_mon import tray
+    lit = tray.make_tray_icon_image(24, lit=True)
+    stopped = tray.make_tray_icon_image(24, lit=False)
+    assert sum(1 for p in lit.getdata() if p[3] == 255) > sum(1 for p in stopped.getdata() if p[3] == 255)
+
+
+def test_tray_icon_other_sizes_still_work():
+    pytest.importorskip("PIL")
+    from led_mon import tray
+    assert tray.make_tray_icon_image(64).size == (64, 64)
+    assert tray.make_tray_icon_image(12).size == (12, 12)
+
+
+def test_taskbar_theme_defaults_to_dark_off_windows(monkeypatch):
+    from led_mon import tray
+    monkeypatch.setattr(tray.platform_utils, "IS_WINDOWS", False)
+    assert tray.taskbar_is_light() is False
