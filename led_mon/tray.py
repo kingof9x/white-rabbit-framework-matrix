@@ -14,6 +14,9 @@
 
 # Built In Dependencies
 import logging
+import os
+import sys
+import uuid
 
 # Internal Dependencies
 from led_mon import platform_utils, external_apps, startup, app_settings
@@ -123,13 +126,84 @@ def build_menu(pystray, actions, finder, is_paused, is_frozen, edit_layout_avail
     )
 
 
+# Shell_NotifyIcon codes (shellapi.h)
+NIM_ADD = 0
+NIM_MODIFY = 1
+NIM_DELETE = 2
+NIF_GUID = 0x20
+
+# Fixed namespace for the tray icon's GUID; changing it makes Windows forget the user's "always show" choice
+TRAY_GUID_NAMESPACE = uuid.UUID("3f1c7a52-9e4b-4d8a-b6f0-5a2e8c1d7b94")
+
+
+def tray_icon_guid(exe_path):
+    """The GUID Windows remembers the tray icon by: the same every run of one exe, different for another copy.
+
+    Windows ties a tray icon GUID to the exe's location and refuses it from anywhere else, so the
+    installed app and a portable exe in Downloads each get their own.
+    """
+    path = os.path.normcase(os.path.abspath(exe_path)).lower()
+    return uuid.uuid5(TRAY_GUID_NAMESPACE, path)
+
+
+class StableTrayIdMixin:
+    """Give the tray icon a fixed GUID so Windows lists it under Settings > Personalization > Taskbar >
+    Other system tray icons, and keeps it there (with its on/off choice) from one run to the next.
+
+    pystray identifies the icon only by its window handle, which is new every run. Subclasses provide
+    _send(code, flags, **fields) -> bool and set _tray_guid (a ctypes GUID, or None to leave pystray's way).
+    """
+    _tray_guid = None
+
+    def _message(self, code, flags, **kwargs):
+        if self._tray_guid is not None:
+            guid_fields = dict(kwargs, guidItem=self._tray_guid)
+            if code == NIM_ADD:
+                # An icon left behind by a crashed run still holds the GUID and would block adding it again
+                self._send(NIM_DELETE, NIF_GUID, guidItem=self._tray_guid)
+            if self._send(code, flags | NIF_GUID, **guid_fields):
+                return
+            if code != NIM_ADD:
+                return
+            # Never leave the user without an icon: fall back to pystray's way for the rest of this run
+            log.warning("Windows refused the tray icon's GUID; showing it without one")
+            self._tray_guid = None
+        self._send(code, flags, **kwargs)
+
+
+def _win32_guid(win32, value):
+    guid = win32.NOTIFYICONDATAW.GUID()
+    import ctypes
+    ctypes.memmove(ctypes.byref(guid), value.bytes_le, 16)
+    return guid
+
+
 def _icon_class(pystray, finder):
-    """On Windows, open the menu on left click too, and look for the apps again before showing it."""
+    """On Windows, open the menu on left click too, look for the apps again before showing it, and give the
+    icon a fixed GUID so Windows remembers it."""
     if not platform_utils.IS_WINDOWS:
         return pystray.Icon
+    import ctypes
     from pystray._util import win32
 
-    class ClickMenuIcon(pystray.Icon):
+    tray_guid = None
+    if platform_utils.is_frozen():
+        # Only the exe: when run from source the program is python.exe, shared with other scripts
+        try:
+            tray_guid = _win32_guid(win32, tray_icon_guid(sys.executable))
+        except Exception as e:
+            log.warning(f"No tray icon GUID: {e}")
+
+    class ClickMenuIcon(StableTrayIdMixin, pystray.Icon):
+        _tray_guid = tray_guid
+
+        def _send(self, code, flags, **kwargs):
+            return bool(win32.Shell_NotifyIcon(code, win32.NOTIFYICONDATAW(
+                cbSize=ctypes.sizeof(win32.NOTIFYICONDATAW),
+                hWnd=self._hwnd,
+                uFlags=flags,
+                **kwargs)))
+
         def _on_notify(self, wparam, lparam):
             if lparam in (win32.WM_LBUTTONUP, win32.WM_RBUTTONUP):
                 finder.refresh()

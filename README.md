@@ -149,6 +149,9 @@ different from Windows.*
 3. The panels show the system monitor, an LED icon appears in the tray, and
    the White Rabbit window opens. Opening the app again from the Start menu,
    or *Open White Rabbit...* in the tray menu, brings the window back.
+   To keep the tray icon out of the hidden-icons arrow, turn on *White Rabbit* in
+   *Settings > Personalization > Taskbar > Other system tray icons* (Windows 11),
+   or drag the icon from the arrow onto the taskbar.
 4. **Coming from led_mon?** Your layout, brightness and weather API key are
    copied from `%APPDATA%\led_mon` the first time White Rabbit starts.
 5. The checkboxes at the bottom of the window choose which panels the
