@@ -143,6 +143,7 @@ def _windows_message_loop(watcher):
     user32.UnregisterPowerSettingNotification.argtypes = [wintypes.HANDLE]
     user32.GetMessageW.argtypes = [ctypes.POINTER(wintypes.MSG), wintypes.HWND, wintypes.UINT, wintypes.UINT]
     user32.DestroyWindow.argtypes = [wintypes.HWND]
+    user32.UnregisterClassW.argtypes = [wintypes.LPCWSTR, wintypes.HINSTANCE]
     kernel32.GetModuleHandleW.restype = wintypes.HMODULE
     kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
 
@@ -179,7 +180,8 @@ def _windows_message_loop(watcher):
     wc = WNDCLASSW()
     wc.lpfnWndProc = callback
     wc.hInstance = hinstance
-    wc.lpszClassName = "WhiteRabbitPowerEvents"
+    # One class per watcher: a class keeps the window procedure it was registered with
+    wc.lpszClassName = f"WhiteRabbitPowerEvents{id(watcher)}"
     if not user32.RegisterClassW(ctypes.byref(wc)):
         raise ctypes.WinError(ctypes.get_last_error())
     # A hidden top-level window (not message-only), so the sleep / resume broadcasts reach it too
@@ -207,3 +209,5 @@ def _windows_message_loop(watcher):
 
     for handle in registrations:
         user32.UnregisterPowerSettingNotification(handle)
+    watcher._hwnd = None
+    user32.UnregisterClassW(wc.lpszClassName, hinstance)

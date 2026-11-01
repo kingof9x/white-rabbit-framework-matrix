@@ -119,13 +119,15 @@ def test_tray_lid_checkbox(monkeypatch):
 @pytest.mark.skipif(not pe.IS_WINDOWS, reason="Windows power messages")
 def test_windows_listener_starts_and_stops():
     import time
-    watcher = pe.PowerWatcher(lambda s: None)
-    assert watcher.start() is True
-    deadline = time.monotonic() + 5
-    while watcher._hwnd is None and time.monotonic() < deadline:
-        time.sleep(0.05)
-    assert watcher._hwnd, "the hidden power window was not created"
-    assert watcher._thread.is_alive()
-    watcher.stop()
-    watcher._thread.join(timeout=5)
-    assert not watcher._thread.is_alive()
+    # Twice, as when the monitor starts again in the same process (another test may have one running too)
+    for _ in range(2):
+        watcher = pe.PowerWatcher(lambda s: None)
+        assert watcher.start() is True
+        deadline = time.monotonic() + 5
+        while watcher._hwnd is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert watcher._hwnd, "the hidden power window was not created"
+        assert watcher._thread.is_alive()
+        watcher.stop()
+        watcher._thread.join(timeout=5)
+        assert not watcher._thread.is_alive()
