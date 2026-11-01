@@ -387,7 +387,7 @@ class SettingsPane(ttk.Frame):
             target = entry
         else:
             target = entry.setdefault("args", {})
-        if value in (None, "", []) and setting.kind in ("text", "list", "gpu", "sensor", "microphone"):
+        if value in (None, "", []) and setting.kind in ("text", "process", "list", "gpu", "sensor", "microphone"):
             target.pop(setting.key, None)
         else:
             target[setting.key] = value
@@ -527,10 +527,56 @@ class SettingsPane(ttk.Frame):
                           font=("Segoe UI", 8)).pack(anchor="w")
         self.variables.append(var)
 
+    def add_process_picker(self, entry, setting, row, value):
+        """Which program the FPS counter watches: Automatic, or one of the open apps by its window title.
+
+        The list is read again each time it opens, so a game started later shows up, with its FPS.
+        Typing a program's file name still works.
+        """
+        ttk.Label(row, text=setting.label).pack(anchor="w")
+        automatic = "Automatic (the game in front)"
+        choices = {}
+
+        def fill():
+            options, labels = [""], [automatic]
+            for exe, title, rate in catalog.running_apps():
+                options.append(exe)
+                labels.append(f"{title}  · {rate:.0f} FPS" if rate else title)
+            current = self._get(entry, setting) or ""
+            if current and current.lower() not in [o.lower() for o in options]:
+                options.append(current)
+                labels.append(f"{current} (not open now)")
+            choices.clear()
+            choices.update(zip(labels, options))
+            return options, labels
+
+        options, labels = fill()
+        shown = labels[[o.lower() for o in options].index(value.lower())] if value else automatic
+        var = tk.StringVar(value=shown)
+        box = ttk.Combobox(row, textvariable=var, values=labels, width=28)
+        box.configure(postcommand=lambda: box.configure(values=fill()[1]))
+        box.pack(anchor="w")
+
+        def chosen(event=None):
+            text = var.get().strip()
+            new = choices.get(text, "" if text == automatic else text)
+            if new != (self._get(entry, setting) or ""):
+                self._set(entry, setting, new)
+        box.bind("<<ComboboxSelected>>", chosen)
+        box.bind("<FocusOut>", chosen)
+        box.bind("<Return>", chosen)
+        self.variables.append(var)
+
     def add_field(self, entry, setting, side):
         row = ttk.Frame(self.form)
         row.pack(fill="x", pady=3)
         value = self._get(entry, setting)
+        if setting.kind == "process":
+            self.add_process_picker(entry, setting, row, value)
+            if setting.help:
+                ttk.Label(row, text=setting.help, wraplength=240, foreground="#777777",
+                          font=("Segoe UI", 8)).pack(anchor="w")
+            return
         if setting.kind == "sensor_source":
             self.add_sensor_source(row)
             return

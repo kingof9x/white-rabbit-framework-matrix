@@ -107,6 +107,7 @@ def fake_capture(monkeypatch, tmp_path):
         monkeypatch.setattr(fps, "IS_WINDOWS", True)
         monkeypatch.setattr(fps, "find_presentmon", lambda: cmd[0])
         monkeypatch.setattr(fps, "foreground_process_id", lambda: None)
+        monkeypatch.setattr(fps, "foreground_is_full_screen", lambda: False)
         capture = fps.PresentMonCapture(process_name)
         # Run the fake through Python, with PresentMon's arguments
         original = capture.command
@@ -145,6 +146,66 @@ def test_capture_follows_the_app_in_front(fake_capture, monkeypatch):
         assert capture.get() == (0.0, fps.OK)
     finally:
         capture.stop()
+
+
+def test_automatic_keeps_the_full_screen_game_while_other_windows_are_in_front(monkeypatch):
+    now = time.monotonic()
+    frames = [("game.exe", 7, "0xA", i / 60, 1000 / 60) for i in range(60)]
+    frames += [("chrome.exe", 8, "0xB", i / 30, 1000 / 30) for i in range(30)]
+    capture = fps.PresentMonCapture()
+    capture.stats = stats_with(frames, now=now)
+    front = {"pid": 7, "full": True}
+    monkeypatch.setattr(fps, "foreground_process_id", lambda: front["pid"])
+    monkeypatch.setattr(fps, "foreground_is_full_screen", lambda: front["full"])
+
+    assert capture.automatic() == pytest.approx(60)    # the game, full screen
+    front.update(pid=8, full=False)                    # Alt-Tab to a browser playing a video
+    assert capture.automatic() == pytest.approx(60)
+    front.update(pid=99, full=False)                   # this app's window, not drawing
+    assert capture.automatic() == pytest.approx(60)
+
+    # The game stops drawing (closed): back to whatever is in front
+    capture.stats.last_seen[7] = now - fps.STALE_SECONDS - 1
+    front.update(pid=8, full=False)
+    assert capture.automatic() == pytest.approx(30)
+    assert capture.game_pid is None
+
+
+def test_automatic_without_a_game_follows_the_window_in_front(monkeypatch):
+    now = time.monotonic()
+    capture = fps.PresentMonCapture()
+    capture.stats = stats_with([("windowed.exe", 5, "0xA", i / 40, 25.0) for i in range(40)], now=now)
+    monkeypatch.setattr(fps, "foreground_process_id", lambda: 5)
+    monkeypatch.setattr(fps, "foreground_is_full_screen", lambda: False)
+    assert capture.automatic() == pytest.approx(40)
+    assert capture.game_pid is None
+    # The desktop covers the screen but draws nothing: not a game
+    monkeypatch.setattr(fps, "foreground_process_id", lambda: 1)
+    monkeypatch.setattr(fps, "foreground_is_full_screen", lambda: True)
+    assert capture.automatic() == 0.0
+    assert capture.game_pid is None
+
+
+def test_game_picker_lists_open_apps_drawing_frames_first(monkeypatch):
+    now = time.monotonic()
+    stats = stats_with([("eldenring.exe", 7, "0xA", i / 60, 1000 / 60) for i in range(60)]
+                       + [("chrome.exe", 9, "0xB", i / 30, 1000 / 30) for i in range(30)], now=now)
+    windows = [
+        (3, "Discord.exe", "Discord"),
+        (8, "chrome.exe", "Gmail - Google Chrome"),
+        (9, "chrome.exe", "YouTube - Google Chrome"),
+        (7, "eldenring.exe", "ELDEN RING"),
+        (4, "explorer.exe", "Downloads"),
+        (5, "WhiteRabbit.exe", "White Rabbit"),
+        (6, "Notepad.exe", "notes.txt - Notepad"),
+    ]
+    apps = fps.running_apps(stats=stats, windows=windows)
+    assert [(exe, title, round(rate)) for exe, title, rate in apps] == [
+        ("eldenring.exe", "ELDEN RING", 60),
+        ("chrome.exe", "YouTube - Google Chrome", 30),  # one entry per program, named by the window that draws
+        ("Discord.exe", "Discord", 0),
+        ("Notepad.exe", "notes.txt - Notepad", 0),
+    ]
 
 
 def test_access_denied_shows_no_permission(fake_capture, caplog):

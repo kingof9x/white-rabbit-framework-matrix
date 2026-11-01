@@ -69,6 +69,106 @@ def foreground_process_id():
     return pid.value or None
 
 
+def foreground_is_full_screen():
+    """True when the window in front covers its whole screen, like a game in full-screen or borderless mode."""
+    if not IS_WINDOWS:
+        return False
+    import ctypes
+    from ctypes import wintypes
+    user32 = ctypes.windll.user32
+    hwnd = user32.GetForegroundWindow()
+    if not hwnd or hwnd in (user32.GetDesktopWindow(), user32.GetShellWindow()):
+        return False
+    rect = wintypes.RECT()
+    if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+        return False
+
+    class MONITORINFO(ctypes.Structure):
+        _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
+                    ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
+    MONITOR_DEFAULTTONEAREST = 2
+    user32.MonitorFromWindow.restype = wintypes.HMONITOR
+    monitor = user32.MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST)
+    info = MONITORINFO()
+    info.cbSize = ctypes.sizeof(MONITORINFO)
+    if not monitor or not user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
+        return False
+    m = info.rcMonitor
+    return rect.left <= m.left and rect.top <= m.top and rect.right >= m.right and rect.bottom >= m.bottom
+
+
+def open_windows():
+    """[(pid, exe name, window title)] of the apps with a window on the taskbar. Windows only."""
+    if not IS_WINDOWS:
+        return []
+    import ctypes
+    from ctypes import wintypes
+    import psutil
+    user32 = ctypes.windll.user32
+    GWL_EXSTYLE = -20
+    WS_EX_TOOLWINDOW = 0x00000080
+    GW_OWNER = 4
+    found = []
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def visit(hwnd, _):
+        if not user32.IsWindowVisible(hwnd) or user32.GetWindow(hwnd, GW_OWNER):
+            return True
+        if user32.GetWindowLongW(hwnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW:
+            return True
+        length = user32.GetWindowTextLengthW(hwnd)
+        if not length:
+            return True
+        buffer = ctypes.create_unicode_buffer(length + 1)
+        user32.GetWindowTextW(hwnd, buffer, length + 1)
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        found.append((pid.value, buffer.value))
+        return True
+
+    user32.EnumWindows(visit, 0)
+    windows = []
+    for pid, title in found:
+        try:
+            exe = psutil.Process(pid).name()
+        except (psutil.Error, OSError):
+            continue
+        windows.append((pid, exe, title))
+    return windows
+
+
+# Programs that are never the game: this app and Windows' own windows
+NOT_GAMES = {"whiterabbit.exe", "led_mon.exe", "explorer.exe", "applicationframehost.exe",
+             "textinputhost.exe", "shellexperiencehost.exe", "searchhost.exe", "startmenuexperiencehost.exe",
+             "systemsettings.exe", "presentmon.exe"}
+
+
+def running_apps(stats=None, windows=None):
+    """[(exe name, window title, FPS now)] for the game picker, one per program.
+
+    Apps drawing frames right now come first, fastest first, then the other open windows by title.
+    Uses the frames PresentMon has seen (stats), which fill in a moment after the picker first asks.
+    """
+    if stats is None:
+        capture = capture_for(None)
+        capture.touch()
+        stats = capture.stats
+    windows = open_windows() if windows is None else windows
+    own = os.getpid()
+    apps = {}
+    for pid, exe, title in windows:
+        if pid == own or exe.lower() in NOT_GAMES:
+            continue
+        key = exe.lower()
+        # The program's FPS, from whichever of its processes draws; the title of the window that draws
+        rate = max([stats.fps(p) for p in stats.pids_named(exe)] + [stats.fps(pid)])
+        drawing = stats.fps(pid)
+        if key not in apps or drawing > apps[key][3]:
+            apps[key] = (exe, title, rate, drawing)
+    apps = [a[:3] for a in apps.values()]
+    return sorted(apps, key=lambda a: (0, -a[2], "") if a[2] > 0 else (1, 0, a[1].lower()))
+
+
 _job = None
 
 
@@ -171,6 +271,8 @@ class PresentMonCapture:
         self.next_start = 0.0
         self.lock = threading.Lock()
         self.exe = None
+        # Automatic: the full-screen game last seen in front, kept while other windows are in front
+        self.game_pid = None
 
     def command(self, exe):
         cmd = [exe, "--output_stdout", "--no_console_stats", "--session_name", SESSION_NAME,
@@ -272,8 +374,27 @@ class PresentMonCapture:
         if self.process_name:
             pids = self.stats.pids_named(self.process_name)
             return (max((self.stats.fps(p) for p in pids), default=0.0), OK)
+        return self.automatic(), OK
+
+    def automatic(self):
+        """FPS of the full-screen game in front, or of the last one while another window is in front.
+
+        Alt-Tabbing to this app, a chat app or a browser keeps showing the game. With no game seen yet,
+        or once it stops drawing, it shows whatever window is in front.
+        """
         pid = foreground_process_id()
-        return (self.stats.fps(pid) if pid else 0.0), OK
+        front = self.stats.fps(pid) if pid else 0.0
+        if pid and front > 0 and foreground_is_full_screen():
+            self.game_pid = pid
+            return front
+        if self.game_pid is not None:
+            if self.game_pid == pid:
+                return front
+            game = self.stats.fps(self.game_pid)
+            if game > 0:
+                return game
+            self.game_pid = None
+        return front
 
 
 _captures = {}
