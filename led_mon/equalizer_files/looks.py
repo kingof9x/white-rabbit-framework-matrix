@@ -44,7 +44,8 @@ STYLES = [
     ("wave", "Waveform", "The sound wave itself, like an oscilloscope."),
     ("mirror-wave", "Mirror waveform", "The sound wave mirrored around the middle column."),
     ("double-wave", "Double waveform", "Two waves side by side: the left and the right channel."),
-    ("radial", "Radial bars", "Bars that point out from a circle in the middle, one direction per band."),
+    ("radial", "Radial bars", "Bars that point out from a circle in the middle, one direction per band. "
+                              "The left panel is a mirror image of the right one."),
     ("rings", "Rings", "Circles around the middle, bass inside and treble outside; brighter means louder."),
     ("pulse", "Pulse", "A glow in the middle that swells with the beat."),
     ("sparkle", "Sparkle", "LEDs twinkle all over; the louder it gets, the more of them."),
@@ -100,6 +101,11 @@ MIC_PEAK_FALL_DB_PER_SEC = 1.5
 # Bars shorter than this count as nothing; the sum of the bars at or below SILENCE_SUM counts as silence
 DEFAULT_NOISE_GATE = {"playback": 1, "microphone": 2}
 DEFAULT_SILENCE_SUM = {"playback": 2, "microphone": 8}
+# Waveforms are stretched to the recent loudest sample, but no further than to this one (and start here).
+# A laptop's microphone can peak at well under 0.001, so it may be stretched much further than playback;
+# the room's noise is still never drawn, because silence (see above) draws a flat line.
+WAVE_MIN_SCALE = {"playback": 0.002, "microphone": 0.00002}
+WAVE_START_SCALE = {"playback": 0.05, "microphone": 0.001}
 
 
 def _bool(value, default=False):
@@ -294,7 +300,8 @@ class Visualizer:
         self.trail = np.zeros((WIDTH, HEIGHT))
         self.trail_wait = 0.0
         self.sparkle = np.zeros((WIDTH, HEIGHT))
-        self.wave_scale = 0.05
+        self.wave_min_scale = WAVE_MIN_SCALE.get(s["input-mode"], WAVE_MIN_SCALE["playback"])
+        self.wave_scale = WAVE_START_SCALE.get(s["input-mode"], WAVE_START_SCALE["playback"])
         self.pulse = 0.0
         self.clock = 0.0
         self.rng = np.random.default_rng(seed)
@@ -497,7 +504,7 @@ class Visualizer:
     def _update_wave_scale(self, chunk, dt):
         recent = np.asarray(chunk[-1024:], dtype=np.float64)
         peak = float(np.abs(recent - recent.mean()).max()) if len(recent) else 0.0
-        self.wave_scale = max(peak, self.wave_scale * (1.0 - 0.8 * dt), 0.002)
+        self.wave_scale = max(peak, self.wave_scale * (1.0 - 0.8 * dt), self.wave_min_scale)
 
     def _draw_mirror_wave(self, chunk, dt):
         self._update_wave_scale(chunk, dt)
@@ -552,6 +559,9 @@ class Visualizer:
         # The circle in the middle glows with the bass
         bass = float(levels[0]) if n else 0.0
         grid = np.maximum(grid, np.where(np.abs(radius - inner * 0.6) < 0.08, 0.25 + 0.75 * bass, 0.0))
+        if self.side == "left":
+            # The two panels mirror each other: bass points outwards on both
+            grid = grid[::-1, :]
         return grid
 
     def _draw_rings(self, chunk, dt):

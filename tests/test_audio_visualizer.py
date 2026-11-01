@@ -92,6 +92,20 @@ def test_upside_down_flips_the_bars():
     assert np.array_equal(flipped, normal[:, ::-1])
 
 
+@pytest.mark.parametrize("span", [False, True])
+def test_radial_bars_on_the_left_panel_mirror_the_right(span):
+    sound = tone(60) + tone(4000, amplitude=0.2)
+    left = run(looks.Visualizer({"style": "radial", "span-panels": span}, "left"), sound)
+    right = run(looks.Visualizer({"style": "radial", "span-panels": span}, "right"), sound)
+    # Not the same either way round, so the mirroring shows
+    assert not np.array_equal(right, right[::-1, :])
+    if not span:
+        assert np.array_equal(left, right[::-1, :])
+    else:
+        assert np.array_equal(left, run(looks.Visualizer({"style": "radial", "span-panels": True}, "left"),
+                                        sound)) and not np.array_equal(left, right)
+
+
 def test_bars_fall_at_the_chosen_speed():
     def after_silence(speed):
         v = looks.Visualizer({"style": "bars", "fall-speed": speed, "auto-sensitivity": False}, "left")
@@ -133,6 +147,24 @@ def test_microphone_shows_music_above_the_room_noise_at_any_volume(noise, music)
         v.frame(x, 0.03)
         heard.append(v.loudness)
     assert np.mean(heard) > 3 * v.silence_sum
+
+
+# (0.00003, 0.0003): a Framework 16's built-in microphone array peaks at about 0.0003
+@pytest.mark.parametrize("noise, music", [(0.00003, 0.0003), (0.0003, 0.002), (0.003, 0.02)])
+@pytest.mark.parametrize("style", ["wave", "mirror-wave", "double-wave"])
+def test_waveforms_move_with_a_microphone_at_any_volume(style, noise, music):
+    rng = np.random.default_rng(0)
+    v = looks.Visualizer({"style": style, "input-mode": "microphone"}, "left")
+    for x in microphone(noise, 0, 300, rng):
+        flat = v.frame(x, 0.03)
+    widths = []
+    for x in microphone(noise, music, 150, rng, start=9.0):
+        grid = v.frame(x, 0.03)
+        # How many of the 9 columns the wave reaches
+        widths.append(int((grid.max(axis=1) > 0.4).sum()))
+    # The room's hiss alone: one still line. Music: the wave swings across the panel
+    assert int((flat.max(axis=1) > 0.4).sum()) <= 2
+    assert np.mean(widths[-100:]) >= 4
 
 
 def test_sensitivity_makes_bars_taller():
