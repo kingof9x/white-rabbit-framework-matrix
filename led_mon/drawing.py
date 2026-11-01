@@ -165,22 +165,21 @@ def draw_disk_net(grid, disk_values, net_values, fill_value, y):
     draw_short_bar(grid, net_values[1], fill_value, 5, net_top, net_bottom)
 
 # The fps app, on the whole panel: the FPS as up to three digits stacked from the top,
-# and below them a graph of the last 8 seconds, newest at the top, each row's length
-# relative to the highest FPS shown. A "?" means FPS can't be measured (see the log).
-def draw_fps(grid, fps, history, available, fill_value):
+# and below them a graph of GPU use over the last 8 seconds, like the GPU graph app: newest at
+# the top, a longer row is a busier GPU. A "?" means FPS can't be measured (see the log).
+def draw_fps(grid, fps, gpu_history, available, fill_value):
     char_map = {**numerals, **symbols}
     rows = grid.T
     if not available:
         rows[13:19, :] = char_map["?"] * fill_value
-        return
-    text = str(min(999, int(round(fps or 0)))).rjust(3)
-    for i, ch in enumerate(text):
-        if ch != " ":
-            rows[1+i*8:8+i*8, :] = char_map[ch] * fill_value
-    top = max([v for v in history if v] + [1.0])
-    for row, v in zip(range(26, 34), history):
+    else:
+        text = str(min(999, int(round(fps or 0)))).rjust(3)
+        for i, ch in enumerate(text):
+            if ch != " ":
+                rows[1+i*8:8+i*8, :] = char_map[ch] * fill_value
+    for row, v in zip(range(26, 34), gpu_history):
         if v is not None:
-            draw_hbar(grid, v / top, fill_value, row)
+            draw_hbar(grid, v, fill_value, row)
 
 warned = set()
 def draw_snapshot(grid, fill_value, **kwargs):
