@@ -287,3 +287,19 @@ def test_the_visualizer_app_reports_what_it_hears():
         assert plugin.hearing() == {"left": {"device": "USB Mic", "loudness": 12, "silent": False}}
     finally:
         plugin.equalizers.pop("left", None)
+
+
+def test_music_mode_takes_back_panels_lent_to_the_window():
+    pytest.importorskip("psutil")
+    try:
+        from led_mon import led_system_monitor as monitor
+    except Exception as e:
+        pytest.skip(f"full dependencies not installed: {e}")
+    from led_mon import serial_ports
+    serial_ports.hold(["COM9"], owner=1234)
+    try:
+        monitor.set_music_mode(True)
+        assert not serial_ports.is_held("COM9")
+    finally:
+        monitor.set_music_mode(False)
+        serial_ports.release(["COM9"])

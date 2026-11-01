@@ -254,8 +254,15 @@ class MusicTab(ttk.Frame):
     def toggle_music_mode(self):
         action = "off" if self.music_on else "on"
         self.mode_status.configure(text="...")
-        self.window.in_background(lambda: self.window.link.request({"cmd": "music", "action": action}, timeout=5),
-                                  self.show_music_mode)
+
+        def work():
+            if action == "on":
+                # Panels lent to this window (a game, a pattern, the Math tab) don't show the monitor's
+                # drawing, so give them back first
+                self.window.lender.give_back(self.window.panels)
+                self.window.call_soon(self.window.update_bar)
+            return self.window.link.request({"cmd": "music", "action": action}, timeout=5)
+        self.window.in_background(work, self.show_music_mode)
 
     def check_music_mode(self):
         self.window.in_background(lambda: self.window.link.request({"cmd": "music", "action": "status"}, timeout=3),

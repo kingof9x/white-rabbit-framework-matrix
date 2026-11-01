@@ -21,7 +21,7 @@ from led_mon.drawing import draw_outline_border, draw_ids, draw_id, DrawingThrea
 from led_mon.monitors import CPUMonitor, MemoryMonitor, BatteryMonitor, DiskMonitor, NetworkMonitor, get_monitor_brightness
 from led_mon import shared_state
 from led_mon.shared_state import discover_led_devices
-from led_mon.serial_ports import close_all as close_all_ports
+from led_mon.serial_ports import close_all as close_all_ports, release as release_held_ports
 from led_mon.rendering import make_base_app_functions, build_app_kwargs, render_panel
 from led_mon import control
 from led_mon import fps
@@ -144,6 +144,10 @@ music_restart = threading.Event()
 
 def set_music_mode(on):
     if on:
+        # Panels lent to the White Rabbit window ignore the monitor's drawing; music mode takes them back
+        released = release_held_ports()
+        if released:
+            log.info(f"Music mode took back the panels lent to the window: {', '.join(released)}")
         music_mode.set()
     else:
         music_mode.clear()
