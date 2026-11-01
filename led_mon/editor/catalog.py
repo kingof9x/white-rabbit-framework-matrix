@@ -25,7 +25,7 @@ GLOBAL = "global"
 class Setting:
     key: str
     label: str
-    kind: str                     # bool | choice | text | int | list | multi | snapshot | gpu | sensor | sensor_source | microphone
+    kind: str                     # bool | choice | text | int | list | multi | snapshot | gpu | sensor | sensor_source | microphone | location_source
     default: object = None
     options: tuple = ()
     target: str = ARGS
@@ -73,7 +73,10 @@ APPS = [
     ]),
     AppInfo("weather", "Weather", "Current weather or a forecast, from your location.", FULL, [
         Setting("units", "Units", "choice", "metric", ("metric", "imperial", "standard")),
-        Setting("zip_info", "Zip / postcode, country", "list", [], help='For example: 10001, US. Blank to find your location automatically'),
+        Setting("location_source", "Location", "location_source", "manual", ("manual", "windows"),
+                labels=("Typed in below", "Windows Location")),
+        Setting("zip_info", "Zip / postcode, country", "list", [], help='For example: 10001, US. If this and the '
+                'coordinates are blank, your location is worked out from your internet address'),
         Setting("lat_lon", "Latitude, longitude", "list", [], help="Used instead of the zip code if set"),
         Setting("measures", "Show", "multi", ["temp_condition", "wind_chill", "wind"], ("temp_condition", "wind_chill", "wind")),
         Setting("measures-duration", "Seconds per measure", "int", 20),

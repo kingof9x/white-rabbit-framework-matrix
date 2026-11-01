@@ -18,6 +18,11 @@ pystray >= 0.19.5; sys_platform == "win32"
 pywin32 >= 306; sys_platform == "win32"
 wmi >= 1.5.1; sys_platform == "win32"
 tzdata; sys_platform == "win32"
+# Windows only: Windows Location for the weather app
+winrt-runtime >= 3.0; sys_platform == "win32"
+winrt-Windows.Devices.Geolocation; sys_platform == "win32"
+winrt-Windows.Foundation; sys_platform == "win32"
+winrt-Windows.Foundation.Collections; sys_platform == "win32"
 # LED Matrix controls (inputmodule): images, the Snake and Ledris games
 pillow >= 10.0.0
 pygame == 2.6.1

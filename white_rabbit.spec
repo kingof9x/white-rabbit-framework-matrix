@@ -26,7 +26,7 @@ hiddenimports = [
     'scipy.linalg._flapack', 'scipy.signal',
     # Plugins are loaded from files at runtime, so PyInstaller can't see what they import
     'led_mon.patterns', 'led_mon.drawing', 'led_mon.shared_state', 'led_mon.framework_tool',
-    'led_mon.sensor_sources', 'led_mon.framework_control_sensors', 'led_mon.libre_hardware_monitor_sensors',
+    'led_mon.sensor_sources', 'led_mon.windows_location', 'led_mon.framework_control_sensors', 'led_mon.libre_hardware_monitor_sensors',
     'led_mon.equalizer_files.visualize', 'led_mon.equalizer_files.looks', 'led_mon.equalizer_files.audio', 'soundcard',
     # The layout editor is imported only when started with --edit-layout
     'led_mon.rendering', 'led_mon.control', 'led_mon.editor', 'led_mon.editor.window', 'led_mon.editor.preview',
@@ -49,6 +49,10 @@ if IS_WINDOWS:
         'soundcard', 'pystray', 'pystray._win32', 'PIL', 'PIL.ImageTk', 'wmi', 'win32com', 'win32com.client', 'pythoncom',
         'serial.tools.list_ports_windows', 'tzdata', 'win32pdh',
     ]
+    # Windows Location for the weather app (WinRT). winrt-runtime's own PyInstaller hook adds each
+    # namespace's _table.pywinrt data file; these are named because the app imports them lazily.
+    hiddenimports += ['winrt.windows.devices.geolocation', 'winrt.windows.foundation', 'winrt.windows.foundation.collections',
+                      'winrt.system', 'winrt.runtime']
     # soundcard reads its C header at runtime; zoneinfo needs the tzdata database on Windows
     datas += collect_data_files('soundcard') + collect_data_files('tzdata')
     # Build the exe icon from the same drawing as the tray icon

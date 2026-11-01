@@ -369,7 +369,8 @@ class SettingsPane(ttk.Frame):
         info = catalog.get(entry["name"])
         self.title.configure(text=info.label)
         self.description.configure(text=f"{info.description}\n{where}")
-        settings = [st for st in info.settings if st.kind != "sensor_source" or platform_utils.IS_WINDOWS]
+        settings = [st for st in info.settings
+                    if st.kind not in ("sensor_source", "location_source") or platform_utils.IS_WINDOWS]
         if not settings:
             ttk.Label(self.form, text="This app has no settings.").pack(anchor="w")
             return
@@ -427,6 +428,66 @@ class SettingsPane(ttk.Frame):
         self.editor.show_sensor_status(monitor.get("sensor_source") if monitor else None)
         self.variables += [source_var, refresh_var]
 
+    def add_location_source(self, entry, setting, row, value):
+        """Where the weather is for: the zip code / coordinates typed in, or Windows Location."""
+        from led_mon import windows_location
+        ttk.Label(row, text=setting.label).pack(anchor="w")
+        options = list(setting.options)
+        labels = list(setting.labels)
+        var = tk.StringVar(value=labels[options.index(value)] if value in options else labels[0])
+        box = ttk.Combobox(row, textvariable=var, values=labels, state="readonly", width=28)
+        box.pack(anchor="w")
+        help_label = ttk.Label(row, text="", wraplength=240, justify="left", foreground="#777777",
+                               font=("Segoe UI", 8))
+        help_label.pack(anchor="w")
+        status = ttk.Label(row, text="", wraplength=240, justify="left")
+        status.pack(anchor="w", pady=(4, 0))
+        buttons = ttk.Frame(row)
+        check = ttk.Button(buttons, text="Check again", width=12)
+        check.pack(side="left")
+        ttk.Button(buttons, text="Windows settings", command=windows_location.open_settings).pack(side="left", padx=(4, 0))
+
+        def show_status(text, ok):
+            if status.winfo_exists():
+                status.configure(text=text, foreground="#2f6f3e" if ok else "#a15c00")
+                check.state(["!disabled"])
+
+        def look_up(refresh=True):
+            check.state(["disabled"])
+            status.configure(text="Asking Windows where this computer is...", foreground="#777777")
+
+            def work():
+                try:
+                    lat, lon, accuracy = windows_location.get_position(refresh=refresh)
+                    near = f" (within about {accuracy:.0f} m)" if accuracy else ""
+                    text, ok = f"Windows Location is on. This computer is near {lat:.2f}, {lon:.2f}{near}.", True
+                except windows_location.LocationUnavailable as e:
+                    text, ok = (f"{windows_location.MESSAGES.get(e.reason, str(e))} Until then the weather uses the "
+                                "location typed in below, or your internet address if that's blank."), False
+                except Exception as e:
+                    text, ok = f"Couldn't ask Windows: {e}", False
+                self.editor.call_soon(lambda: show_status(text, ok))
+            threading.Thread(target=work, daemon=True).start()
+        check.configure(command=look_up)
+
+        def update(changed=False):
+            windows = options[labels.index(var.get())] == "windows"
+            help_label.configure(text="Follows the laptop as it moves, using Windows' own location (Wi-Fi, GPS). "
+                                 "If Windows can't give a location, the zip code or coordinates below are used."
+                                 if windows else "The zip code or coordinates below. If both are blank, your "
+                                 "location is worked out from your internet address.")
+            if windows:
+                buttons.pack(anchor="w", pady=(4, 0))
+                look_up(refresh=False)
+            else:
+                status.configure(text="")
+                buttons.pack_forget()
+            if changed:
+                self._set(entry, setting, options[labels.index(var.get())])
+        box.bind("<<ComboboxSelected>>", lambda e: update(changed=True))
+        update()
+        self.variables.append(var)
+
     def add_sensor_picker(self, entry, setting, row, value):
         """Which sensor one of the Temperatures app's numbers shows; blank picks one automatically."""
         from led_mon import sensor_sources
@@ -472,6 +533,9 @@ class SettingsPane(ttk.Frame):
         value = self._get(entry, setting)
         if setting.kind == "sensor_source":
             self.add_sensor_source(row)
+            return
+        if setting.kind == "location_source":
+            self.add_location_source(entry, setting, row, value)
             return
         if setting.kind == "sensor":
             self.add_sensor_picker(entry, setting, row, value)

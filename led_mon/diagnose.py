@@ -85,6 +85,13 @@ def report(config_file=None, device_list=None, find_apps=None, read_sensors=None
             lines += read_sensors()
         except Exception as e:
             lines.append(f"Could not read temperatures and fans: {e}")
+    if platform_utils.IS_WINDOWS:
+        lines.append("")
+        try:
+            from led_mon import windows_location
+            lines.append(f"Windows Location (weather): {windows_location.describe()}")
+        except Exception as e:
+            lines.append(f"Windows Location (weather): could not be checked ({e})")
     return lines
 
 
