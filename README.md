@@ -221,8 +221,8 @@ worked in led_mon or LED Matrix Control, but need checking again here.
 - [x] The portable `WhiteRabbit.exe` starts and both panels light up
 - [x] After logging in, only the tray icon starts (no window), and *Start with Windows* in the tray turns that on and off
 - [x] Opening the app again, or the tray's *Open White Rabbit...*, shows the window (only one window at a time)
-- [ ] Installing a newer version over an old one keeps the settings and the layout
-- [ ] Uninstalling from *Settings > Apps* removes the app and the startup entry
+- [x] Installing a newer version over an old one keeps the settings and the layout
+- [x] Uninstalling from *Settings > Apps* removes the app and the startup entry
 - [x] An existing led_mon layout, brightness and `.env` are picked up on the first start
 
 **Sharing the panels between monitor and controls**
@@ -231,7 +231,7 @@ worked in led_mon or LED Matrix Control, but need checking again here.
 - [x] Saving the startup animation plays it once, then the monitor comes back by itself after about 10 seconds
 - [x] Closing the window while a game runs gives the panel back to the monitor
 - [x] With the tray app quit, the window's controls still work on their own
-- [ ] If another program (like the old `ledmatrixgui.exe` or led_mon) holds a panel, the Firmware tab says so
+- [x] If another program (like the old `ledmatrixgui.exe` or led_mon) holds a panel, the Firmware tab says so
 
 **Panels**
 - [x] Left and right panels are detected the right way round; if not, the *Port* boxes on the Panels tab fix it
@@ -256,10 +256,10 @@ worked in led_mon or LED Matrix Control, but need checking again here.
 - [x] CPU cores shows every core; CPU graph and GPU graph move with the load
 - [x] Disk, network and disk + network react to copying files and downloading
 - [x] Memory + battery shows the battery and the charging animation
-- [ ] Temperatures and fans show values with `framework_tool.exe`
-- [ ] Clock, weather (needs an API key) and equalizer work
-- [ ] FPS counter shows a game's frame rate after the one-time *Performance Log Users* setup
-- [ ] Keyboard shortcuts work and don't steal `Alt`+`F` from other programs
+- [x] Temperatures and fans show values with `framework_tool.exe`
+- [x] Clock, weather (needs an API key) and equalizer work
+- [x] FPS counter shows a game's frame rate after the one-time *Performance Log Users* setup
+- [x] Keyboard shortcuts work and don't steal `Alt`+`F` from other programs
 
 **Startup animation tab**
 - [x] *Always this one* plays the chosen animation at every power on *(confirmed in the old app)*
@@ -267,7 +267,7 @@ worked in led_mon or LED Matrix Control, but need checking again here.
 - [x] *Random* still picks different animations
 - [x] *None*: the panels stay dark until the app uses them
 - [x] The setting survives a full shutdown, not just a restart
-- [ ] With Framework's official firmware, the tab says the setting needs the White Rabbit firmware
+- [x] With Framework's official firmware, the tab says the setting needs the White Rabbit firmware
 
 **Games & patterns tab**
 - [x] Each Game of Life pattern starts, and *Stop* ends it
@@ -278,7 +278,7 @@ worked in led_mon or LED Matrix Control, but need checking again here.
 **Keyboard shortcuts tab**
 - [x] All four shortcuts are listed with `Ctrl`+`Alt`+`Shift` keys
 - [x] Unticking a shortcut stops it working straight away; ticking it again brings it back
-- [ ] The choice is remembered after quitting and starting White Rabbit again
+- [x] The choice is remembered after quitting and starting White Rabbit again
 
 **Firmware tab**
 - [x] *Installed firmware* shows the right version and whether the startup setting is there
@@ -286,7 +286,7 @@ worked in led_mon or LED Matrix Control, but need checking again here.
 - [x] *Flash* with the White Rabbit firmware works on each panel, and the monitor comes back afterwards
 - [x] *Flash* with a `.uf2` file you choose works *(confirmed 2026-10-28 with the Patterns 2 to 5 test firmware)*
 - [ ] The bundled White Rabbit firmware includes Patterns 2 to 5 (builds made after 2026-10-28 06:00 UTC)
-- [ ] Flashing Framework's official firmware and back again works, and keeps the saved startup setting
+- [x] Flashing Framework's official firmware and back again works, and keeps the saved startup setting
 - [x] No flicker while the monitor is running *(confirmed with the 0.2.0-based firmware)*
 
 ## Making a release
@@ -346,4 +346,11 @@ from scratch from the textbook definitions of each graph and simulation.
 **Waiting on:** Callum: run the testing checklist  
 **Notes:** One tray app combining led_mon and the LED Matrix controls. Not released yet. Newest additions: Keyboard shortcuts tab, Open Hardware Monitor finder fixes.  
 **Last updated:** 2026-11-01
+
+### Task list
+
+- [ ] windows system tray - app missing from taskbar personalization preventing the white rabbit tray icon from being persistent.
+- [ ] change icon - white rabbit or white version of current icon
+- [ ] new tray icon + pin tray icon
+- [ ] new fps monitor app picket
 
