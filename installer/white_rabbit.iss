@@ -39,10 +39,13 @@ AppMutex=WhiteRabbit_single_instance,WhiteRabbit_window
 Source: "..\dist\WhiteRabbit\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\White Rabbit"; Filename: "{app}\WhiteRabbit.exe"
+; Same app ID as the running exe (led_mon/platform_utils.py APP_USER_MODEL_ID), so Windows matches them up
+Name: "{group}\White Rabbit"; Filename: "{app}\WhiteRabbit.exe"; AppUserModelID: "kingof9x.WhiteRabbit"
 Name: "{group}\Uninstall White Rabbit"; Filename: "{uninstallexe}"
 
 [Registry]
+; The app ID's display name (the exe writes it too, for the portable copy); removed on uninstall
+Root: HKCU; Subkey: "Software\Classes\AppUserModelId\kingof9x.WhiteRabbit"; ValueType: string; ValueName: "DisplayName"; ValueData: "White Rabbit"; Flags: uninsdeletekey
 ; Start with Windows on a first install (monitor and tray icon only, no window). After that it is up to
 ; the "Start with Windows" item in the tray menu (the same registry value), so an update does not turn it back on.
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "WhiteRabbit"; ValueData: """{app}\WhiteRabbit.exe"" --background"; Flags: uninsdeletevalue; Check: not IsUpgrade

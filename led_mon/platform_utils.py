@@ -245,6 +245,29 @@ def enable_dpi_awareness():
         pass
 
 
+# White Rabbit's app ID: Windows uses it to tell the app apart (tray icon list, taskbar button, notifications).
+# The Start menu shortcut made by the installer carries the same ID. Changing it makes Windows forget settings.
+APP_USER_MODEL_ID = "kingof9x.WhiteRabbit"
+
+
+def set_app_user_model_id():
+    """Give this process White Rabbit's app ID (Windows exe only), and register the ID's name for this user so
+    Windows can show "White Rabbit" for it even when the portable exe runs without the installer's shortcut."""
+    if not IS_WINDOWS or not is_frozen():
+        return
+    try:
+        import winreg
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, rf"Software\Classes\AppUserModelId\{APP_USER_MODEL_ID}") as key:
+            winreg.SetValueEx(key, "DisplayName", 0, winreg.REG_SZ, DISPLAY_NAME)
+    except Exception as e:
+        log.debug(f"Could not register the app ID: {e}")
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(ctypes.c_wchar_p(APP_USER_MODEL_ID))
+    except Exception as e:
+        log.warning(f"Could not set the app ID: {e}")
+
+
 def subprocess_flags():
     """creationflags that stop a console window flashing up when a windowless app runs a tool."""
     if IS_WINDOWS:

@@ -43,6 +43,8 @@ def run_monitor(argv):
 
 def run(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
+    # Before any window or tray icon exists, so Windows files them all under White Rabbit
+    platform_utils.set_app_user_model_id()
     platform_utils.load_env_file()
     platform_utils.setup_logging()
     try:
