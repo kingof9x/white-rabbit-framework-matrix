@@ -17,7 +17,7 @@ from led_mon import platform_utils
 from led_mon.platform_utils import IS_WINDOWS, IS_LINUX
 # Load API keys before the plugins are imported (via drawing) and read them
 platform_utils.load_env_file()
-from led_mon.drawing import draw_outline_border, draw_ids, draw_id, DrawingThread
+from led_mon.drawing import draw_outline_border, draw_ids, draw_id, DrawingThread, SLEEP_PANEL
 from led_mon.monitors import CPUMonitor, MemoryMonitor, BatteryMonitor, DiskMonitor, NetworkMonitor, get_monitor_brightness
 from led_mon import shared_state
 from led_mon.shared_state import discover_led_devices
@@ -135,6 +135,30 @@ def set_paused(paused):
 
 def is_paused():
     return display_paused.is_set()
+
+# Set while the lid is closed, the screen is off or the PC is going to sleep: the panels sleep until then
+power_sleep = threading.Event()
+power_watcher = None
+
+def on_power_change(should_sleep):
+    if should_sleep and app_settings.load_settings().get("turn_off_with_lid", True):
+        power_sleep.set()
+    else:
+        power_sleep.clear()
+
+def set_turn_off_with_lid(enabled):
+    """Tray checkbox: turn the panels off when the lid closes or the screen turns off."""
+    settings = app_settings.load_settings()
+    settings["turn_off_with_lid"] = bool(enabled)
+    app_settings.save_settings(settings)
+    log.info("Turn off with lid " + ("on" if enabled else "off"))
+    if not enabled:
+        power_sleep.clear()
+    elif power_watcher is not None and power_watcher.state.should_sleep:
+        power_sleep.set()
+
+def is_turn_off_with_lid():
+    return bool(app_settings.load_settings().get("turn_off_with_lid", True))
 
 # pynput key helpers: Windows reports left/right Alt as alt_l / alt_r (or alt_gr)
 def is_alt_key(key):
@@ -504,6 +528,7 @@ def app(args, base_apps, plugin_apps):
 
     previewing = False
     blanked = False
+    panels_asleep = False
 
     def handle_control_request(message):
         cmd = message.get('cmd')
@@ -540,14 +565,15 @@ def app(args, base_apps, plugin_apps):
 
     def render_iteration(args):
         global latch_key_combo, next_key_fired, freeze_app_switching, evdev_next_key_pressed
-        nonlocal previewing, blanked
+        nonlocal previewing, blanked, panels_asleep
         try:
             if reload_config_event.is_set():
                 reload_config_event.clear()
                 reload_config()
 
-            # Animation stopped from the tray: turn the panels off once, then wait
-            if display_paused.is_set():
+            # Animation stopped from the tray, or the lid is closed: turn the panels off once, then wait
+            lid_sleep = power_sleep.is_set()
+            if display_paused.is_set() or lid_sleep:
                 if not blanked:
                     # Stop apps that draw on their own (the equalizer) so they don't light the panels
                     dispose_active_apps()
@@ -556,11 +582,18 @@ def app(args, base_apps, plugin_apps):
                         draw_queue.put((np.zeros((9,34), dtype = int), False))
                         draw_queue.put((np.zeros((9,34), dtype = int), None))
                     blanked = True
+                if lid_sleep and not panels_asleep:
+                    # Also send the panels to sleep, so they turn their LEDs off. The first frame
+                    # after the lid opens wakes them up again.
+                    for draw_queue in drawing_queues:
+                        draw_queue.put(SLEEP_PANEL)
+                    panels_asleep = True
                 time.sleep(0.25)
                 # Restart panel animations when the display comes back, as after the ID display
                 latch_key_combo = True
                 return
             blanked = False
+            panels_asleep = False
 
             screen_brightness = brightness.ratio(get_monitor_brightness)
             background_value = int(screen_brightness * (max_background_brightness - min_background_brightness) + min_background_brightness)
@@ -794,7 +827,12 @@ def app(args, base_apps, plugin_apps):
                 log.info("Keyboard shortcuts: all turned off")
 
     def run_main_loop():
+        global power_watcher
         platform_utils.init_com_for_thread()
+        # Windows: turn the panels off when the lid closes or the screen turns off
+        from led_mon import power_events
+        power_watcher = power_events.PowerWatcher(on_power_change)
+        power_watcher.start()
         start_hotkeys()
         # Prefer pynput if available; fall back silently if it fails to start (common on Wayland)
         if PYNPUT_AVAILABLE and not args.no_key_listener:
@@ -839,6 +877,8 @@ def app(args, base_apps, plugin_apps):
             edit_layout=lambda: open_layout_editor(args),
             set_paused=set_paused,
             is_paused=is_paused,
+            set_turn_off_with_lid=set_turn_off_with_lid,
+            is_turn_off_with_lid=is_turn_off_with_lid,
             show_brightness=brightness_popup.show,
             ohm_path=app_settings.load_settings().get("open_hardware_monitor_path", ""),
         )

@@ -19,6 +19,8 @@ DEFAULT_SETTINGS = {
     "brightness_level": 70,
     # Full path to OpenHardwareMonitor.exe, or the folder it is in. Empty: look for it automatically.
     "open_hardware_monitor_path": "",
+    # Turn the panels off while the lid is closed, the screen is off or the PC is going to sleep
+    "turn_off_with_lid": True,
 }
 
 

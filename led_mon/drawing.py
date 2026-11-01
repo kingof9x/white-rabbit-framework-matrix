@@ -22,6 +22,9 @@ from serial.tools import list_ports
 
 log = logging.getLogger(__name__)
 
+# Put this on a drawing queue to send the panel to sleep (LEDs off). Any later frame wakes it again.
+SLEEP_PANEL = "sleep"
+
 # Correct table orientation for visual orientation when drawn
 for i in range(lookup_table.shape[0]):
     lookup_table[i] = lookup_table[i].T
@@ -452,6 +455,11 @@ class DrawingThread(threading.Thread):
                 item = self.input_queue.get()
                 if item is None:  # Sentinel to exit cleanly
                     break
+                if item == SLEEP_PANEL:
+                    # The firmware fades the panel out and turns its LEDs off until the next command
+                    if self.serial_port is not None:
+                        send_command(self.serial_port, Commands.Sleep, parameters=[1])
+                    continue
                 grid, animate = item
 
                 if animate is not None:

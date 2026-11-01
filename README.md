@@ -45,6 +45,9 @@ and comes back when you press *Stop* or *Back to system monitor*.
 - **Whole-panel apps:** clock, weather, music equalizer, FPS counter for
   games, picture.
 - Brightness follows the laptop screen, or set it yourself.
+- The panels turn off when you close the lid, when the screen turns off, or
+  when the laptop goes to sleep, and come back when you open it. Turn this
+  off with *Turn off when lid closes* in the tray menu.
 - Runs in the tray and starts with Windows. Keyboard shortcuts
   (`Ctrl`+`Alt`+`Shift` + `I` / `N` / `F` / `U`) show the app names, skip to
   the next app, and freeze or unfreeze app switching. Each one can be turned
