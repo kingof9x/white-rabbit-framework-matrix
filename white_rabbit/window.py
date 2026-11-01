@@ -1,6 +1,6 @@
 # The White Rabbit window: the layout editor and the LED Matrix controls in one place.
 #
-# Tabs: Panels (layout editor), Startup animation, Games & patterns, Math, Firmware, Keyboard shortcuts.
+# Tabs: Panels (layout editor), Startup animation, Games & patterns, Math, Music, Firmware, Keyboard shortcuts.
 # The bar at the bottom picks which panels the controls act on, and shows whether each panel is
 # showing the system monitor or something from this window. Playing a game or showing a pattern
 # borrows the panel from the monitor; "Back to system monitor" returns it.
@@ -15,7 +15,7 @@ from tkinter import ttk
 
 # Internal Dependencies
 from led_mon import platform_utils
-from white_rabbit import bridge, math_tab, panels as panels_mod, tabs
+from white_rabbit import bridge, math_tab, music, panels as panels_mod, tabs
 
 log = logging.getLogger(__name__)
 
@@ -133,14 +133,19 @@ class WhiteRabbitWindow:
         self.notebook.add(self.play_tab, text="Games & patterns")
         self.math_tab = math_tab.MathTab(self.notebook, self)
         self.notebook.add(self.math_tab, text="Math")
+        self.music_tab = music.MusicTab(self.notebook, self)
+        self.notebook.add(self.music_tab, text="Music")
         self.firmware_tab = tabs.FirmwareTab(self.notebook, self)
         self.notebook.add(self.firmware_tab, text="Firmware")
         self.shortcuts_tab = tabs.ShortcutsTab(self.notebook, self)
         self.notebook.add(self.shortcuts_tab, text="Keyboard shortcuts")
-        tab = {"startup": self.startup_tab, "play": self.play_tab, "firmware": self.firmware_tab,
-               "shortcuts": self.shortcuts_tab, "math": self.math_tab}.get(start_tab)
+        tab = {"startup": self.startup_tab, "play": self.play_tab, "math": self.math_tab, "music": self.music_tab,
+               "firmware": self.firmware_tab, "shortcuts": self.shortcuts_tab}.get(start_tab)
         if tab is not None:
             self.notebook.select(tab)
+        # The Music tab listens to the sound only while it is showing
+        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
+        self.root.after(300, self.on_tab_changed)
 
         self.root.after(100, self.poll_ui_calls)
         self.root.after(200, self.check_monitor)
@@ -176,6 +181,8 @@ class WhiteRabbitWindow:
             text = "The system monitor isn't running"
         elif borrowed:
             text = "Showing White Rabbit controls on: " + ", ".join(f"{p.side} panel" for p in borrowed)
+        elif getattr(getattr(self, "music_tab", None), "music_on", False):
+            text = "Panels are showing music mode"
         else:
             text = "Panels are showing the system monitor"
         self.bar_status.configure(text=text)
@@ -286,6 +293,12 @@ class WhiteRabbitWindow:
         self.module_info = {}
         self.in_background(work, done)
 
+    def on_tab_changed(self, event=None):
+        try:
+            self.music_tab.set_visible(self.notebook.select() == str(self.music_tab))
+        except Exception as e:
+            log.error(f"Could not start the Music tab's preview: {e}")
+
     def on_layout_dirty(self, dirty):
         self.notebook.tab(self.panels_tab, text="Panels *" if dirty else "Panels")
 
@@ -293,6 +306,7 @@ class WhiteRabbitWindow:
         if self.editor is not None and not self.editor.close():
             return
         borrowed = [p for p in self.panels if self.lender.is_borrowed(p)]
+        self.music_tab.set_visible(False)
         if borrowed:
             # Give the panels back before closing; the monitor also notices a closed window by itself
             try:

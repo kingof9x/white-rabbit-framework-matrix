@@ -21,7 +21,7 @@ from led_mon.drawing import draw_outline_border, draw_ids, draw_id, DrawingThrea
 from led_mon.monitors import CPUMonitor, MemoryMonitor, BatteryMonitor, DiskMonitor, NetworkMonitor, get_monitor_brightness
 from led_mon import shared_state
 from led_mon.shared_state import discover_led_devices
-from led_mon.serial_ports import close_all as close_all_ports
+from led_mon.serial_ports import close_all as close_all_ports, release as release_held_ports
 from led_mon.rendering import make_base_app_functions, build_app_kwargs, render_panel
 from led_mon import control
 from led_mon import fps
@@ -135,6 +135,42 @@ def set_paused(paused):
 
 def is_paused():
     return display_paused.is_set()
+
+# Music mode (tray, Ctrl+Alt+Shift+M or the window's Music tab): both panels show the audio visualizer,
+# with the look last picked in the Music tab, until it is turned off. Not remembered after a restart.
+music_mode = threading.Event()
+# Set when the Music tab changes the look, so the visualizer starts again with it
+music_restart = threading.Event()
+
+def set_music_mode(on):
+    if on:
+        # Panels lent to the White Rabbit window ignore the monitor's drawing; music mode takes them back
+        released = release_held_ports()
+        if released:
+            log.info(f"Music mode took back the panels lent to the window: {', '.join(released)}")
+        music_mode.set()
+    else:
+        music_mode.clear()
+    log.info("Music mode " + ("on" if on else "off"))
+
+def is_music_mode():
+    return music_mode.is_set()
+
+def toggle_music_mode():
+    set_music_mode(not is_music_mode())
+
+def handle_music_request(message):
+    """Control channel command 'music': action on | off | toggle | reload | status."""
+    action = message.get('action', 'status')
+    if action == 'on':
+        set_music_mode(True)
+    elif action == 'off':
+        set_music_mode(False)
+    elif action == 'toggle':
+        toggle_music_mode()
+    elif action == 'reload':
+        music_restart.set()
+    return {'music_mode': is_music_mode()}
 
 # Set while the lid is closed, the screen is off or the PC is going to sleep: the panels sleep until then
 power_sleep = threading.Event()
@@ -450,6 +486,8 @@ def app(args, base_apps, plugin_apps):
                 freeze_app_switching = True
             elif char == 'u' and alt_pressed:
                 freeze_app_switching = False
+            elif char == 'm' and alt_pressed:
+                toggle_music_mode()
             elif is_alt_key(key):
                 alt_pressed = True
         except Exception:
@@ -502,7 +540,44 @@ def app(args, base_apps, plugin_apps):
     # Used to detect that the key listener was activated, for restoring anination mode after ID display
     global latch_key_combo
     latch_key_combo = False
+    music_running = False
+    music_args = {}
+
+    def stop_music():
+        nonlocal music_running
+        if music_running and 'equalizer_dispose' in app_functions:
+            for side in ('left', 'right'):
+                try:
+                    app_functions['equalizer_dispose'](side=side)
+                except Exception as e:
+                    log.error(f"Error stopping music mode on the {side} panel: {e}")
+        music_running = False
+
+    def run_music(foreground_value):
+        """Start (or keep running) the audio visualizer on every panel for music mode."""
+        nonlocal music_running
+        if 'equalizer' not in app_functions:
+            log.error("Music mode needs the audio visualizer plugin, which isn't loaded")
+            set_music_mode(False)
+            return
+        if music_restart.is_set():
+            music_restart.clear()
+            stop_music()
+        if not music_running:
+            # Read the Music tab's choices when music mode starts (or the tab changed them)
+            music_args.clear()
+            music_args.update(app_settings.load_music())
+        music_running = True
+        for side in ('left', 'right')[:len(drawing_queues)]:
+            try:
+                app_functions['equalizer'](None, np.zeros((9,34), dtype = int), foreground_value, 0,
+                                           **dict(music_args, side=side))
+            except Exception as e:
+                log.error(f"Error running music mode on the {side} panel: {e}")
+
     def dispose_active_apps():
+        # Music mode's visualizers draw on their own too
+        stop_music()
         for quadrant, apps in quads.items():
             app = apps[app_idx[quadrant]]
             dispose_fn = app.get('dispose-fn', None)
@@ -555,6 +630,13 @@ def app(args, base_apps, plugin_apps):
         if cmd == 'identify':
             request_identify()
             return {}
+        if cmd == 'music':
+            reply = handle_music_request(message)
+            # What music mode hears, so the Music tab can show it
+            plugin = sys.modules.get('equalizer')
+            if music_running and plugin is not None and hasattr(plugin, 'hearing'):
+                reply['hearing'] = plugin.hearing()
+            return reply
         if cmd == 'shortcuts':
             # The window turned shortcuts on or off in settings.json
             enabled = shortcuts.reload()
@@ -576,7 +658,7 @@ def app(args, base_apps, plugin_apps):
 
     def render_iteration(args):
         global latch_key_combo, next_key_fired, freeze_app_switching, evdev_next_key_pressed
-        nonlocal previewing, blanked, panels_asleep
+        nonlocal previewing, blanked, panels_asleep, music_running
         try:
             if reload_config_event.is_set():
                 reload_config_event.clear()
@@ -767,6 +849,23 @@ def app(args, base_apps, plugin_apps):
                 return
             previewing = False
 
+            # Music mode: the audio visualizer on both panels instead of the layout's apps
+            if music_mode.is_set():
+                if not music_running:
+                    # Stop the layout's own self-drawing apps (an audio visualizer) first
+                    dispose_active_apps()
+                run_music(foreground_value)
+                time.sleep(0.1)
+                latch_key_combo = True
+                return
+            if music_running:
+                stop_music()
+                # The layout's apps come back; an app that draws on its own starts again by itself
+                for quadrant in suppressed_panel_apps:
+                    suppressed_panel_apps[quadrant] = None
+                for draw_queue, changed in idx_changed.items():
+                    idx_changed[draw_queue] = True
+
             for i, draw_queue in enumerate(drawing_queues):
                 grid = np.zeros((9,34), dtype = int)
                 if i == 0:
@@ -825,6 +924,7 @@ def app(args, base_apps, plugin_apps):
             'n': request_next_app,
             'f': lambda: set_freeze(True),
             'u': lambda: set_freeze(False),
+            'm': toggle_music_mode,
         }
         with hotkey_lock:
             if hotkey_thread is not None:
@@ -890,6 +990,8 @@ def app(args, base_apps, plugin_apps):
             is_paused=is_paused,
             set_turn_off_with_lid=set_turn_off_with_lid,
             is_turn_off_with_lid=is_turn_off_with_lid,
+            set_music_mode=set_music_mode,
+            is_music_mode=is_music_mode,
             show_brightness=brightness_popup.show,
             lhm_path=app_settings.load_settings().get("libre_hardware_monitor_path", ""),
         )

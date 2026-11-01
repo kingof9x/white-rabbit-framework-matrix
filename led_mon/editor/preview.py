@@ -13,7 +13,7 @@ import importlib.util
 from led_mon import platform_utils, control, fps, app_settings
 from led_mon.rendering import make_base_app_functions, render_panel, DEFAULT_FOREGROUND, DEFAULT_BACKGROUND
 from led_mon.monitors import CPUMonitor, MemoryMonitor, BatteryMonitor, DiskMonitor, NetworkMonitor
-from led_mon.equalizer_files.visualize import eq_grid
+from led_mon.equalizer_files import looks
 
 # External Dependencies
 import numpy as np
@@ -44,11 +44,24 @@ def plugin_app_functions():
     return functions
 
 
+_preview_visualizers = {}
+
+
 def fake_equalizer(arg, grid, foreground_value, idx, **kwargs):
-    """The real equalizer draws on the panel itself, so the preview shows moving bars instead."""
-    t = time.monotonic()
-    levels = [14 + 12 * math.sin(t * 3.1 + c * 0.8) * math.sin(t * 1.3 + c * 0.35) for c in range(9)]
-    grid[:, :] = eq_grid([abs(v) for v in levels]) * foreground_value // 255
+    """The real audio visualizer draws on the panel itself, so the preview plays made-up music through the chosen look."""
+    side = kwargs.get("side", "left")
+    settings = looks.normalize(kwargs)
+    key = (side, tuple(sorted((k, str(v)) for k, v in settings.items())))
+    now = time.monotonic()
+    entry = _preview_visualizers.get(key)
+    if entry is None:
+        if len(_preview_visualizers) > 16:
+            _preview_visualizers.clear()
+        entry = _preview_visualizers[key] = [looks.Visualizer(settings, side, seed=0), now - 0.03]
+    visualizer, last = entry
+    entry[1] = now
+    frame = visualizer.frame(looks.demo_samples(now), min(0.5, max(0.001, now - last)))
+    grid[:, :] = looks.to_leds(frame, foreground_value)
 
 
 class PreviewRenderer:

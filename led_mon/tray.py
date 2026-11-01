@@ -4,6 +4,7 @@
 #   Open White Rabbit... / Brightness...
 #   Stop animation / Start animation   - the icon turns grey while stopped
 #   Identify panels / Next app / Freeze app switching
+#   Music mode                          - checkbox: the audio visualizer on both panels (Ctrl+Alt+Shift+M)
 #   Libre Hardware Monitor               - "Find Libre Hardware Monitor..." (pick the exe) when it isn't found
 #   Open Framework Control              - only when it is installed
 #   Open config folder / Open log / Reload config
@@ -90,7 +91,7 @@ def startup_checked(item):
 
 
 def build_menu(pystray, actions, finder, is_paused, is_frozen, edit_layout_available, startup_supported=None,
-               is_turn_off_with_lid=None):
+               is_turn_off_with_lid=None, is_music_mode=None):
     """The tray menu. actions maps a name to the function called when that item is chosen."""
     startup_supported = startup.supported() if startup_supported is None else startup_supported
     item = pystray.MenuItem
@@ -102,6 +103,9 @@ def build_menu(pystray, actions, finder, is_paused, is_frozen, edit_layout_avail
         item("Identify panels", actions["identify"]),
         item("Next app", actions["next_app"]),
         item("Freeze app switching", actions["toggle_freeze"], checked=lambda i: is_frozen()),
+        item("Music mode", actions.get("toggle_music"),
+             checked=lambda i: bool(is_music_mode and is_music_mode()),
+             visible=is_music_mode is not None and "toggle_music" in actions),
         pystray.Menu.SEPARATOR,
         item(lambda i: lhm_label(finder), actions["open_lhm"]),
         item("Open Framework Control", actions["open_fc"], visible=lambda i: finder.framework_control is not None),
@@ -138,7 +142,7 @@ def _icon_class(pystray, finder):
 
 def run_tray(identify, next_app, set_freeze, is_frozen, reload_config, config_dir, log_file, quit,
              edit_layout=None, set_paused=None, is_paused=None, show_brightness=None, lhm_path="",
-             set_turn_off_with_lid=None, is_turn_off_with_lid=None):
+             set_turn_off_with_lid=None, is_turn_off_with_lid=None, set_music_mode=None, is_music_mode=None):
     """Show the tray icon and block until Quit is chosen."""
     import pystray
 
@@ -220,6 +224,13 @@ def run_tray(identify, next_app, set_freeze, is_frozen, reload_config, config_di
             notify(icon, f"Could not change the lid setting: {e}")
         icon.update_menu()
 
+    def toggle_music(icon, item):
+        try:
+            set_music_mode(not is_music_mode())
+        except Exception as e:
+            notify(icon, f"Could not change music mode: {e}")
+        icon.update_menu()
+
     def on_quit(icon, item):
         log.info("Quit requested from tray")
         quit()
@@ -244,8 +255,12 @@ def run_tray(identify, next_app, set_freeze, is_frozen, reload_config, config_di
         actions["toggle_lid"] = toggle_lid
     else:
         is_turn_off_with_lid = None
+    if set_music_mode is not None and is_music_mode is not None:
+        actions["toggle_music"] = toggle_music
+    else:
+        is_music_mode = None
     menu = build_menu(pystray, actions, finder, is_paused, is_frozen, edit_layout is not None,
-                      is_turn_off_with_lid=is_turn_off_with_lid)
+                      is_turn_off_with_lid=is_turn_off_with_lid, is_music_mode=is_music_mode)
     icon_class = _icon_class(pystray, finder)
     icon = icon_class(platform_utils.APP_NAME, make_icon_image(lit=not is_paused()), tooltip(is_paused()), menu)
     icon.run()

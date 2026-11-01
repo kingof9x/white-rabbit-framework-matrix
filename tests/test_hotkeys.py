@@ -41,14 +41,14 @@ def test_shortcuts_are_on_until_turned_off(tmp_path, monkeypatch):
     from led_mon import app_settings, shortcuts
     settings_file = tmp_path / "settings.json"
     monkeypatch.setattr(app_settings, "settings_path", lambda: str(settings_file))
-    assert shortcuts.reload() == {"i": True, "n": True, "f": True, "u": True}
-    assert shortcuts.save({"i": True, "n": False, "f": True, "u": False})
+    assert shortcuts.reload() == {"i": True, "n": True, "f": True, "u": True, "m": True}
+    assert shortcuts.save({"i": True, "n": False, "f": True, "u": False, "m": True})
     assert not shortcuts.is_enabled("n") and shortcuts.is_enabled("i")
     # Other settings stay, and the monitor reads the same choice back
     assert app_settings.load_settings()["brightness_level"] == 70
-    assert shortcuts.reload() == {"i": True, "n": False, "f": True, "u": False}
+    assert shortcuts.reload() == {"i": True, "n": False, "f": True, "u": False, "m": True}
     settings_file.write_text('{"shortcuts": "broken"}')
-    assert shortcuts.reload() == {"i": True, "n": True, "f": True, "u": True}
+    assert shortcuts.reload() == {"i": True, "n": True, "f": True, "u": True, "m": True}
 
 
 def test_every_shortcut_has_keys_text():

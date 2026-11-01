@@ -386,7 +386,7 @@ class SettingsPane(ttk.Frame):
             target = entry
         else:
             target = entry.setdefault("args", {})
-        if value in (None, "", []) and setting.kind in ("text", "list", "gpu", "sensor"):
+        if value in (None, "", []) and setting.kind in ("text", "list", "gpu", "sensor", "microphone"):
             target.pop(setting.key, None)
         else:
             target[setting.key] = value
@@ -486,8 +486,12 @@ class SettingsPane(ttk.Frame):
         elif setting.kind in ("choice", "snapshot"):
             ttk.Label(row, text=setting.label).pack(anchor="w")
             options = catalog.snapshot_files(side) if setting.kind == "snapshot" else list(setting.options)
-            labels = [str(o) for o in options]
-            var = tk.StringVar(value=str(value) if value is not None else "")
+            if setting.labels and len(setting.labels) == len(options):
+                labels = [str(l) for l in setting.labels]
+            else:
+                labels = [str(o) for o in options]
+            shown = labels[options.index(value)] if value in options else (str(value) if value is not None else "")
+            var = tk.StringVar(value=shown)
             box = ttk.Combobox(row, textvariable=var, values=labels, state="readonly", width=28)
             box.pack(anchor="w")
 
@@ -495,9 +499,9 @@ class SettingsPane(ttk.Frame):
                 if var.get() in labels:
                     self._set(entry, setting, options[labels.index(var.get())])
             box.bind("<<ComboboxSelected>>", chosen)
-        elif setting.kind == "gpu":
+        elif setting.kind in ("gpu", "microphone"):
             ttk.Label(row, text=setting.label).pack(anchor="w")
-            options = catalog.gpu_options()
+            options = catalog.gpu_options() if setting.kind == "gpu" else catalog.microphone_options()
             values = [v for v, _ in options]
             labels = [l for _, l in options]
             if value and value not in values:
@@ -512,7 +516,10 @@ class SettingsPane(ttk.Frame):
                 if var.get() in labels:
                     self._set(entry, setting, values[labels.index(var.get())])
             box.bind("<<ComboboxSelected>>", chosen)
-            if len(options) <= 2:
+            if setting.kind == "microphone" and len(options) == 1:
+                ttk.Label(row, text="No microphones were found.", wraplength=240, foreground="#777777",
+                          font=("Segoe UI", 8)).pack(anchor="w")
+            if setting.kind == "gpu" and len(options) <= 2:
                 ttk.Label(row, text="Only one GPU was found." if len(options) == 2 else "No GPU usage could be read on this computer.",
                           wraplength=240, foreground="#777777", font=("Segoe UI", 8)).pack(anchor="w")
         elif setting.kind == "multi":
