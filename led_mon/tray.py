@@ -4,7 +4,7 @@
 #   Open White Rabbit... / Brightness...
 #   Stop animation / Start animation   - the icon turns grey while stopped
 #   Identify panels / Next app / Freeze app switching
-#   Open Hardware Monitor               - "Find Open Hardware Monitor..." (pick the exe) when it isn't found
+#   Libre Hardware Monitor               - "Find Libre Hardware Monitor..." (pick the exe) when it isn't found
 #   Open Framework Control              - only when it is installed
 #   Open config folder / Open log / Reload config
 #   Turn off when lid closes            - checkbox (also when the screen turns off or the PC sleeps)
@@ -47,21 +47,21 @@ def make_icon_image(size=64, lit=True):
 
 
 class AppFinder:
-    """Remembers where Open Hardware Monitor and Framework Control are; refreshed each time the menu opens."""
+    """Remembers where Libre Hardware Monitor and Framework Control are; refreshed each time the menu opens."""
 
-    def __init__(self, ohm_path=""):
-        self.ohm_path = ohm_path
-        self.ohm = None
+    def __init__(self, lhm_path=""):
+        self.lhm_path = lhm_path
+        self.lhm = None
         self.framework_control = None
 
     def refresh(self):
         try:
-            # Read again each time: the Find Open Hardware Monitor window saves the path it was shown
-            configured = app_settings.load_settings().get("open_hardware_monitor_path") or self.ohm_path
-            self.ohm = external_apps.find_open_hardware_monitor(configured)
+            # Read again each time: the Find Libre Hardware Monitor window saves the path it was shown
+            configured = app_settings.load_settings().get("libre_hardware_monitor_path") or self.lhm_path
+            self.lhm = external_apps.find_libre_hardware_monitor(configured)
         except Exception as e:
-            log.error(f"Error looking for Open Hardware Monitor: {e}")
-            self.ohm = None
+            log.error(f"Error looking for Libre Hardware Monitor: {e}")
+            self.lhm = None
         try:
             self.framework_control = external_apps.find_framework_control()
         except Exception as e:
@@ -69,8 +69,8 @@ class AppFinder:
             self.framework_control = None
 
 
-def ohm_label(finder):
-    return "Open Hardware Monitor" if finder.ohm is not None else "Find Open Hardware Monitor..."
+def lhm_label(finder):
+    return "Libre Hardware Monitor" if finder.lhm is not None else "Find Libre Hardware Monitor..."
 
 
 def animation_label(paused):
@@ -103,7 +103,7 @@ def build_menu(pystray, actions, finder, is_paused, is_frozen, edit_layout_avail
         item("Next app", actions["next_app"]),
         item("Freeze app switching", actions["toggle_freeze"], checked=lambda i: is_frozen()),
         pystray.Menu.SEPARATOR,
-        item(lambda i: ohm_label(finder), actions["open_ohm"]),
+        item(lambda i: lhm_label(finder), actions["open_lhm"]),
         item("Open Framework Control", actions["open_fc"], visible=lambda i: finder.framework_control is not None),
         pystray.Menu.SEPARATOR,
         item("Open config folder", actions["open_folder"]),
@@ -137,13 +137,13 @@ def _icon_class(pystray, finder):
 
 
 def run_tray(identify, next_app, set_freeze, is_frozen, reload_config, config_dir, log_file, quit,
-             edit_layout=None, set_paused=None, is_paused=None, show_brightness=None, ohm_path="",
+             edit_layout=None, set_paused=None, is_paused=None, show_brightness=None, lhm_path="",
              set_turn_off_with_lid=None, is_turn_off_with_lid=None):
     """Show the tray icon and block until Quit is chosen."""
     import pystray
 
     platform_utils.enable_dpi_awareness()
-    finder = AppFinder(ohm_path)
+    finder = AppFinder(lhm_path)
     finder.refresh()
 
     def notify(icon, message):
@@ -188,17 +188,17 @@ def run_tray(identify, next_app, set_freeze, is_frozen, reload_config, config_di
     def toggle_freeze(icon, item):
         set_freeze(not is_frozen())
 
-    def open_ohm(icon, item):
+    def open_lhm(icon, item):
         finder.refresh()
-        if finder.ohm is None:
+        if finder.lhm is None:
             # Not found in the usual places: let the user show where it is. The file picker runs in
             # its own process, since a dialog on the tray's thread freezes (it saves the path and opens it)
             try:
-                platform_utils.launch_self("--find-ohm")
+                platform_utils.launch_self("--find-lhm")
             except Exception as e:
                 notify(icon, f"Could not open the file picker: {e}")
             return
-        notify(icon, external_apps.open_target(finder.ohm, "Open Hardware Monitor"))
+        notify(icon, external_apps.open_target(finder.lhm, "Libre Hardware Monitor"))
 
     def open_fc(icon, item):
         finder.refresh()
@@ -232,7 +232,7 @@ def run_tray(identify, next_app, set_freeze, is_frozen, reload_config, config_di
         "identify": lambda icon, item: identify(),
         "next_app": lambda icon, item: next_app(),
         "toggle_freeze": toggle_freeze,
-        "open_ohm": open_ohm,
+        "open_lhm": open_lhm,
         "open_fc": open_fc,
         "open_folder": open_folder,
         "open_log": open_log,

@@ -237,24 +237,24 @@ def test_background_and_window_options(started):
     assert started == [("monitor",), ("window", "firmware", False), ("window", None, False)]
 
 
-def test_find_ohm_runs_the_picker_in_its_own_process(monkeypatch, started):
+def test_find_lhm_runs_the_picker_in_its_own_process(monkeypatch, started):
     from led_mon import external_apps
-    monkeypatch.setattr(external_apps, "find_and_open_open_hardware_monitor", lambda: started.append(("find-ohm",)))
-    main.run(["--find-ohm"])
-    assert started == [("find-ohm",)]
+    monkeypatch.setattr(external_apps, "find_and_open_libre_hardware_monitor", lambda: started.append(("find-lhm",)))
+    main.run(["--find-lhm"])
+    assert started == [("find-lhm",)]
 
 
-def test_picked_ohm_path_is_saved_and_opened(monkeypatch, tmp_path):
+def test_picked_lhm_path_is_saved_and_opened(monkeypatch, tmp_path):
     from led_mon import external_apps, app_settings
-    exe = tmp_path / "OHM" / "OpenHardwareMonitor.exe"
+    exe = tmp_path / "LHM" / "LibreHardwareMonitor.exe"
     exe.parent.mkdir()
     exe.write_text("x")
     settings_file = tmp_path / "settings.json"
     monkeypatch.setattr(app_settings, "settings_path", lambda: str(settings_file))
-    monkeypatch.setattr(external_apps, "ask_for_open_hardware_monitor", lambda: str(exe))
+    monkeypatch.setattr(external_apps, "ask_for_libre_hardware_monitor", lambda: str(exe))
     monkeypatch.setattr(external_apps, "_running_processes", lambda *a, **k: [])
     opened = []
     monkeypatch.setattr(external_apps, "open_target", lambda target, name: opened.append(target.path))
-    external_apps.find_and_open_open_hardware_monitor()
-    assert app_settings.load_settings()["open_hardware_monitor_path"] == str(exe)
+    external_apps.find_and_open_libre_hardware_monitor()
+    assert app_settings.load_settings()["libre_hardware_monitor_path"] == str(exe)
     assert opened == [str(exe)]

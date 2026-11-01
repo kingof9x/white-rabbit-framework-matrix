@@ -105,7 +105,7 @@ def test_tray_lid_checkbox(monkeypatch):
     state = {"on": True}
     noop = lambda icon, item: None
     actions = {name: noop for name in (
-        "edit_layout", "brightness", "toggle_animation", "identify", "next_app", "toggle_freeze", "open_ohm",
+        "edit_layout", "brightness", "toggle_animation", "identify", "next_app", "toggle_freeze", "open_lhm",
         "open_fc", "open_folder", "open_log", "reload_config", "toggle_startup", "quit")}
     actions["toggle_lid"] = lambda icon, item: state.update(on=not state["on"])
     menu = tray.build_menu(pystray, actions, tray.AppFinder(), lambda: False, lambda: False, True,

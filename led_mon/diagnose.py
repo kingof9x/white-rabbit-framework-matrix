@@ -65,16 +65,16 @@ def report(config_file=None, device_list=None, find_apps=None):
     if find_apps is None and platform_utils.IS_WINDOWS:
         def find_apps():
             from led_mon import external_apps
-            ohm_path = app_settings.load_settings().get("open_hardware_monitor_path", "")
-            return (external_apps.find_open_hardware_monitor(ohm_path), external_apps.find_framework_control())
+            lhm_path = app_settings.load_settings().get("libre_hardware_monitor_path", "")
+            return (external_apps.find_libre_hardware_monitor(lhm_path), external_apps.find_framework_control())
     if find_apps is not None:
         lines.append("")
         try:
-            ohm, fc = find_apps()
-            lines.append(f"Open Hardware Monitor: {ohm.path if ohm else 'not found'}")
+            lhm, fc = find_apps()
+            lines.append(f"Libre Hardware Monitor: {lhm.path if lhm else 'not found'}")
             lines.append(f"Framework Control:     {fc.path if fc else 'not found'}")
         except Exception as e:
-            lines.append(f"Could not look for Open Hardware Monitor / Framework Control: {e}")
+            lines.append(f"Could not look for Libre Hardware Monitor / Framework Control: {e}")
     return lines
 
 
