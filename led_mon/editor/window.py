@@ -552,6 +552,9 @@ class LayoutEditor:
         self.brightness = BrightnessControl(palette, state["follow_screen"], state["level"], self.on_brightness_changed,
                                             length=230)
         self.brightness.pack(anchor="w", fill="x", pady=(12, 0))
+        self.sensor_status = None
+        if platform_utils.IS_WINDOWS:
+            self.build_sensor_source(palette)
 
         self.panels = {}
         for column, side in enumerate(SIDES, start=1):
@@ -587,6 +590,50 @@ class LayoutEditor:
 
         self.fill_app_list()
         self.fill_ports()
+
+    def build_sensor_source(self, parent):
+        """Where the Temperatures and Fans apps read from. Saved straight away, no Apply needed."""
+        from led_mon import sensor_sources
+        frame = ttk.LabelFrame(parent, text="Temperatures and fans from", padding=(8, 4))
+        frame.pack(anchor="w", fill="x", pady=(12, 0))
+        self.sensor_keys = {label: key for key, label in sensor_sources.SOURCES}
+        choice = sensor_sources.current().choice
+        self.sensor_var = tk.StringVar(value=sensor_sources.LABELS[choice])
+        box = ttk.Combobox(frame, textvariable=self.sensor_var, values=[label for _, label in sensor_sources.SOURCES],
+                           state="readonly", width=24)
+        box.pack(anchor="w")
+        box.bind("<<ComboboxSelected>>", self.on_sensor_source_changed)
+        self.sensor_help = ttk.Label(frame, text=sensor_sources.HELP[choice], wraplength=230, justify="left",
+                                     foreground="#555555")
+        self.sensor_help.pack(anchor="w", pady=(4, 0))
+        self.sensor_status = ttk.Label(frame, text="", wraplength=230, justify="left", foreground="#2f6f3e")
+        self.sensor_status.pack(anchor="w", pady=(4, 0))
+
+    def on_sensor_source_changed(self, event=None):
+        from led_mon import sensor_sources
+        key = self.sensor_keys.get(self.sensor_var.get(), sensor_sources.AUTO)
+        # Saves to settings.json; this window's previews use it too
+        sensor_sources.current().set(key)
+        self.sensor_help.configure(text=sensor_sources.HELP[key])
+        self.sensor_status.configure(text="Saved. Checking...")
+
+        def run():
+            status = preview.sensor_source_status(reload=True)
+            self.call_soon(lambda: self.show_sensor_status(status, saved=True))
+        threading.Thread(target=run, daemon=True).start()
+
+    def show_sensor_status(self, status, saved=False):
+        if self.sensor_status is None:
+            return
+        from led_mon import sensor_sources
+        if status is None:
+            text = ("Saved. The monitor isn't running; it will use this when it starts." if saved
+                    else "The monitor isn't running.")
+        else:
+            text = sensor_sources.describe(status)
+            if saved and not status.get("reading"):
+                text = "Saved. " + text
+        self.sensor_status.configure(text=text)
 
     def fill_app_list(self, plugin_names=()):
         self.app_list.delete(*self.app_list.get_children())
@@ -789,6 +836,8 @@ class LayoutEditor:
     def show_monitor_status(self, status):
         was_running = self.monitor is not None
         self.monitor = status
+        if not self.sensor_status_pending():
+            self.show_sensor_status(status.get("sensor_source") if status else None)
         if status:
             ports = ", ".join(status.get("ports", [])) or "no panels"
             text = f"Monitor is running ({ports})."
@@ -801,6 +850,9 @@ class LayoutEditor:
             self.resume_button.state(["disabled"])
         if not self.status.cget("text") or was_running != (status is not None) or self.status.cget("text").startswith(("Monitor is", "The monitor isn't")):
             self.set_status(text)
+
+    def sensor_status_pending(self):
+        return self.sensor_status is not None and self.sensor_status.cget("text") == "Saved. Checking..."
 
     def load_brightness(self):
         def run():

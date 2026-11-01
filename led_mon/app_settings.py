@@ -24,6 +24,9 @@ DEFAULT_SETTINGS = {
     # Music mode's audio visualizer: the look and input last picked in the Music tab (see
     # led_mon/equalizer_files/looks.py for the keys)
     "music": {},
+    # Where the Temperatures and Fans apps read from on Windows: auto, framework_control,
+    # libre_hardware_monitor or framework_tool (see sensor_sources.py)
+    "sensor_source": "auto",
 }
 
 

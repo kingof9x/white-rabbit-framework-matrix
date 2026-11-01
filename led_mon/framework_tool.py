@@ -18,6 +18,8 @@ log = logging.getLogger(__name__)
 
 CACHE_SEC = 2.0
 TIMEOUT_SEC = 10
+# WinError 740: the exe asks for admin rights and the app isn't running as admin
+ERROR_ELEVATION_REQUIRED = 740
 
 # e.g. "  F75303_Local:  45 C"  /  "  APU:           60 C"
 _TEMP_RE = re.compile(r'^\s*(?P<name>[^:]+):\s+(?P<value>-?\d+(?:\.\d+)?)\s*C\s*$')
@@ -54,6 +56,14 @@ def find_framework_tool():
     return None
 
 
+def read_once(runner=None):
+    """([temps], [fan RPMs]) read straight away (used by --diagnose). Raises when the tool can't run."""
+    output = (runner or FrameworkToolThermal()._run_tool)()
+    if output is None:
+        raise FileNotFoundError("framework_tool.exe wasn't found on PATH or next to WhiteRabbit.exe")
+    return parse_thermal(output)
+
+
 class FrameworkToolThermal:
     """Cached thermal readings. Refreshes in the background so the main loop never waits on the tool."""
 
@@ -65,6 +75,10 @@ class FrameworkToolThermal:
         self._refreshing = False
         self._warned = False
         self._tool = None
+        # Set when Windows refuses to start the tool without admin rights; it won't work until a restart
+        self._needs_admin = False
+        self._answered = False
+        self.error = ""
 
     def _warn_once(self, message):
         if not self._warned:
@@ -75,12 +89,12 @@ class FrameworkToolThermal:
         if self._tool is None:
             self._tool = find_framework_tool()
         if not self._tool:
-            self._warn_once("framework_tool was not found on PATH or next to led_mon.exe; "
+            self._warn_once("framework_tool was not found on PATH or next to WhiteRabbit.exe; "
                             "temperature and fan apps will be empty")
             return None
         result = subprocess.run(
             [self._tool, '--thermal'],
-            capture_output=True, text=True, timeout=TIMEOUT_SEC,
+            capture_output=True, text=True, timeout=TIMEOUT_SEC, stdin=subprocess.DEVNULL,
             creationflags=platform_utils.subprocess_flags(),
         )
         if result.returncode != 0:
@@ -88,25 +102,45 @@ class FrameworkToolThermal:
         return result.stdout
 
     def _refresh(self):
+        self.error = ""
         try:
             output = self._runner()
-            if output is not None:
+            if output is None:
+                self.error = "framework_tool.exe wasn't found"
+            else:
                 values = parse_thermal(output)
                 if not values[0] and not values[1]:
+                    self.error = "it gave no readings"
                     self._warn_once(f"framework_tool --thermal gave no readings: {output.strip()[:200]}")
                 with self._lock:
                     self._values = values
+        except OSError as e:
+            if getattr(e, "winerror", None) == ERROR_ELEVATION_REQUIRED:
+                self._needs_admin = True
+                self.error = "needs White Rabbit to run as admin"
+                self._warn_once("framework_tool needs admin rights, so it won't be run again until White Rabbit "
+                                "restarts; choose another source for temperatures and fans on the Panels tab")
+            else:
+                self.error = f"failed ({e})"
+                self._warn_once(f"framework_tool --thermal failed; temperature and fan apps will be empty: {e}")
         except Exception as e:
+            self.error = f"failed ({e})"
             self._warn_once(f"framework_tool --thermal failed; temperature and fan apps will be empty: {e}")
         finally:
             with self._lock:
                 self._refreshing = False
+                self._answered = True
+
+    @property
+    def answered(self):
+        """True once the first run has finished, whether or not it worked."""
+        return self._answered
 
     def get(self):
         """Return ([temps], [fan RPMs]) from the last reading, starting a refresh if it is stale."""
         with self._lock:
             now = time.monotonic()
-            if not self._refreshing and now - self._last_refresh >= CACHE_SEC:
+            if not self._refreshing and not self._needs_admin and now - self._last_refresh >= CACHE_SEC:
                 self._refreshing = True
                 self._last_refresh = now
                 threading.Thread(target=self._refresh, daemon=True).start()

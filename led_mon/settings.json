@@ -6,7 +6,7 @@
   "music": {
     "input-mode": "playback",
     "input-device": "",
-    "style": "radial",
+    "style": "bars",
     "span-panels": false,
     "peak-dots": true,
     "shaded": false,
@@ -14,5 +14,6 @@
     "fall-speed": "normal",
     "sensitivity": 5,
     "auto-sensitivity": true
-  }
+  },
+  "sensor_source": "auto"
 }
