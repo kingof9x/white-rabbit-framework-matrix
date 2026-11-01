@@ -357,19 +357,31 @@ def run_window(args, start_tab=None, wait=False):
     if os.environ.get("WHITE_RABBIT_SMOKE_TEST"):
         # CI: check that the window opens with all its tabs, then close
         def check_sensor_source():
-            # Pick each temperature and fan source on the Panels tab and check it is saved
+            # Show the Temperatures app's settings, pick each temperature and fan source and a refresh
+            # time, and check they are saved
             editor = window.editor
-            if editor is None or not hasattr(editor, "sensor_var"):
+            if editor is None or not platform_utils.IS_WINDOWS:
                 return
             from led_mon import app_settings, sensor_sources
+            from led_mon.editor import catalog
+            editor.settings.show(catalog.new_app("temp", "left"), "Left panel, top half", "left")
+            if not hasattr(editor, "sensor_source_var"):
+                log.error("Smoke test failed: the Temperatures app's settings have no Read from choice")
+                return
             for key, label in list(sensor_sources.SOURCES[1:]) + [sensor_sources.SOURCES[0]]:
-                editor.sensor_var.set(label)
-                editor.on_sensor_source_changed()
+                editor.sensor_source_var.set(label)
+                editor.choose_sensor_source(key)
                 saved = app_settings.load_settings().get(sensor_sources.SETTING)
                 if saved != key:
                     log.error(f"Smoke test failed: picked {label}, settings.json has {saved}")
                 else:
                     log.info(f"Smoke test: temperature and fan source {label} saved; help: {editor.sensor_help.cget('text')}")
+            editor.choose_sensor_refresh(5)
+            saved = app_settings.load_settings().get(sensor_sources.REFRESH_SETTING)
+            if saved != 5:
+                log.error(f"Smoke test failed: picked 5 seconds, settings.json has {saved}")
+            else:
+                log.info("Smoke test: temperature and fan refresh of 5 seconds saved")
 
         root.after(3000, check_sensor_source)
 
