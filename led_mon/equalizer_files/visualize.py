@@ -16,7 +16,7 @@ import signal
 import sys
 from pathlib import Path
 from led_mon import shared_state
-from led_mon.drawing import DrawingThread
+from led_mon.drawing import DrawingThread, LatestFrameQueue
 
 # Internal Dependencies
 from led_mon.shared_state import discover_led_devices
@@ -192,7 +192,7 @@ class Equalizer():
         self.last_known_sink = None
         # What it hears, for the Music tab: {'device', 'problem', 'loudness', 'silent'}
         self.hearing = {}
-        self.queue = queue.Queue(2)
+        self.queue = LatestFrameQueue()
         self.drawing_thread = DrawingThread(device_location, self.queue)
         self.drawing_thread.start()
         

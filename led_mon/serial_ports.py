@@ -11,6 +11,7 @@
 # Built In Dependencies
 import threading
 import logging
+import time
 
 # External Dependencies
 import serial # pyserial
@@ -27,6 +28,9 @@ class _SharedPort:
         self.lock = threading.RLock()
         self.refs = 0
         self.broken = False
+        # (frame key, time sent) of the last full frame drawn, or None when unknown. Any other write
+        # forgets it, so a frame that's already on the panel can be skipped but nothing else is.
+        self.shown = None
 
     def close(self):
         try:
@@ -63,6 +67,7 @@ class SharedSerial:
             # The panel is lent to the White Rabbit window; pretend the write went through
             return len(data)
         with self._entry.lock:
+            self._entry.shown = None
             if self._entry.broken:
                 raise serial.SerialException(f"{self.port} needs to be reopened")
             try:
@@ -71,6 +76,17 @@ class SharedSerial:
                 # e.g. the COM handle was invalidated by sleep: every user must reopen
                 self._entry.broken = True
                 raise
+
+    def shows(self, key, max_age):
+        """True if the frame with this key is what this handle last drew, less than max_age seconds ago."""
+        shown = self._entry.shown
+        return shown is not None and shown[0] == key and time.monotonic() - shown[1] < max_age
+
+    def remember_shown(self, key):
+        """Note that the frame with this key was just drawn (call while holding the port lock)."""
+        if not self._control and is_held(self.port):
+            return  # the write was dropped, so the panel doesn't show it
+        self._entry.shown = (key, time.monotonic())
 
     def read(self, size=1):
         with self._entry.lock:
@@ -147,6 +163,11 @@ def release(port_names=None):
         released = [n for n in names if n in _held]
         for n in released:
             del _held[n]
+    with _ports_guard:
+        for n in released:
+            entry = _ports.get(n)
+            if entry is not None:
+                entry.shown = None  # the window drew on it, so the monitor must draw its frame again
     if released:
         log.info(f"Panels back with the monitor: {', '.join(released)}")
     return released

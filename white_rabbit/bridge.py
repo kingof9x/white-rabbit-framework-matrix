@@ -61,6 +61,39 @@ def _serial(message):
         s.close()
 
 
+def _serial_many(message):
+    """Write commands to several panels at once, taking turns between them.
+
+    A panel is busy for a moment after each command, so while one panel works on its command the
+    next panel already gets its own: two panels take about as long as one, instead of twice as long.
+    """
+    items = [(item["port"], [bytes.fromhex(c) for c in item.get("writes", [])]) for item in message["ports"]]
+    handles = [serial_ports.open_port(port, control=True) for port, _ in items]
+    try:
+        # Lock in a fixed order, so two of these at once can't each wait for the other's port
+        locks = sorted(((port.lower(), serial_ports.port_lock(s)) for (port, _), s in zip(items, handles)),
+                       key=lambda pair: pair[0])
+        for _, lock in locks:
+            lock.acquire()
+        try:
+            interleave(handles, [chunks for _, chunks in items])
+        finally:
+            for _, lock in reversed(locks):
+                lock.release()
+    finally:
+        for s in handles:
+            s.close()
+    return {}
+
+
+def interleave(handles, chunk_lists):
+    """Write chunk_lists[i] to handles[i], one command per panel in turn."""
+    for step in range(max((len(c) for c in chunk_lists), default=0)):
+        for s, chunks in zip(handles, chunk_lists):
+            if step < len(chunks) and chunks[step]:
+                s.write(chunks[step])
+
+
 def _hold(message):
     serial_ports.hold(message.get("ports", []), owner=message.get("pid"))
     return {"held": list(serial_ports.held())}
@@ -89,7 +122,7 @@ def _watch_holders(stop, interval=2.0):
 
 def serve(handlers):
     """Add the window's commands to the monitor's control channel handlers (a dict)."""
-    handlers.update({"serial": _serial, "hold": _hold, "release": _release})
+    handlers.update({"serial": _serial, "serial_many": _serial_many, "hold": _hold, "release": _release})
     stop = threading.Event()
     threading.Thread(target=_watch_holders, args=(stop,), daemon=True, name="white_rabbit-holders").start()
     return stop
@@ -184,6 +217,27 @@ class ProxySerial:
 
     def close(self):
         self.flush()
+
+
+def write_many(link, writes_by_port):
+    """Send commands ({port: [bytes, ...]}) to several panels at once, taking turns between them."""
+    writes_by_port = {port: [bytes(c) for c in chunks] for port, chunks in writes_by_port.items() if chunks}
+    if not writes_by_port:
+        return
+    if link.running():
+        link.call({"cmd": "serial_many",
+                   "ports": [{"port": port, "writes": [c.hex() for c in chunks]}
+                             for port, chunks in writes_by_port.items()]})
+        return
+    from inputmodule import inputmodule as im
+    handles = []
+    try:
+        for port in writes_by_port:
+            handles.append(im.open_serial(port))
+        interleave(handles, list(writes_by_port.values()))
+    finally:
+        for s in handles:
+            s.close()
 
 
 def make_opener(link, direct):

@@ -46,14 +46,35 @@ def number(entry, default, low=None, high=None, cast=float):
     return value
 
 
+def frame_commands(columns):
+    """The commands that show 9 columns of greyscale (each 34 values, 0-255) on a panel, all at once.
+
+    The panel starts each frame with every column dark, so dark columns are left out.
+    """
+    from inputmodule.inputmodule import FWK_MAGIC, CommandVals
+    commands = []
+    for x in range(sims.PANEL_WIDTH):
+        column = [int(v) for v in columns[:, x]]
+        if any(column):
+            commands.append(bytes(FWK_MAGIC + [CommandVals.StageGreyCol, x] + column))
+    commands.append(bytes(FWK_MAGIC + [CommandVals.DrawGreyColBuffer, 0x00]))
+    return commands
+
+
 def send_frame(panel, columns):
     """Show 9 columns of greyscale (each 34 values, 0-255) on one panel, all at once."""
     from inputmodule.inputmodule import open_serial
-    from inputmodule.inputmodule.ledmatrix import send_col, commit_cols
     with open_serial(panel.device) as s:
-        for x in range(sims.PANEL_WIDTH):
-            send_col(panel, s, x, [int(v) for v in columns[:, x]])
-        commit_cols(panel, s)
+        for command in frame_commands(columns):
+            s.write(command)
+
+
+def send_frames(link, panels, frame):
+    """Show a frame that spans the panels (9 columns each, left to right) on all of them at once."""
+    from white_rabbit import bridge
+    bridge.write_many(link, {
+        panel.device: frame_commands(frame[:, i * sims.PANEL_WIDTH:(i + 1) * sims.PANEL_WIDTH])
+        for i, panel in enumerate(panels)})
 
 
 class Preview(tk.Canvas):
@@ -393,9 +414,10 @@ class MathTab(ttk.Frame):
             next_at = time.monotonic()
             while self.still_running(run_id):
                 frame = next(frames)
+                if panels:
+                    send_frames(self.window.link, panels, frame)
+                # Shown in the window once it's on the panels, so the window doesn't run ahead of them
                 self.latest = frame
-                for i, panel in enumerate(panels):
-                    send_frame(panel, frame[:, i * sims.PANEL_WIDTH:(i + 1) * sims.PANEL_WIDTH])
                 next_at += 1.0 / max(1, self.fps_value)
                 pause = next_at - time.monotonic()
                 if pause > 0:
