@@ -68,8 +68,7 @@ def test_proxy_sends_writes_with_the_read(monitor):
     drawing = serial_ports.open_port("COM4")  # the monitor's own handle
     s = bridge.ProxySerial(monitor, "COM4", timeout=2)
     s.reset_input_buffer()
-    s.write([0x32, 0xAC])
-    s.write([0x20])
+    s.write([0x32, 0xAC, 0x20])
     assert s.read(32)[:2] == bytes([0, 0x20])
     port = drawing._entry.serial
     assert port.written == [bytes([0x32, 0xAC, 0x20])]
@@ -84,6 +83,26 @@ def test_proxy_flushes_on_close(monitor):
     with bridge.ProxySerial(monitor, "COM4") as s:
         s.write(b"\x32\xac\x01\x05")
     assert held._entry.serial.written == [b"\x32\xac\x01\x05"]
+    held.close()
+
+
+def test_proxy_writes_each_command_separately(monitor):
+    """The firmware reads one command per USB read, so a greyscale frame (9 columns and a commit)
+    must reach the panel as 10 writes, not one."""
+    from white_rabbit import math_tab
+    import numpy as np
+    held = serial_ports.open_port("COM4")
+    from inputmodule import inputmodule as im
+    old = im.serial_opener
+    try:
+        bridge.install(monitor)
+        math_tab.send_frame(panels.Panel("left", "COM4"), np.full((34, 9), 7, dtype=np.uint8))
+    finally:
+        im.serial_opener = old
+    written = held._entry.serial.written
+    assert len(written) == 10
+    assert all(w[:3] == bytes([0x32, 0xAC, 0x07]) and len(w) == 38 for w in written[:9])
+    assert written[9] == bytes([0x32, 0xAC, 0x08, 0x00])
     held.close()
 
 
