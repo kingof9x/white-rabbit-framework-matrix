@@ -44,7 +44,7 @@ def test_every_look_draws_a_panel_and_goes_dark_in_silence(style, span):
         assert music.shape == (9, 34) and music.min() >= 0.0 and music.max() <= 1.0
         assert music.max() > 0, "music should light something"
         quiet = run(looks.Visualizer(options, side, seed=1), np.zeros((looks.FFT_SIZE, 2)), frames=60)
-        if style in ("wave", "mirror-wave", "double-wave", "radial"):
+        if style in ("wave", "mirror-wave", "double-wave", "radial", "radial-fan", "radial-facing"):
             # A flat line (or the circle in the middle) stays, like an oscilloscope's
             assert (quiet > 0).sum() <= 110
         elif style != "rings":
@@ -104,6 +104,34 @@ def test_radial_bars_on_the_left_panel_mirror_the_right(span):
     else:
         assert np.array_equal(left, run(looks.Visualizer({"style": "radial", "span-panels": True}, "left"),
                                         sound)) and not np.array_equal(left, right)
+
+
+@pytest.mark.parametrize("style", ["radial-fan", "radial-facing"])
+@pytest.mark.parametrize("span", [False, True])
+def test_radial_fan_and_facing_mirror_across_the_keyboard(style, span):
+    sound = tone(60) + tone(4000, amplitude=0.2)
+    left = run(looks.Visualizer({"style": style, "span-panels": span}, "left"), sound)
+    right = run(looks.Visualizer({"style": style, "span-panels": span}, "right"), sound)
+    assert right.max() > 0
+    # Lopsided on its own, so the mirror image is easy to see
+    assert not np.array_equal(right, right[::-1, :])
+    assert np.array_equal(left, right[::-1, :])
+
+
+def test_radial_fan_starts_at_the_keyboard_edge():
+    right = run(looks.Visualizer({"style": "radial-fan"}, "right"), tone(60) + tone(4000, amplitude=0.3))
+    # The right panel's keyboard edge is its first column
+    assert (right[:3] > 0.5).sum() > (right[6:] > 0.5).sum()
+
+
+def test_radial_facing_points_bass_at_the_keyboard():
+    def lit(sound):
+        right = run(looks.Visualizer({"style": "radial-facing"}, "right"), sound)
+        return (right[:4] > 0.5).sum(), (right[5:] > 0.5).sum()
+    towards, outwards = lit(tone(60))
+    assert towards > outwards
+    towards, outwards = lit(tone(8000))
+    assert outwards > towards
 
 
 def test_bars_fall_at_the_chosen_speed():
