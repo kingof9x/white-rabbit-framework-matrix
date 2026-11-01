@@ -158,39 +158,3 @@ def test_fc_reader_clears_old_values_when_service_stops():
     wait_for(reader, lambda v: v[0])
     reader._last_refresh -= 10
     assert wait_for(reader, lambda v: not v[0]) == ([], [])
-
-
-def test_windows_readings_fall_back_to_framework_tool(monkeypatch):
-    from led_mon import framework_control_sensors, framework_tool
-    monkeypatch.setattr(framework_tool.thermal, "get", lambda: ([30.0], [3000]))
-    monkeypatch.setattr(framework_control_sensors.sensors, "_available", True)
-    # Temperatures from Framework Control, fans from framework_tool because Framework Control has none
-    monkeypatch.setattr(framework_control_sensors.sensors, "get", lambda: ([60.0], []))
-    assert framework_control_sensors.windows_readings() == ([60.0], [3000])
-    # Framework Control not installed: everything from framework_tool
-    monkeypatch.setattr(framework_control_sensors.sensors, "_available", False)
-    monkeypatch.setattr(framework_control_sensors.sensors, "get", lambda: ([], []))
-    assert framework_control_sensors.windows_readings() == ([30.0], [3000])
-
-
-def test_windows_readings_skip_framework_tool_when_framework_control_has_both(monkeypatch):
-    from led_mon import framework_control_sensors, framework_tool
-
-    def should_not_run():
-        raise AssertionError("framework_tool was asked")
-
-    monkeypatch.setattr(framework_tool.thermal, "get", should_not_run)
-    monkeypatch.setattr(framework_control_sensors.sensors, "get", lambda: ([44.0], [0, 0]))
-    assert framework_control_sensors.windows_readings() == ([44.0], [0, 0])
-
-
-def test_windows_readings_wait_for_framework_controls_first_answer(monkeypatch):
-    from led_mon import framework_control_sensors, framework_tool
-
-    def should_not_run():
-        raise AssertionError("framework_tool was asked before Framework Control answered")
-
-    monkeypatch.setattr(framework_tool.thermal, "get", should_not_run)
-    monkeypatch.setattr(framework_control_sensors.sensors, "_available", None)
-    monkeypatch.setattr(framework_control_sensors.sensors, "get", lambda: ([], []))
-    assert framework_control_sensors.windows_readings() == ([], [])

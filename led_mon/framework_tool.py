@@ -56,6 +56,14 @@ def find_framework_tool():
     return None
 
 
+def read_once(runner=None):
+    """([temps], [fan RPMs]) read straight away (used by --diagnose). Raises when the tool can't run."""
+    output = (runner or FrameworkToolThermal()._run_tool)()
+    if output is None:
+        raise FileNotFoundError("framework_tool.exe wasn't found on PATH or next to WhiteRabbit.exe")
+    return parse_thermal(output)
+
+
 class FrameworkToolThermal:
     """Cached thermal readings. Refreshes in the background so the main loop never waits on the tool."""
 
@@ -69,6 +77,8 @@ class FrameworkToolThermal:
         self._tool = None
         # Set when Windows refuses to start the tool without admin rights; it won't work until a restart
         self._needs_admin = False
+        self._answered = False
+        self.error = ""
 
     def _warn_once(self, message):
         if not self._warned:
@@ -79,7 +89,7 @@ class FrameworkToolThermal:
         if self._tool is None:
             self._tool = find_framework_tool()
         if not self._tool:
-            self._warn_once("framework_tool was not found on PATH or next to led_mon.exe; "
+            self._warn_once("framework_tool was not found on PATH or next to WhiteRabbit.exe; "
                             "temperature and fan apps will be empty")
             return None
         result = subprocess.run(
@@ -92,26 +102,39 @@ class FrameworkToolThermal:
         return result.stdout
 
     def _refresh(self):
+        self.error = ""
         try:
             output = self._runner()
-            if output is not None:
+            if output is None:
+                self.error = "framework_tool.exe wasn't found"
+            else:
                 values = parse_thermal(output)
                 if not values[0] and not values[1]:
+                    self.error = "it gave no readings"
                     self._warn_once(f"framework_tool --thermal gave no readings: {output.strip()[:200]}")
                 with self._lock:
                     self._values = values
         except OSError as e:
             if getattr(e, "winerror", None) == ERROR_ELEVATION_REQUIRED:
                 self._needs_admin = True
-                self._warn_once("framework_tool needs admin rights, so it won't be run again; install Framework "
-                                "Control for the temperature and fan apps")
+                self.error = "needs White Rabbit to run as admin"
+                self._warn_once("framework_tool needs admin rights, so it won't be run again until White Rabbit "
+                                "restarts; choose another source for temperatures and fans on the Panels tab")
             else:
+                self.error = f"failed ({e})"
                 self._warn_once(f"framework_tool --thermal failed; temperature and fan apps will be empty: {e}")
         except Exception as e:
+            self.error = f"failed ({e})"
             self._warn_once(f"framework_tool --thermal failed; temperature and fan apps will be empty: {e}")
         finally:
             with self._lock:
                 self._refreshing = False
+                self._answered = True
+
+    @property
+    def answered(self):
+        """True once the first run has finished, whether or not it worked."""
+        return self._answered
 
     def get(self):
         """Return ([temps], [fan RPMs]) from the last reading, starting a refresh if it is stale."""

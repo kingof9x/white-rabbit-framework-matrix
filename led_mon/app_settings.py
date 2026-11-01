@@ -21,6 +21,9 @@ DEFAULT_SETTINGS = {
     "libre_hardware_monitor_path": "",
     # Turn the panels off while the lid is closed, the screen is off or the PC is going to sleep
     "turn_off_with_lid": True,
+    # Where the Temperatures and Fans apps read from on Windows: auto, framework_control,
+    # libre_hardware_monitor or framework_tool (see sensor_sources.py)
+    "sensor_source": "auto",
 }
 
 

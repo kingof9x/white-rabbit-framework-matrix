@@ -22,9 +22,9 @@ class TemperatureMonitor:
     @staticmethod
     def get():
         if IS_WINDOWS:
-            # psutil can't read sensors on Windows: use Framework Control's service when it is installed,
-            # otherwise Framework's framework_tool (which needs admin rights)
-            from led_mon.framework_control_sensors import windows_readings
+            # psutil can't read sensors on Windows: use the source chosen on the Panels tab
+            # (Framework Control, Libre Hardware Monitor or framework_tool)
+            from led_mon.sensor_sources import windows_readings
             temps = windows_readings()[0]
             return [min(1.0, max(0.0, t / TEMP_REF)) for t in temps][:8]
         temps = []
@@ -39,7 +39,7 @@ class FanSpeedMonitor:
     @staticmethod
     def get():
         if IS_WINDOWS:
-            from led_mon.framework_control_sensors import windows_readings
+            from led_mon.sensor_sources import windows_readings
             speeds = windows_readings()[1]
             # Always two values, so missing readings draw empty bars
             speeds = (list(speeds) + [0, 0])[:2]

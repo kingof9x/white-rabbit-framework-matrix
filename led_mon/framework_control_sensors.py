@@ -57,6 +57,14 @@ def _fetch():
         return json.load(response)
 
 
+def read_once(fetcher=None):
+    """([temps], [fan RPMs]) read straight away (used by --diagnose). Raises when the service doesn't answer."""
+    data = (fetcher or _fetch)()
+    if not data:
+        raise RuntimeError("Framework Control isn't installed (no FrameworkControlService.xml)")
+    return parse_thermal(data)
+
+
 class FrameworkControlSensors:
     """Cached readings. Refreshes in the background so the main loop never waits on the service."""
 
@@ -67,6 +75,7 @@ class FrameworkControlSensors:
         self._last_refresh = 0.0
         self._refreshing = False
         self._available = None
+        self.error = ""
 
     def _set_available(self, available, reason=""):
         if available != self._available:
@@ -74,21 +83,23 @@ class FrameworkControlSensors:
             if available:
                 log.info("Reading temperatures and fans from Framework Control")
             else:
-                log.info(f"Framework Control isn't available{reason}; "
-                         "temperatures and fans fall back to framework_tool")
+                log.info(f"Framework Control isn't available{reason}")
 
     def _refresh(self):
         try:
             data = self._fetcher()
             values = parse_thermal(data) if data else ([], [])
-            self._set_available(bool(data), "" if data else " (not installed)")
+            available, reason = bool(data), "" if data else " (not installed)"
+            self.error = "" if data else "not installed"
         except Exception as e:
             values = ([], [])
-            self._set_available(False, f" ({e})")
-        finally:
-            with self._lock:
-                self._values = values
-                self._refreshing = False
+            available, reason = False, f" ({e})"
+            self.error = f"didn't answer ({e})"
+        # Store the values before saying it answered, so a reader never sees "answered" with old values
+        with self._lock:
+            self._values = values
+            self._refreshing = False
+        self._set_available(available, reason)
 
     @property
     def answered(self):
@@ -107,19 +118,3 @@ class FrameworkControlSensors:
 
 
 sensors = FrameworkControlSensors()
-
-
-def windows_readings():
-    """([temps], [fan RPMs]) for the temperature and fan apps on Windows.
-
-    Each list comes from Framework Control when it has values, otherwise from framework_tool,
-    which only works when White Rabbit runs as admin.
-    """
-    from led_mon.framework_tool import thermal
-    temps, fans = sensors.get()
-    # Until Framework Control's first answer is in, don't start framework_tool just in case
-    if sensors.answered and (not temps or not fans):
-        tool_temps, tool_fans = thermal.get()
-        temps = temps or tool_temps
-        fans = fans or tool_fans
-    return temps, fans

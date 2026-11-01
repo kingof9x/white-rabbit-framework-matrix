@@ -120,11 +120,21 @@ Something not working? Right-click the tray icon > *Open log*, or run
 
 ### Good to know
 
-- **Temperatures and fans** come from [Framework Control](https://github.com/ozturkkl/framework-control):
-  its service reads them with system rights, so White Rabbit needs no admin prompt. Without it,
-  the app falls back to Framework's `framework_tool.exe`
-  ([framework-system releases](https://github.com/FrameworkComputer/framework-system/releases)),
-  but that only works when White Rabbit runs as admin.
+- **Temperatures and fans**: pick where they come from on the Panels tab, under
+  *Temperatures and fans from* (saved as `sensor_source` in `settings.json`):
+  - *Automatic* (default): tries each of the ones below in that order and uses the first that gives readings.
+  - *[Framework Control](https://github.com/ozturkkl/framework-control)*: its service reads them with
+    system rights, so nothing has to be open and White Rabbit needs no admin prompt. On a Framework 16
+    it gives the CPU, APU, ambient and charger temperatures and both fans.
+  - *[Libre Hardware Monitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases)*:
+    White Rabbit reads its sensors through Windows (WMI) while it is open and running as admin.
+    Which sensors show depends on the laptop.
+  - *framework_tool*: Framework's `framework_tool.exe`
+    ([framework-system releases](https://github.com/FrameworkComputer/framework-system/releases)), next to
+    `WhiteRabbit.exe` or on PATH. Only works when White Rabbit itself runs as admin.
+
+  The Panels tab shows which source the readings come from right now, and `WhiteRabbit.exe --diagnose`
+  lists what each source gives.
 - **FPS counter** uses Intel's PresentMon, which the installer includes. Windows
   only lets programs read frame timing when the account is in the *Performance
   Log Users* group. One-time setup in *Terminal (Admin)*:
