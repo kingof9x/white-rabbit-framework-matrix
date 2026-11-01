@@ -399,6 +399,21 @@ def run_window(args, start_tab=None, wait=False):
 
         root.after(3000, check_sensor_source)
 
+        def check_weather_location():
+            # Show the Weather app's settings with Location set to Windows Location (asks Windows in the background)
+            editor = window.editor
+            if editor is None or not platform_utils.IS_WINDOWS:
+                return
+            try:
+                from led_mon.editor import catalog
+                entry = catalog.new_app("weather", "left")
+                entry["args"]["location_source"] = "windows"
+                editor.settings.show(entry, "Left panel, whole panel", "left")
+                log.info("Smoke test: weather location settings shown")
+            except Exception as e:
+                log.error(f"Smoke test failed: the Weather app's location settings: {e}")
+        root.after(4500, check_weather_location)
+
         def finish():
             if window.editor is not None:
                 window.editor.stop.set()

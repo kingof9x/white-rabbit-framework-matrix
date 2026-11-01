@@ -199,7 +199,20 @@ def apply_standard_temperature_conversion(value, units):
     return value
 
 
-def get_location(zip_info, lat_lon, ip_api_key, weather_api_key):
+def get_windows_location():
+    from led_mon import windows_location
+    lat, lon, _ = windows_location.get_position()
+    return lat, lon
+
+
+def get_location(zip_info, lat_lon, ip_api_key, weather_api_key, location_source='manual'):
+    if location_source == 'windows':
+        try:
+            return get_windows_location()
+        except Exception as e:
+            # Logged once by windows_location; use the typed-in location or the internet address instead
+            log.debug(f"Windows Location unavailable, using the fallback location: {e}")
+
     if lat_lon:
         if len(lat_lon) != 2:
             raise Exception("Invalid lat_lon value. Expected [lat, lon].")
@@ -420,6 +433,7 @@ class WeatherMonitor:
         args_dict = dict(fs_dict)
         zip_info = args_dict.get('zip_info', None)
         lat_lon = args_dict.get('lat_lon', None)
+        location_source = args_dict.get('location_source', 'manual')
         units = args_dict.get('units', 'metric')
         forecast = args_dict.get('forecast', False)
         forecast_day = int(args_dict.get('forecast_day', 1))
@@ -431,7 +445,7 @@ class WeatherMonitor:
                 log.warning(f"Unrecognized weather units '{units}', defaulting to metric")
                 units = 'metric'
 
-            loc = get_location(zip_info, lat_lon, ip_api_key, weather_api_key)
+            loc = get_location(zip_info, lat_lon, ip_api_key, weather_api_key, location_source)
             provider_errors = []
 
             if weather_api_key:

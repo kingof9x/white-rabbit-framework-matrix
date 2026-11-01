@@ -149,6 +149,7 @@ jobs:
               if (Select-String -Path $log -Pattern "Traceback|couldn.t start|Smoke test failed|preview failed" -Quiet) { throw "$exe $arguments logged an error" }
               if (-not (Select-String -Path $log -Pattern "Smoke test: temperature and fan source" -Quiet)) { throw "$exe $arguments didn't check the temperature and fan source" }
               if (-not (Select-String -Path $log -Pattern "Smoke test: temperature and fan refresh" -Quiet)) { throw "$exe $arguments didn't check the refresh setting" }
+              if (-not (Select-String -Path $log -Pattern "Smoke test: weather location settings shown" -Quiet)) { throw "$exe $arguments didn't show the weather location settings" }
             }
           }
 
@@ -207,6 +208,9 @@ jobs:
             if ($text -match "Traceback|No module named") { throw "--diagnose hit an error with $choice" }
             $outputs[$choice] = $text
           }
+          # Windows Location for the weather app: the exe must include WinRT geolocation and get a clear answer
+          if ($outputs["auto"] -notmatch "Windows Location \(weather\): (on|not available)") { throw "--diagnose didn't check Windows Location" }
+          if ($outputs["auto"] -match "WinRT geolocation isn't installed|can't be used on this computer") { throw "The exe can't use Windows Location" }
           Stop-Process -Id $server.Id -ErrorAction SilentlyContinue
           if ($lhm) { Stop-Process -Id $lhm.Id -ErrorAction SilentlyContinue }
           # Framework Control (the stand-in) gives its four temperatures and both fans, and both choices that
