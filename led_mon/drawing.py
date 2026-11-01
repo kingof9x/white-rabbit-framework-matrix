@@ -7,6 +7,7 @@ import sys
 import os
 import re
 import json
+import queue
 import logging
 
 # Internal Dependencies
@@ -377,15 +378,76 @@ def draw_id(grid, id, fill_value, args=None):
     fill_grid = id_patterns[id]
     grid[:,:] = fill_grid * fill_value
 
+# A frame that's already on the panel is sent again after this many seconds anyway. The panel
+# firmware goes to sleep after 60 seconds without any command, so this keeps it awake.
+RESEND_UNCHANGED_SEC = 5.0
+
+
 def draw_to_LEDs(s, grid):
     # Ensure all values are valid bytes before sending
     safe_grid = np.clip(grid, 0, 255).astype(np.uint8)
+    key = safe_grid.tobytes()
+    remembers = hasattr(s, 'shows')
     # Hold the port for the whole frame so another thread sharing it can't interleave commands
     with port_lock(s):
+        if remembers and s.shows(key, RESEND_UNCHANGED_SEC):
+            # Already on the panel: sending it again would only keep the panel busy
+            return
         for i in range(safe_grid.shape[0]):
-            params = bytearray([i]) + bytearray(safe_grid[i, :].tolist())
+            column = safe_grid[i, :]
+            # The panel starts every frame with all columns dark, so dark columns needn't be sent
+            if not column.any():
+                continue
+            params = bytearray([i]) + bytearray(column.tolist())
             send_command(s, Commands.StageCol, parameters=params)
         send_command(s, Commands.FlushCols)
+        if remembers:
+            s.remember_shown(key)
+
+
+class LatestFrameQueue:
+    """A drawing queue that keeps only the newest frame waiting.
+
+    A panel takes a moment to draw each frame. With an ordinary queue the frames waiting behind it are
+    already out of date when their turn comes, so the panel shows the past. Here a new frame replaces
+    the one still waiting. Other items (SLEEP_PANEL, the None that stops the thread) keep their place.
+    Has the parts of queue.Queue the app uses; put() never blocks because it is never full.
+    """
+
+    def __init__(self):
+        self._items = []
+        self._ready = threading.Condition()
+
+    def put(self, item, block=True, timeout=None):
+        with self._ready:
+            last = self._items[-1] if self._items else None
+            # Replace the waiting frame, unless that would lose a change to the panel's animation
+            if isinstance(item, tuple) and isinstance(last, tuple) and item[1] in (None, last[1]):
+                self._items[-1] = (item[0], last[1])
+            else:
+                self._items.append(item)
+            self._ready.notify()
+
+    def put_nowait(self, item):
+        self.put(item, block=False)
+
+    def get(self, block=True, timeout=None):
+        with self._ready:
+            if not block:
+                timeout = 0
+            if not self._ready.wait_for(lambda: self._items, timeout):
+                raise queue.Empty
+            return self._items.pop(0)
+
+    def get_nowait(self):
+        return self.get(block=False)
+
+    def qsize(self):
+        with self._ready:
+            return len(self._items)
+
+    def empty(self):
+        return self.qsize() == 0
 
 
 def init_device(location = "1-3.2", fatal=True):

@@ -70,8 +70,8 @@ def test_sleep_item_sends_the_sleep_command(monkeypatch):
     q.put(None)
     thread.run()
     assert port.written[0] == bytes([0x32, 0xAC, 0x03, 0x01])
-    # The next frame is drawn as usual (and wakes the panel)
-    assert port.written[1][:3] == bytes([0x32, 0xAC, 0x07])
+    # The next frame is drawn as usual (and wakes the panel); a dark frame is just the commit
+    assert port.written[1][:3] == bytes([0x32, 0xAC, 0x08])
 
 
 def test_lid_setting_saved_and_respected(tmp_path, monkeypatch):
