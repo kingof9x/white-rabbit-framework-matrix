@@ -148,9 +148,9 @@ in an issue) as they are confirmed. Items marked *(confirmed in the old app)*
 worked in led_mon or LED Matrix Control, but need checking again here.
 
 **Install and start**
-- [ ] The installer installs without an admin prompt, and the panels and the window come up afterwards
+- [x] The installer installs without an admin prompt, and the panels and the window come up afterwards
 - [x] The portable `WhiteRabbit.exe` starts and both panels light up
-- [ ] After logging in, only the tray icon starts (no window), and *Start with Windows* in the tray turns that on and off
+- [x] After logging in, only the tray icon starts (no window), and *Start with Windows* in the tray turns that on and off
 - [x] Opening the app again, or the tray's *Open White Rabbit...*, shows the window (only one window at a time)
 - [ ] Installing a newer version over an old one keeps the settings and the layout
 - [ ] Uninstalling from *Settings > Apps* removes the app and the startup entry
@@ -167,21 +167,21 @@ worked in led_mon or LED Matrix Control, but need checking again here.
 **Panels**
 - [x] Left and right panels are detected the right way round; if not, the *Port* boxes on the Panels tab fix it
 - [x] Unplugging and plugging back a panel: the app picks it up again
-- [ ] Sleep and wake (lid close / open) still work
+- [x] Sleep and wake (lid close / open) still work
 
 **Tray menu**
 - [x] Left-click and right-click both open the menu
 - [x] *Brightness* slider and *Follow screen brightness* work
 - [x] *Stop animation* / *Start animation* turn the panels off and on
 - [x] *Open Hardware Monitor*, *Open Framework Control*, *Open log*, *Quit* work; *Quit* turns the panels dark
-- [ ] *Open Hardware Monitor* finds `OpenHardwareMonitor_x64.exe` in a folder on the Desktop
+- [x] *Open Hardware Monitor* finds `OpenHardwareMonitor_x64.exe` in a folder on the Desktop
 - [ ] When it isn't found, *Find Open Hardware Monitor...* opens a normal Windows file window, remembers the choice and opens it
 
 **Panels tab (layout editor)**
-- [ ] Dragging apps onto panels, pages and settings all work; *Apply to panels* switches straight away *(confirmed in the old app)*
-- [ ] *Send preview* and *Resume monitor* work
-- [ ] *Ready-made layouts > Classic monitor* fills in both panels
-- [ ] Closing the window with unsaved layout changes asks whether to apply them
+- [x] Dragging apps onto panels, pages and settings all work; *Apply to panels* switches straight away *(confirmed in the old app)*
+- [x] *Send preview* and *Resume monitor* work
+- [x] *Ready-made layouts > Classic monitor* fills in both panels
+- [x] Closing the window with unsaved layout changes asks whether to apply them
 
 **Monitor apps**
 - [x] CPU cores shows every core; CPU graph and GPU graph move with the load
@@ -194,21 +194,21 @@ worked in led_mon or LED Matrix Control, but need checking again here.
 
 **Startup animation tab**
 - [x] *Always this one* plays the chosen animation at every power on *(confirmed in the old app)*
-- [ ] *Random out of these* only shows ticked animations over several restarts
-- [ ] *Random* still picks different animations
-- [ ] *None*: the panels stay dark until the app uses them
-- [ ] The setting survives a full shutdown, not just a restart
+- [x] *Random out of these* only shows ticked animations over several restarts
+- [x] *Random* still picks different animations
+- [x] *None*: the panels stay dark until the app uses them
+- [x] The setting survives a full shutdown, not just a restart
 - [ ] With Framework's official firmware, the tab says the setting needs the White Rabbit firmware
 
 **Games & patterns tab**
 - [x] Each Game of Life pattern starts, and *Stop* ends it
-- [ ] Patterns 2 to 5 run on the panels (needs firmware with them)
+- [x] Patterns 2 to 5 run on the panels (needs firmware with them)
 - [x] Snake and Ledris open their small window and play on the panels
-- [ ] Patterns, text, fill, clock, countdown and random equalizer work
+- [x] Patterns, text, fill, clock, countdown and random equalizer work
 
 **Keyboard shortcuts tab**
-- [ ] All four shortcuts are listed with `Ctrl`+`Alt`+`Shift` keys
-- [ ] Unticking a shortcut stops it working straight away; ticking it again brings it back
+- [x] All four shortcuts are listed with `Ctrl`+`Alt`+`Shift` keys
+- [x] Unticking a shortcut stops it working straight away; ticking it again brings it back
 - [ ] The choice is remembered after quitting and starting White Rabbit again
 
 **Firmware tab**
@@ -269,7 +269,7 @@ Thanks to everyone who worked on those.
 ## Project status
 
 **Status:** Waiting on Callum  
-**Waiting on:** Callum: run the testing checklist, and merge PR #1 (Game of Life Patterns 2 to 5)  
+**Waiting on:** Callum: run the testing checklist  
 **Notes:** One tray app combining led_mon and the LED Matrix controls. Not released yet. Newest additions: Keyboard shortcuts tab, Open Hardware Monitor finder fixes.  
-**Last updated:** 2026-10-28
+**Last updated:** 2026-11-01
 
