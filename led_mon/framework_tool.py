@@ -94,7 +94,7 @@ class FrameworkToolThermal:
             return None
         result = subprocess.run(
             [self._tool, '--thermal'],
-            capture_output=True, text=True, timeout=TIMEOUT_SEC,
+            capture_output=True, text=True, timeout=TIMEOUT_SEC, stdin=subprocess.DEVNULL,
             creationflags=platform_utils.subprocess_flags(),
         )
         if result.returncode != 0:

@@ -176,7 +176,15 @@ jobs:
           } catch { Write-Host "Couldn't download framework_tool: $_" }
           Start-Sleep -Seconds 15
 
+          # Windows gives 64-bit programs ProgramFiles from ProgramW6432, so point both at the stand-in
           $env:ProgramFiles = $fake
+          $env:ProgramW6432 = $fake
+          if ($lhm) {
+            Write-Host "Libre Hardware Monitor still running: $(-not $lhm.HasExited)"
+            try { Get-CimInstance -Namespace root/LibreHardwareMonitor -ClassName Sensor -ErrorAction Stop |
+                  Where-Object { $_.SensorType -in 'Temperature', 'Fan' } | Format-Table Parent, Name, SensorType, Value }
+            catch { Write-Host "Its WMI sensors aren't there: $_" }
+          }
           $env:APPDATA = "$PWD\sensor-appdata"
           $env:LOCALAPPDATA = "$PWD\sensor-appdata"
           New-Item -ItemType Directory -Force "sensor-appdata\WhiteRabbit" | Out-Null
