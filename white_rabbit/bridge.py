@@ -38,9 +38,15 @@ def _serial(message):
         with serial_ports.port_lock(s):
             if message.get("reset_input"):
                 s.reset_input_buffer()
-            data = bytes.fromhex(message.get("write") or "")
-            if data:
-                s.write(data)
+            # Each command is written on its own, as the window wrote it: the panel's firmware reads one
+            # command per USB read, so commands sent together in one write would be lost after the first
+            chunks = message.get("writes")
+            if chunks is None:
+                chunks = [message.get("write") or ""]
+            for chunk in chunks:
+                data = bytes.fromhex(chunk)
+                if data:
+                    s.write(data)
             size = int(message.get("read") or 0)
             if not size:
                 return {"data": ""}
@@ -135,14 +141,15 @@ class Link:
 class ProxySerial:
     """Stands in for serial.Serial in the inputmodule code, sending through the monitor.
 
-    Writes are collected and sent together with the next read, or when the port is closed.
+    Writes are collected and sent together with the next read, or when the port is closed. The monitor
+    still writes them to the panel one by one.
     """
 
     def __init__(self, link, port, timeout=None):
         self.link = link
         self.port = port
         self.timeout = timeout
-        self._pending = bytearray()
+        self._pending = []
         self._reset_input = False
 
     def __enter__(self):
@@ -156,11 +163,13 @@ class ProxySerial:
         self._reset_input = True
 
     def write(self, data):
-        self._pending.extend(bytes(data))
+        data = bytes(data)
+        if data:
+            self._pending.append(data.hex())
         return len(data)
 
     def _send(self, read=0):
-        message = {"cmd": "serial", "port": self.port, "write": bytes(self._pending).hex(), "read": read,
+        message = {"cmd": "serial", "port": self.port, "writes": list(self._pending), "read": read,
                    "timeout": self.timeout, "reset_input": self._reset_input}
         self._pending.clear()
         self._reset_input = False

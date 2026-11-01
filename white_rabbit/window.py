@@ -1,6 +1,6 @@
 # The White Rabbit window: the layout editor and the LED Matrix controls in one place.
 #
-# Tabs: Panels (layout editor), Startup animation, Games & patterns, Music, Firmware, Keyboard shortcuts.
+# Tabs: Panels (layout editor), Startup animation, Games & patterns, Math, Firmware, Keyboard shortcuts.
 # The bar at the bottom picks which panels the controls act on, and shows whether each panel is
 # showing the system monitor or something from this window. Playing a game or showing a pattern
 # borrows the panel from the monitor; "Back to system monitor" returns it.
@@ -15,7 +15,7 @@ from tkinter import ttk
 
 # Internal Dependencies
 from led_mon import platform_utils
-from white_rabbit import bridge, panels as panels_mod, tabs, music
+from white_rabbit import bridge, math_tab, panels as panels_mod, tabs
 
 log = logging.getLogger(__name__)
 
@@ -107,10 +107,11 @@ class WhiteRabbitWindow:
         root.minsize(1000, 700)
         root.protocol("WM_DELETE_WINDOW", self.on_close)
 
+        # The bar is packed first so it stays visible when a tab is taller than the window
+        self.bar = ttk.Frame(root, padding=(12, 6, 12, 10))
+        self.bar.pack(side="bottom", fill="x")
         self.notebook = ttk.Notebook(root)
         self.notebook.pack(fill="both", expand=True)
-        self.bar = ttk.Frame(root, padding=(12, 6, 12, 10))
-        self.bar.pack(fill="x")
 
         self.panels = panels_mod.find_panels(self.read_config())
         self.panel_vars = {}
@@ -130,8 +131,8 @@ class WhiteRabbitWindow:
         self.notebook.add(self.startup_tab, text="Startup animation")
         self.play_tab = tabs.PlayTab(self.notebook, self)
         self.notebook.add(self.play_tab, text="Games & patterns")
-        self.music_tab = music.MusicTab(self.notebook, self)
-        self.notebook.add(self.music_tab, text="Music")
+        self.math_tab = math_tab.MathTab(self.notebook, self)
+        self.notebook.add(self.math_tab, text="Math")
         self.firmware_tab = tabs.FirmwareTab(self.notebook, self)
         self.notebook.add(self.firmware_tab, text="Firmware")
         self.shortcuts_tab = tabs.ShortcutsTab(self.notebook, self)

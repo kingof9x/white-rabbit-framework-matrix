@@ -97,6 +97,29 @@ microphone hears (pick any microphone Windows has).
 
 The same looks and options are on the *Audio visualizer* app in the layout
 editor, so it can also take turns with the other apps.
+### Math tab
+
+Graphs and simulations drawn in greyscale on the panels. With both panels
+ticked they work as one 18 x 34 picture. A preview on the right shows the same
+thing, even with no panels connected.
+
+- **Graphs**: 20 ready-made ones (sine, tangent, bell curve, damped wave...),
+  *Random graphs* to cycle through them, or type your own formula such as
+  `sin(x) * x`. Put `t` in a formula to make it move, like `sin(x - t)`.
+- **Game of Life and other Life-like rules**: Conway's Life, HighLife, Seeds,
+  Day & Night, Maze and more, or type your own birth/survival numbers. Start
+  from random cells, a math graph, or a classic pattern. It starts over when
+  it dies out or settles.
+- **Traffic jam** (Biham-Middleton-Levine model): two kinds of cars taking
+  turns. Busy roads jam for good.
+- **Gas particles** (Hardy-Pomeau-Pazzis lattice gas): particles bouncing off
+  each other and the walls, starting at random, packed in a corner, or along a
+  math graph.
+- **One-line automata**: elementary rules like Rule 30 and Rule 90, and
+  3-colour totalistic codes like 777, scrolling up one generation per row.
+- **Random grey noise**, and a speed slider for all of them.
+
+![The Math tab](docs/screenshots/white-rabbit-math.png)
 
 ### Firmware tab
 
@@ -286,6 +309,11 @@ White Rabbit combines two open source projects, both MIT licensed (see
   itself is still built there.
 
 Thanks to everyone who worked on those.
+
+The Math tab's ideas come from mariobx's
+[Framework-LED-Matrix](https://github.com/mariobx/Framework-LED-Matrix). That
+project is GPL-3.0 licensed, so no code was copied: the Math tab is written
+from scratch from the textbook definitions of each graph and simulation.
 
 ## Project status
 
