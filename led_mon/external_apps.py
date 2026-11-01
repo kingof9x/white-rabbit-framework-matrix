@@ -1,7 +1,9 @@
-# Finds and opens Open Hardware Monitor and Framework Control on Windows.
+# Finds and opens Libre Hardware Monitor and Framework Control on Windows.
 #
-# Open Hardware Monitor (https://github.com/openhardwaremonitor) has no installer: it is a
-#   folder unzipped anywhere, so we look for it in a few likely places.
+# Libre Hardware Monitor (https://github.com/LibreHardwareMonitor/LibreHardwareMonitor) has no
+#   installer: it is a folder unzipped anywhere, so we look for it in a few likely places.
+#   The old Open Hardware Monitor is no longer looked for: it unpacks the WinRing0 driver, which has a
+#   known security hole (CVE-2020-14979) and makes Windows Defender flag apps that start it.
 # Framework Control (https://github.com/ozturkkl/framework-control) installs a Windows service
 #   with a web page on 127.0.0.1 and adds "Framework Control" shortcuts to the Start Menu
 #   and desktop for all users.
@@ -19,12 +21,11 @@ from led_mon import platform_utils
 
 log = logging.getLogger(__name__)
 
-OHM_EXE = "OpenHardwareMonitor.exe"
-# Libre Hardware Monitor is the maintained fork of Open Hardware Monitor; either one will do
-OHM_EXES = (OHM_EXE, "LibreHardwareMonitor.exe")
-# Other builds name the exe differently, e.g. OpenHardwareMonitor_x64.exe
-OHM_NAME_PREFIXES = ("openhardwaremonitor", "librehardwaremonitor")
-OHM_SHORTCUT_PREFIXES = ("open hardware monitor", "openhardwaremonitor", "libre hardware monitor", "librehardwaremonitor")
+LHM_EXE = "LibreHardwareMonitor.exe"
+LHM_EXES = (LHM_EXE,)
+# Other builds can name the exe differently, e.g. LibreHardwareMonitor_x64.exe
+LHM_NAME_PREFIXES = ("librehardwaremonitor",)
+LHM_SHORTCUT_PREFIXES = ("libre hardware monitor", "librehardwaremonitor")
 FC_SHORTCUT_NAME = "Framework Control"
 FC_INSTALL_FOLDER = "FrameworkControl"
 FC_SERVICE_CONFIG = "FrameworkControlService.xml"
@@ -38,18 +39,18 @@ class Target(NamedTuple):
 
 
 # ---------------------------------------------------------------------------
-# Open Hardware Monitor
+# Libre Hardware Monitor
 
 def _compact(name):
     return re.sub(r"[^a-z0-9]", "", name.lower())
 
 
-def _find_exe_under(root, exe_names=OHM_EXES, any_folder=False):
+def _find_exe_under(root, exe_names=LHM_EXES, any_folder=False):
     """
     Looks for one of exe_names in root, and down to MAX_DEPTH folders below it: in every folder
       when any_folder is set (the Desktop, Downloads and Documents), otherwise only in folders whose
       name contains "hardwaremonitor" (the zip unpacks as
-      openhardwaremonitor-v0.9.6\\OpenHardwareMonitor\\OpenHardwareMonitor.exe,
+      LibreHardwareMonitor-net472\\LibreHardwareMonitor\\LibreHardwareMonitor.exe,
       and Windows' Extract All can add another folder on top).
     """
     if not root or not os.path.isdir(root):
@@ -81,20 +82,20 @@ MAX_DEPTH = 3
 MAX_FOLDERS = 3000
 
 
-def is_ohm_exe(file_name):
-    """OpenHardwareMonitor.exe, and variants such as OpenHardwareMonitor_x64.exe or LibreHardwareMonitor.exe."""
+def is_lhm_exe(file_name):
+    """LibreHardwareMonitor.exe, and variants such as LibreHardwareMonitor_x64.exe."""
     lower = file_name.lower()
-    return lower.endswith(".exe") and _compact(lower[:-4]).startswith(OHM_NAME_PREFIXES)
+    return lower.endswith(".exe") and _compact(lower[:-4]).startswith(LHM_NAME_PREFIXES)
 
 
 def _exe_in(folder, exe_names):
-    """The Open Hardware Monitor exe in folder: one of exe_names first, then any variant, or None."""
+    """The Libre Hardware Monitor exe in folder: one of exe_names first, then any variant, or None."""
     for name in exe_names:
         candidate = os.path.join(folder, name)
         if os.path.isfile(candidate):
             return candidate
     try:
-        variants = sorted(e.path for e in os.scandir(folder) if e.is_file() and is_ohm_exe(e.name))
+        variants = sorted(e.path for e in os.scandir(folder) if e.is_file() and is_lhm_exe(e.name))
     except OSError:
         return None
     return variants[0] if variants else None
@@ -174,7 +175,7 @@ def _running_processes(exe_name=None, match=None):
     return found
 
 
-def _ohm_search_roots(environ):
+def _lhm_search_roots(environ):
     """[(folder, any_folder)]: where to look, and whether to look inside every folder there."""
     personal = list(_known_folders())
     home = environ.get("USERPROFILE")
@@ -209,7 +210,7 @@ def _ohm_search_roots(environ):
     return unique
 
 
-def _find_ohm_shortcut(environ):
+def _find_lhm_shortcut(environ):
     for base_var in ("APPDATA", "ProgramData"):
         base = environ.get(base_var)
         if not base:
@@ -219,7 +220,7 @@ def _find_ohm_shortcut(environ):
             try:
                 for entry in os.scandir(dirpath):
                     lower = entry.name.lower()
-                    if lower.endswith(".lnk") and lower.startswith(OHM_SHORTCUT_PREFIXES):
+                    if lower.endswith(".lnk") and lower.startswith(LHM_SHORTCUT_PREFIXES):
                         return entry.path
             except OSError:
                 continue
@@ -233,18 +234,17 @@ def _subdirs(folder):
         return []
 
 
-def find_open_hardware_monitor(configured_path="", environ=None, running=None):
+def find_libre_hardware_monitor(configured_path="", environ=None, running=None):
     """
-    Finds Open Hardware Monitor. In order:
+    Finds Libre Hardware Monitor. In order:
       1. already running (so we don't start a second copy)
       2. the path in settings.json (the exe, or the folder it is in)
       3. a Start Menu shortcut
       4. likely folders: anywhere in the user's Desktop/Downloads/Documents (3 folders deep),
          Program Files, C:\\, and the folder this app is in
-    Libre Hardware Monitor counts too.
 
     Args:
-        configured_path: open_hardware_monitor_path from settings.json
+        configured_path: libre_hardware_monitor_path from settings.json
         environ: environment variables (for tests)
         running: [(pid, exe)] of running copies (for tests); looked up when None
 
@@ -253,48 +253,48 @@ def find_open_hardware_monitor(configured_path="", environ=None, running=None):
     """
     environ = os.environ if environ is None else environ
     if running is None:
-        running = _running_processes(match=is_ohm_exe)
+        running = _running_processes(match=is_lhm_exe)
     for pid, exe in running:
         return Target("running", exe, pid)
 
     if configured_path:
         path = os.path.expandvars(os.path.expanduser(configured_path.strip().strip('"')))
         if os.path.isdir(path):
-            path = _exe_in(path, OHM_EXES) or os.path.join(path, OHM_EXE)
-        if os.path.isfile(path):
+            path = _exe_in(path, LHM_EXES) or os.path.join(path, LHM_EXE)
+        if os.path.isfile(path) and not _compact(os.path.basename(path)).startswith("openhardwaremonitor"):
             return Target("file", path)
 
-    shortcut = _find_ohm_shortcut(environ)
+    shortcut = _find_lhm_shortcut(environ)
     if shortcut:
         return Target("file", shortcut)
 
-    roots = _ohm_search_roots(environ)
+    roots = _lhm_search_roots(environ)
     for root, any_folder in roots:
         exe = _find_exe_under(root, any_folder=any_folder)
         if exe:
             return Target("file", exe)
-    log.info(f"Open Hardware Monitor not found. Looked in: {'; '.join(root for root, _ in roots)}")
+    log.info(f"Libre Hardware Monitor not found. Looked in: {'; '.join(root for root, _ in roots)}")
     return None
 
 
-def find_and_open_open_hardware_monitor():
-    """WhiteRabbit --find-ohm: ask where Open Hardware Monitor is, remember it in settings.json and open it."""
+def find_and_open_libre_hardware_monitor():
+    """WhiteRabbit --find-lhm: ask where Libre Hardware Monitor is, remember it in settings.json and open it."""
     from led_mon import app_settings
-    path = ask_for_open_hardware_monitor()
+    path = ask_for_libre_hardware_monitor()
     if not path:
         return
     settings = app_settings.load_settings()
-    settings["open_hardware_monitor_path"] = path
+    settings["libre_hardware_monitor_path"] = path
     app_settings.save_settings(settings)
-    message = open_target(find_open_hardware_monitor(path), "Open Hardware Monitor")
+    message = open_target(find_libre_hardware_monitor(path), "Libre Hardware Monitor")
     if message:
         platform_utils.show_error(message)
 
 
-def ask_for_open_hardware_monitor():
-    """Ask the user to pick OpenHardwareMonitor.exe. Returns its path, or None if cancelled.
+def ask_for_libre_hardware_monitor():
+    """Ask the user to pick LibreHardwareMonitor.exe. Returns its path, or None if cancelled.
 
-    Must run on a program's main thread (White Rabbit starts itself with --find-ohm for this):
+    Must run on a program's main thread (White Rabbit starts itself with --find-lhm for this):
     a Tk dialog on the tray's thread freezes.
     """
     import tkinter as tk
@@ -306,13 +306,13 @@ def ask_for_open_hardware_monitor():
     start = next((f for f in _known_folders() if os.path.isdir(f)), os.path.expanduser("~"))
     try:
         path = filedialog.askopenfilename(
-            parent=root, title="Where is OpenHardwareMonitor.exe?", initialdir=start,
+            parent=root, title="Where is LibreHardwareMonitor.exe?", initialdir=start,
             filetypes=[("Programs", "*.exe"), ("All files", "*.*")])
     finally:
         root.destroy()
     if not path:
         return None
-    log.info(f"Open Hardware Monitor chosen at {path}")
+    log.info(f"Libre Hardware Monitor chosen at {path}")
     return os.path.normpath(path)
 
 
@@ -410,7 +410,7 @@ def _show_window_of(pid, title_part="Hardware Monitor"):
 
 def open_target(target, app_name):
     """
-    Opens what find_open_hardware_monitor or find_framework_control returned.
+    Opens what find_libre_hardware_monitor or find_framework_control returned.
 
     Returns:
         A message to show the user, or None if it opened.
@@ -426,7 +426,7 @@ def open_target(target, app_name):
             webbrowser.open(target.path)
             return None
         # Goes through the Windows shell, so shortcuts work and apps that ask for
-        # admin rights (Open Hardware Monitor does) get the UAC prompt.
+        # admin rights (Libre Hardware Monitor does) get the UAC prompt.
         platform_utils.open_path(target.path)
         return None
     except OSError as e:

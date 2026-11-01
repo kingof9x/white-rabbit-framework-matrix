@@ -130,11 +130,13 @@ Something not working? Right-click the tray icon > *Open log*, or run
   Log Users* group. One-time setup in *Terminal (Admin)*:
   `Add-LocalGroupMember -SID S-1-5-32-559 -Member "$env:USERDOMAIN\$env:USERNAME"`,
   then sign out and back in.
-- **Open Hardware Monitor** (or Libre Hardware Monitor) has no installer, so the
+- **[Libre Hardware Monitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases)** has no installer, so the
   tray looks anywhere in your Desktop, Downloads and Documents (three folders
-  deep), in Program Files, `C:\`, and next to `WhiteRabbit.exe`. If it isn't in any of those, the tray item says *Find Open
-  Hardware Monitor...*: click it and pick `OpenHardwareMonitor.exe` once, and it
+  deep), in Program Files, `C:\`, and next to `WhiteRabbit.exe`. If it isn't in any of those, the tray item says *Find Libre
+  Hardware Monitor...*: click it and pick `LibreHardwareMonitor.exe` once, and it
   is remembered. It asks for admin rights each time it starts (that's normal for it).
+  The old Open Hardware Monitor isn't supported: it unpacks the WinRing0 driver, which
+  has a known security hole, and Windows Defender blocks it and can flag apps that start it.
 - **Weather** needs an API key in `%APPDATA%\WhiteRabbit\.env` (see [`.env-example`](.env-example)).
 - **Where things live:** settings and layout in `%APPDATA%\WhiteRabbit`, the
   log in `%LOCALAPPDATA%\WhiteRabbit\WhiteRabbit.log`.
@@ -175,9 +177,9 @@ worked in led_mon or LED Matrix Control, but need checking again here.
 - [x] Left-click and right-click both open the menu
 - [x] *Brightness* slider and *Follow screen brightness* work
 - [x] *Stop animation* / *Start animation* turn the panels off and on
-- [x] *Open Hardware Monitor*, *Open Framework Control*, *Open log*, *Quit* work; *Quit* turns the panels dark
-- [x] *Open Hardware Monitor* finds `OpenHardwareMonitor_x64.exe` in a folder on the Desktop
-- [ ] When it isn't found, *Find Open Hardware Monitor...* opens a normal Windows file window, remembers the choice and opens it
+- [x] *Libre Hardware Monitor*, *Open Framework Control*, *Open log*, *Quit* work; *Quit* turns the panels dark
+- [ ] *Libre Hardware Monitor* finds `LibreHardwareMonitor.exe` in a folder on the Desktop
+- [ ] When it isn't found, *Find Libre Hardware Monitor...* opens a normal Windows file window, remembers the choice and opens it
 
 **Panels tab (layout editor)**
 - [x] Dragging apps onto panels, pages and settings all work; *Apply to panels* switches straight away *(confirmed in the old app)*

@@ -1,7 +1,7 @@
 import os
 
 from led_mon import external_apps
-from led_mon.external_apps import Target, find_framework_control, find_open_hardware_monitor
+from led_mon.external_apps import Target, find_framework_control, find_libre_hardware_monitor
 
 START_MENU = os.path.join("Microsoft", "Windows", "Start Menu", "Programs")
 
@@ -29,58 +29,58 @@ def fake_env(tmp_path):
     return env
 
 
-def test_ohm_not_found(tmp_path, monkeypatch):
+def test_lhm_not_found(tmp_path, monkeypatch):
     monkeypatch.setattr(external_apps.platform_utils, "app_dir", lambda: str(tmp_path / "app"))
-    assert find_open_hardware_monitor("", fake_env(tmp_path), running=[]) is None
+    assert find_libre_hardware_monitor("", fake_env(tmp_path), running=[]) is None
 
 
-def test_ohm_running_wins(tmp_path):
+def test_lhm_running_wins(tmp_path):
     env = fake_env(tmp_path)
-    exe = touch(tmp_path / "Program Files" / "OpenHardwareMonitor" / "OpenHardwareMonitor.exe")
-    found = find_open_hardware_monitor(exe, env, running=[(1234, "C:\\OHM\\OpenHardwareMonitor.exe")])
-    assert found == Target("running", "C:\\OHM\\OpenHardwareMonitor.exe", 1234)
+    exe = touch(tmp_path / "Program Files" / "LibreHardwareMonitor" / "LibreHardwareMonitor.exe")
+    found = find_libre_hardware_monitor(exe, env, running=[(1234, "C:\\LHM\\LibreHardwareMonitor.exe")])
+    assert found == Target("running", "C:\\LHM\\LibreHardwareMonitor.exe", 1234)
 
 
-def test_ohm_configured_exe_and_folder(tmp_path):
+def test_lhm_configured_exe_and_folder(tmp_path):
     env = fake_env(tmp_path)
-    exe = touch(tmp_path / "somewhere" / "OpenHardwareMonitor.exe")
-    assert find_open_hardware_monitor(exe, env, running=[]) == Target("file", exe)
-    assert find_open_hardware_monitor(os.path.dirname(exe), env, running=[]) == Target("file", exe)
-    assert find_open_hardware_monitor('"' + exe + '"', env, running=[]) == Target("file", exe)
+    exe = touch(tmp_path / "somewhere" / "LibreHardwareMonitor.exe")
+    assert find_libre_hardware_monitor(exe, env, running=[]) == Target("file", exe)
+    assert find_libre_hardware_monitor(os.path.dirname(exe), env, running=[]) == Target("file", exe)
+    assert find_libre_hardware_monitor('"' + exe + '"', env, running=[]) == Target("file", exe)
 
 
-def test_ohm_bad_configured_path_falls_back_to_search(tmp_path):
+def test_lhm_bad_configured_path_falls_back_to_search(tmp_path):
     env = fake_env(tmp_path)
-    exe = touch(tmp_path / "Program Files" / "OpenHardwareMonitor" / "OpenHardwareMonitor.exe")
-    found = find_open_hardware_monitor(str(tmp_path / "missing.exe"), env, running=[])
+    exe = touch(tmp_path / "Program Files" / "LibreHardwareMonitor" / "LibreHardwareMonitor.exe")
+    found = find_libre_hardware_monitor(str(tmp_path / "missing.exe"), env, running=[])
     assert found == Target("file", exe)
 
 
-def test_ohm_unzipped_in_downloads(tmp_path):
+def test_lhm_unzipped_in_downloads(tmp_path):
     env = fake_env(tmp_path)
-    exe = touch(tmp_path / "Users" / "me" / "Downloads" / "openhardwaremonitor-v0.9.6"
-                / "OpenHardwareMonitor" / "OpenHardwareMonitor.exe")
-    assert find_open_hardware_monitor("", env, running=[]) == Target("file", exe)
+    exe = touch(tmp_path / "Users" / "me" / "Downloads" / "LibreHardwareMonitor-net472"
+                / "LibreHardwareMonitor" / "LibreHardwareMonitor.exe")
+    assert find_libre_hardware_monitor("", env, running=[]) == Target("file", exe)
 
 
-def test_ohm_ignores_unrelated_folders(tmp_path, monkeypatch):
+def test_lhm_ignores_unrelated_folders(tmp_path, monkeypatch):
     monkeypatch.setattr(external_apps.platform_utils, "app_dir", lambda: str(tmp_path / "app"))
     env = fake_env(tmp_path)
-    touch(tmp_path / "Program Files" / "games" / "x" / "OpenHardwareMonitor.exe")
-    assert find_open_hardware_monitor("", env, running=[]) is None
+    touch(tmp_path / "Program Files" / "games" / "x" / "LibreHardwareMonitor.exe")
+    assert find_libre_hardware_monitor("", env, running=[]) is None
 
 
-def test_ohm_start_menu_shortcut(tmp_path):
+def test_lhm_start_menu_shortcut(tmp_path):
     env = fake_env(tmp_path)
-    lnk = touch(os.path.join(env["APPDATA"], START_MENU, "Utilities", "Open Hardware Monitor.lnk"))
-    assert find_open_hardware_monitor("", env, running=[]) == Target("file", lnk)
+    lnk = touch(os.path.join(env["APPDATA"], START_MENU, "Utilities", "Libre Hardware Monitor.lnk"))
+    assert find_libre_hardware_monitor("", env, running=[]) == Target("file", lnk)
 
 
-def test_ohm_next_to_app(tmp_path, monkeypatch):
+def test_lhm_next_to_app(tmp_path, monkeypatch):
     env = fake_env(tmp_path)
-    exe = touch(tmp_path / "app" / "OpenHardwareMonitor.exe")
+    exe = touch(tmp_path / "app" / "LibreHardwareMonitor.exe")
     monkeypatch.setattr(external_apps.platform_utils, "app_dir", lambda: str(tmp_path / "app"))
-    assert find_open_hardware_monitor("", env, running=[]) == Target("file", exe)
+    assert find_libre_hardware_monitor("", env, running=[]) == Target("file", exe)
 
 
 def test_fc_not_installed(tmp_path):
@@ -127,7 +127,7 @@ def test_fc_unfilled_port_placeholder_is_ignored(tmp_path):
 def test_open_target_messages(monkeypatch):
     assert "not found" in external_apps.open_target(None, "Framework Control")
     monkeypatch.setattr(external_apps, "_show_window_of", lambda pid: False)
-    message = external_apps.open_target(Target("running", "", 5), "Open Hardware Monitor")
+    message = external_apps.open_target(Target("running", "", 5), "Libre Hardware Monitor")
     assert "already running" in message
     opened = []
     monkeypatch.setattr(external_apps.webbrowser, "open", opened.append)
@@ -141,39 +141,49 @@ def test_open_target_uac_cancel_is_silent(monkeypatch):
         e.winerror = 1223
         raise e
     monkeypatch.setattr(external_apps.platform_utils, "open_path", cancelled)
-    assert external_apps.open_target(Target("file", "x.exe"), "Open Hardware Monitor") is None
+    assert external_apps.open_target(Target("file", "x.exe"), "Libre Hardware Monitor") is None
 
 
-def test_ohm_extracted_with_an_extra_folder(tmp_path):
+def test_lhm_extracted_with_an_extra_folder(tmp_path):
     env = fake_env(tmp_path)
-    exe = touch(tmp_path / "Users" / "me" / "Desktop" / "openhardwaremonitor-v0.9.6"
-                / "openhardwaremonitor-v0.9.6" / "OpenHardwareMonitor" / "OpenHardwareMonitor.exe")
-    assert find_open_hardware_monitor("", env, running=[]) == Target("file", exe)
+    exe = touch(tmp_path / "Users" / "me" / "Desktop" / "LibreHardwareMonitor-net472"
+                / "LibreHardwareMonitor-net472" / "LibreHardwareMonitor" / "LibreHardwareMonitor.exe")
+    assert find_libre_hardware_monitor("", env, running=[]) == Target("file", exe)
 
 
-def test_ohm_on_a_desktop_moved_by_onedrive(tmp_path, monkeypatch):
+def test_lhm_on_a_desktop_moved_by_onedrive(tmp_path, monkeypatch):
     env = fake_env(tmp_path)
     desktop = tmp_path / "Users" / "me" / "OneDrive - Home" / "Desktop"
-    exe = touch(desktop / "OpenHardwareMonitor" / "OpenHardwareMonitor.exe")
+    exe = touch(desktop / "LibreHardwareMonitor" / "LibreHardwareMonitor.exe")
     monkeypatch.setattr(external_apps, "_known_folders", lambda: [str(desktop)])
-    assert find_open_hardware_monitor("", env, running=[]) == Target("file", exe)
+    assert find_libre_hardware_monitor("", env, running=[]) == Target("file", exe)
 
 
-def test_ohm_in_any_desktop_folder(tmp_path):
+def test_lhm_in_any_desktop_folder(tmp_path):
     env = fake_env(tmp_path)
-    exe = touch(tmp_path / "Users" / "me" / "Desktop" / "OHM" / "OpenHardwareMonitor.exe")
-    assert find_open_hardware_monitor("", env, running=[]) == Target("file", exe)
+    exe = touch(tmp_path / "Users" / "me" / "Desktop" / "LHM" / "LibreHardwareMonitor.exe")
+    assert find_libre_hardware_monitor("", env, running=[]) == Target("file", exe)
 
 
 def test_libre_hardware_monitor_counts(tmp_path):
     env = fake_env(tmp_path)
     exe = touch(tmp_path / "Users" / "me" / "Desktop" / "LibreHardwareMonitor" / "LibreHardwareMonitor.exe")
-    assert find_open_hardware_monitor("", env, running=[]) == Target("file", exe)
+    assert find_libre_hardware_monitor("", env, running=[]) == Target("file", exe)
 
 
-def test_ohm_x64_build_name(tmp_path):
+def test_lhm_x64_build_name(tmp_path):
     env = fake_env(tmp_path)
-    exe = touch(tmp_path / "Users" / "me" / "Desktop" / "OpenHardwareMonitor" / "OpenHardwareMonitor_x64.exe")
-    assert find_open_hardware_monitor("", env, running=[]) == Target("file", exe)
-    assert external_apps.is_ohm_exe("OpenHardwareMonitor_x64.exe")
-    assert not external_apps.is_ohm_exe("OpenHardwareMonitorLib.dll")
+    exe = touch(tmp_path / "Users" / "me" / "Desktop" / "LibreHardwareMonitor" / "LibreHardwareMonitor_x64.exe")
+    assert find_libre_hardware_monitor("", env, running=[]) == Target("file", exe)
+    assert external_apps.is_lhm_exe("LibreHardwareMonitor_x64.exe")
+    assert not external_apps.is_lhm_exe("LibreHardwareMonitorLib.dll")
+
+
+def test_old_open_hardware_monitor_is_not_used(tmp_path):
+    # Open Hardware Monitor unpacks the WinRing0 driver, which Windows Defender blocks
+    env = fake_env(tmp_path)
+    touch(tmp_path / "Users" / "me" / "Desktop" / "OpenHardwareMonitor" / "OpenHardwareMonitor.exe")
+    touch(tmp_path / "Users" / "me" / "Desktop" / "OpenHardwareMonitor" / "OpenHardwareMonitor_x64.exe")
+    assert find_libre_hardware_monitor("", env, running=[]) is None
+    assert find_libre_hardware_monitor(str(tmp_path / "Users" / "me" / "Desktop" / "OpenHardwareMonitor" / "OpenHardwareMonitor.exe"), env, running=[]) is None
+    assert not external_apps.is_lhm_exe("OpenHardwareMonitor.exe")

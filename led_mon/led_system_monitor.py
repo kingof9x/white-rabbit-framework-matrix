@@ -880,7 +880,7 @@ def app(args, base_apps, plugin_apps):
             set_turn_off_with_lid=set_turn_off_with_lid,
             is_turn_off_with_lid=is_turn_off_with_lid,
             show_brightness=brightness_popup.show,
-            ohm_path=app_settings.load_settings().get("open_hardware_monitor_path", ""),
+            lhm_path=app_settings.load_settings().get("libre_hardware_monitor_path", ""),
         )
         # The tray returns after Quit
         brightness_popup.stop()

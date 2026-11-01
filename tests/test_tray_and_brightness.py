@@ -29,7 +29,7 @@ def make_menu(monkeypatch, state, startup_supported=True, edit_layout_available=
     finder = tray.AppFinder()
     noop = lambda icon, item: None
     actions = {name: noop for name in (
-        "edit_layout", "brightness", "toggle_animation", "identify", "next_app", "toggle_freeze", "open_ohm",
+        "edit_layout", "brightness", "toggle_animation", "identify", "next_app", "toggle_freeze", "open_lhm",
         "open_fc", "open_folder", "open_log", "reload_config", "toggle_startup", "quit")}
 
     def toggle_animation(icon, item):
@@ -43,12 +43,12 @@ def make_menu(monkeypatch, state, startup_supported=True, edit_layout_available=
 def test_menu_items_and_found_apps(monkeypatch):
     menu, finder = make_menu(monkeypatch, {"paused": False})
     base = ["Open White Rabbit...", "Brightness...", "Stop animation", "Identify panels", "Next app",
-            "Freeze app switching", "Find Open Hardware Monitor...", "Open config folder", "Open log", "Reload config", "Start with Windows", "Quit"]
+            "Freeze app switching", "Find Libre Hardware Monitor...", "Open config folder", "Open log", "Reload config", "Start with Windows", "Quit"]
     assert visible_labels(menu) == base
-    finder.ohm = object()
+    finder.lhm = object()
     finder.framework_control = object()
     labels = visible_labels(menu)
-    assert labels.index("Open Hardware Monitor") == labels.index("Freeze app switching") + 1
+    assert labels.index("Libre Hardware Monitor") == labels.index("Freeze app switching") + 1
     assert "Open Framework Control" in labels
 
 
@@ -96,14 +96,14 @@ def test_brightness_defaults_follow_the_screen(tmp_path):
 def test_brightness_level_is_saved_and_kept(tmp_path):
     path = tmp_path / "cfg" / "settings.json"
     path.parent.mkdir()
-    path.write_text(json.dumps({"open_hardware_monitor_path": "D:\\OHM"}))
+    path.write_text(json.dumps({"libre_hardware_monitor_path": "D:\\LHM"}))
     brightness = app_settings.Brightness(str(path))
     assert brightness.set(False, 35) == {"follow_screen": False, "level": 35}
     assert brightness.ratio(lambda: 1.0) == 0.35
     saved = json.loads(path.read_text())
     assert saved["brightness_level"] == 35 and saved["follow_screen_brightness"] is False
     # Other settings in the file are kept
-    assert saved["open_hardware_monitor_path"] == "D:\\OHM"
+    assert saved["libre_hardware_monitor_path"] == "D:\\LHM"
     assert app_settings.Brightness(str(path)).get() == {"follow_screen": False, "level": 35}
 
 
