@@ -1,5 +1,5 @@
 # App settings that are changed from the tray or the layout editor rather than in config.yaml:
-# the brightness level and where Libre Hardware Monitor is. Stored as settings.json next to the config.
+# the brightness level, where Libre Hardware Monitor is and music mode's look. Stored as settings.json next to the config.
 
 # Built In Dependencies
 import os
@@ -21,6 +21,9 @@ DEFAULT_SETTINGS = {
     "libre_hardware_monitor_path": "",
     # Turn the panels off while the lid is closed, the screen is off or the PC is going to sleep
     "turn_off_with_lid": True,
+    # Music mode's audio visualizer: the look and input last picked in the Music tab (see
+    # led_mon/equalizer_files/looks.py for the keys)
+    "music": {},
 }
 
 
@@ -56,6 +59,20 @@ def save_settings(settings, path=None):
     except OSError as e:
         log.error(f"Could not write {path}: {e}")
         return False
+
+
+def load_music(path=None):
+    """Music mode's visualizer settings, with every key filled in."""
+    from led_mon.equalizer_files import looks
+    music = load_settings(path).get("music")
+    return looks.normalize(music if isinstance(music, dict) else {})
+
+
+def save_music(music, path=None):
+    from led_mon.equalizer_files import looks
+    settings = load_settings(path)
+    settings["music"] = looks.normalize(music)
+    return save_settings(settings, path)
 
 
 def clamp_level(level):

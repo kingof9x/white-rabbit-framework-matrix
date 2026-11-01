@@ -42,16 +42,16 @@ and comes back when you press *Stop* or *Back to system monitor*.
   panel, top or bottom half, and set up several pages that take turns.
 - **Half-panel apps:** CPU cores, CPU graph, GPU graph, memory + battery,
   disk, network, disk + network, temperatures, fans.
-- **Whole-panel apps:** clock, weather, music equalizer, FPS counter for
+- **Whole-panel apps:** clock, weather, audio visualizer, FPS counter for
   games, picture.
 - Brightness follows the laptop screen, or set it yourself.
 - The panels turn off when you close the lid, when the screen turns off, or
   when the laptop goes to sleep, and come back when you open it. Turn this
   off with *Turn off when lid closes* in the tray menu.
 - Runs in the tray and starts with Windows. Keyboard shortcuts
-  (`Ctrl`+`Alt`+`Shift` + `I` / `N` / `F` / `U`) show the app names, skip to
-  the next app, and freeze or unfreeze app switching. Each one can be turned
-  off on the Keyboard shortcuts tab.
+  (`Ctrl`+`Alt`+`Shift` + `I` / `N` / `F` / `U` / `M`) show the app names, skip to
+  the next app, freeze or unfreeze app switching, and turn music mode on or
+  off. Each one can be turned off on the Keyboard shortcuts tab.
 
 ![The Panels tab with the layout editor](docs/screenshots/white-rabbit-panels.png)
 
@@ -78,6 +78,25 @@ and a random equalizer.
 ![The starting position of each extra Game of Life pattern](docs/screenshots/game-of-life-patterns.png)
 
 *Where each extra Game of Life pattern starts on the 9 x 34 matrix.*
+
+### Music tab
+
+An audio visualizer that moves with what the laptop is playing, or with what a
+microphone hears (pick any microphone Windows has).
+
+- **Music mode** shows the visualizer on both panels until you turn it off.
+  Turn it on here, with *Music mode* in the tray menu, or with
+  `Ctrl`+`Alt`+`Shift`+`M`. It uses the look last picked on this tab.
+- **13 looks:** classic, spectrum analyzer, centre out, dots, spectrogram,
+  level meter, waveform, mirror waveform, double waveform, radial bars, rings,
+  pulse and sparkle.
+- **Options:** one 18-bar spectrum across both panels, peak dots, shading,
+  upside down, falling speed, sensitivity, and automatic sensitivity.
+- A live preview of both panels and a sound check, which show whether the
+  microphone (or the music) is being heard.
+
+The same looks and options are on the *Audio visualizer* app in the layout
+editor, so it can also take turns with the other apps.
 
 ### Firmware tab
 

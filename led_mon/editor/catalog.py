@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 
 # Internal Dependencies
 from led_mon.platform_utils import package_dir
+from led_mon.equalizer_files import looks
 
 HALF = "half"
 FULL = "full"
@@ -22,11 +23,13 @@ APP = "app"
 class Setting:
     key: str
     label: str
-    kind: str                     # bool | choice | text | int | list | multi | snapshot | gpu
+    kind: str                     # bool | choice | text | int | list | multi | snapshot | gpu | microphone
     default: object = None
     options: tuple = ()
     target: str = ARGS
     help: str = ""
+    # For a choice: what to show for each option, if not the option itself
+    labels: tuple = ()
 
 
 @dataclass
@@ -67,10 +70,25 @@ APPS = [
         Setting("forecast_day", "Forecast day (1-5)", "choice", 1, (1, 2, 3, 4, 5)),
         Setting("forecast_hour", "Forecast hour", "choice", 12, (0, 3, 6, 9, 12, 15, 18, 21)),
     ], fixed_args={"id_key_override": ["forecast", "weather_forecast", "weather_current"]}),
-    AppInfo("equalizer", "Equalizer", "Bars that move with the sound that is playing.", FULL, [
-        Setting("input-mode", "Listen to", "choice", "playback", ("playback", "microphone"),
-                help="playback: what the speakers play. microphone: the default microphone"),
-        Setting("input-device", "Microphone name", "text", "", help="Optional, part of the device name, for microphone mode"),
+    # Still called "equalizer" in config files, so existing layouts keep working
+    AppInfo("equalizer", "Audio visualizer", "Moves with the music: what the laptop plays, or what a microphone "
+            "hears. The Music tab shows a preview of each look.", FULL, [
+        Setting("input-mode", "Listen to", "choice", "playback", looks.INPUT_MODES,
+                labels=tuple(looks.INPUT_LABELS[m] for m in looks.INPUT_MODES)),
+        Setting("input-device", "Microphone", "microphone", "",
+                help="Used when listening to a microphone"),
+        Setting("style", "Look", "choice", "classic", tuple(looks.STYLE_KEYS),
+                labels=tuple(looks.STYLE_LABELS[k] for k in looks.STYLE_KEYS)),
+        Setting("span-panels", "One spectrum across both panels (18 bars)", "bool", False,
+                help="Turn this on for the audio visualizer on both panels: bass on the left, treble on the right"),
+        Setting("peak-dots", "Peak dots", "bool", False, help="A dot above each bar that falls slowly"),
+        Setting("shaded", "Shaded", "bool", False, help="Bars get brighter towards their tips"),
+        Setting("flip", "Upside down", "bool", False),
+        Setting("fall-speed", "Falling speed", "choice", "normal", tuple(looks.FALL_SPEEDS),
+                labels=tuple(looks.FALL_LABELS[k] for k in looks.FALL_SPEEDS)),
+        Setting("sensitivity", "Sensitivity (1-10)", "choice", 5, tuple(range(1, 11))),
+        Setting("auto-sensitivity", "Adjust the sensitivity automatically", "bool", True,
+                help="Quiet and loud songs both fill the panel"),
     ], fixed={"persistent-draw": True, "dispose-fn": "equalizer_dispose"},
        fixed_args={"external-filter": False, "border": False}),
     AppInfo("fps", "FPS counter", "Frames per second of a game, with a graph of the last few seconds below. "
@@ -131,6 +149,20 @@ def gpu_options():
     return [("", FIRST_GPU)] + [(n, n) for n in names]
 
 
+# Shown in the microphone picker for "no input-device arg"
+DEFAULT_MICROPHONE = "Default microphone"
+
+
+def microphone_options():
+    """Choices for the microphone picker: (value, label), the first meaning the default microphone."""
+    try:
+        from led_mon.equalizer_files.audio import list_microphones
+        names = list_microphones()
+    except Exception:
+        names = []
+    return [("", DEFAULT_MICROPHONE)] + [(n, n) for n in names]
+
+
 def new_app(name, side):
     """A config entry for a newly placed app, with default settings."""
     info = get(name)
@@ -142,7 +174,7 @@ def new_app(name, side):
             value = files[0] if files else None
         else:
             value = copy.deepcopy(s.default)
-        if value in (None, "", []) and s.kind in ("text", "list", "snapshot", "gpu"):
+        if value in (None, "", []) and s.kind in ("text", "list", "snapshot", "gpu", "microphone"):
             continue
         if s.target == APP:
             entry[s.key] = value

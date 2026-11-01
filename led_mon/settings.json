@@ -1,0 +1,18 @@
+{
+  "follow_screen_brightness": true,
+  "brightness_level": 70,
+  "libre_hardware_monitor_path": "",
+  "turn_off_with_lid": true,
+  "music": {
+    "input-mode": "playback",
+    "input-device": "",
+    "style": "bars",
+    "span-panels": true,
+    "peak-dots": true,
+    "shaded": false,
+    "flip": false,
+    "fall-speed": "normal",
+    "sensitivity": 5,
+    "auto-sensitivity": true
+  }
+}

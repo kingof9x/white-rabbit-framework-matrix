@@ -136,15 +136,18 @@ jobs:
           $env:WHITE_RABBIT_SMOKE_TEST = "1"
           $env:APPDATA = "$PWD\smoke-appdata"
           $env:LOCALAPPDATA = "$PWD\smoke-appdata"
+          # The second run opens the Music tab, whose preview listens to the sound (the runner has no sound card)
           foreach ($exe in @("dist\WhiteRabbit.exe", "dist\WhiteRabbit\WhiteRabbit.exe")) {
-            Write-Host "== $exe --window"
-            $p = Start-Process -FilePath $exe -ArgumentList "--window" -PassThru
-            $null = $p.Handle
-            if (-not $p.WaitForExit(120000)) { $p.Kill(); throw "$exe --window did not exit" }
-            $log = "smoke-appdata\WhiteRabbit\WhiteRabbit.log"
-            Get-Content $log -ErrorAction SilentlyContinue
-            if ($p.ExitCode -ne 0) { throw "$exe --window exited with $($p.ExitCode)" }
-            if (Select-String -Path $log -Pattern "Traceback|couldn.t start" -Quiet) { throw "$exe --window logged an error" }
+            foreach ($arguments in @("--window", "--window --tab music")) {
+              Write-Host "== $exe $arguments"
+              $p = Start-Process -FilePath $exe -ArgumentList $arguments -PassThru
+              $null = $p.Handle
+              if (-not $p.WaitForExit(120000)) { $p.Kill(); throw "$exe $arguments did not exit" }
+              $log = "smoke-appdata\WhiteRabbit\WhiteRabbit.log"
+              Get-Content $log -ErrorAction SilentlyContinue
+              if ($p.ExitCode -ne 0) { throw "$exe $arguments exited with $($p.ExitCode)" }
+              if (Select-String -Path $log -Pattern "Traceback|couldn.t start|preview failed" -Quiet) { throw "$exe $arguments logged an error" }
+            }
           }
 
       # Code signing placeholder (not enabled yet). Unsigned builds show a SmartScreen warning.

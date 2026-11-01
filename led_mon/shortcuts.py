@@ -10,6 +10,7 @@ SHORTCUTS = [
     ("n", "Next app", "Skips to the next app on both panels."),
     ("f", "Freeze app switching", "Keeps the current apps on the panels instead of rotating."),
     ("u", "Unfreeze app switching", "Goes back to rotating through the apps."),
+    ("m", "Music mode", "Turns music mode on or off: the audio visualizer on both panels."),
 ]
 LETTERS = [letter for letter, _, _ in SHORTCUTS]
 
