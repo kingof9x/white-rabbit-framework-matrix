@@ -2,7 +2,11 @@
 #
 # Menu (left or right click):
 #   Open White Rabbit... / Brightness...
-#   Stop animation / Start animation   - the icon turns grey while stopped
+#   Stop animation / Start animation   - the icon dims while stopped
+#
+# The tray icon is a one-colour version of the app icon, like Windows' own tray icons: white on a dark
+# taskbar, black on a light one, drawn to whole pixels at the tray's size. The colour icon stays for the
+# window, taskbar button and installer.
 #   Identify panels / Next app / Freeze app switching
 #   Music mode                          - checkbox: the audio visualizer on both panels (Ctrl+Alt+Shift+M)
 #   Libre Hardware Monitor               - "Find Libre Hardware Monitor..." (pick the exe) when it isn't found
@@ -45,6 +49,59 @@ def make_icon_image(size=64, lit=True):
                 r = 0.7 * unit
                 draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=color)
     return img
+
+
+# Tray icon pixel layouts by icon size: (outline width, dot size, gap, gap between the two panels).
+# Windows uses 16 px at 100% scaling, 20 at 125%, 24 at 150%, 28 at 175%, 32 at 200% and so on.
+TRAY_LAYOUTS = {16: (1, 1, 1, 2), 20: (1, 1, 1, 4), 24: (1, 2, 1, 2), 28: (2, 2, 1, 4),
+                32: (2, 2, 2, 4), 36: (2, 2, 2, 4), 40: (2, 3, 2, 6), 48: (2, 3, 3, 6)}
+TRAY_OFF_ALPHA = 80  # unlit dots, and every dot while the animation is stopped
+
+
+def make_tray_icon_image(size=16, lit=True, light_taskbar=False):
+    """The one-colour tray icon: the same two panels of dots, drawn to whole pixels without blurring."""
+    from PIL import Image
+    ink = (0, 0, 0) if light_taskbar else (255, 255, 255)
+    fitting = [s for s in TRAY_LAYOUTS if s <= size]
+    b, d, g, pg = TRAY_LAYOUTS[max(fitting) if fitting else 16]
+    w = b + g + d + g + d + g + b
+    h = 2 * b + 2 * g + 6 * d + 5 * g
+    img = Image.new("RGBA", (max(size, 16), max(size, 16)), ink + (0,))
+
+    def rect(x, y, ww, hh, alpha):
+        img.paste(ink + (alpha,), (x, y, x + ww, y + hh))
+
+    x0 = (img.width - (2 * w + pg)) // 2
+    y0 = (img.height - h) // 2
+    for panel_x, left in ((2, x0), (9, x0 + w + pg)):
+        # Outline without its corner pixels, so it reads as rounded
+        rect(left + b, y0, w - 2 * b, b, 255)
+        rect(left + b, y0 + h - b, w - 2 * b, b, 255)
+        rect(left, y0 + b, b, h - 2 * b, 255)
+        rect(left + w - b, y0 + b, b, h - 2 * b, 255)
+        if b > 1:
+            for cx, cy in ((left + 1, y0 + 1), (left + w - 2, y0 + 1), (left + 1, y0 + h - 2), (left + w - 2, y0 + h - 2)):
+                rect(cx, cy, 1, 1, 255)
+        for col in range(2):
+            for row in range(6):
+                on = lit and (row + col + panel_x) % 3 != 0  # same pattern as the colour icon
+                rect(left + b + g + col * (d + g), y0 + b + g + row * (d + g), d, d, 255 if on else TRAY_OFF_ALPHA)
+    if img.width != size:
+        img = img.resize((size, size), Image.LANCZOS)
+    return img
+
+
+def taskbar_is_light():
+    """True when Windows draws a light taskbar (Settings > Personalization > Colors > Windows mode)."""
+    if not platform_utils.IS_WINDOWS:
+        return False
+    try:
+        import winreg
+        key = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key) as k:
+            return bool(winreg.QueryValueEx(k, "SystemUsesLightTheme")[0])
+    except Exception:
+        return False  # older Windows without the setting has a dark taskbar
 
 
 class AppFinder:
@@ -129,7 +186,48 @@ def _icon_class(pystray, finder):
         return pystray.Icon
     from pystray._util import win32
 
+    import ctypes
+    import os
+    import tempfile
+    WM_SETTINGCHANGE = 0x001A
+    SM_CXSMICON = 49
+
     class ClickMenuIcon(pystray.Icon):
+        lit = True  # False while the animation is stopped
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._light_taskbar = taskbar_is_light()
+            # Light/dark mode changes are broadcast to top-level windows as WM_SETTINGCHANGE
+            self._message_handlers[WM_SETTINGCHANGE] = self._on_setting_change
+
+        def _on_setting_change(self, wparam, lparam):
+            light = taskbar_is_light()
+            if light != self._light_taskbar:
+                self._light_taskbar = light
+                if self.visible:
+                    self._update_icon()
+            return 0
+
+        def _assert_icon_handle(self):
+            # pystray loads the icon at the big icon size and lets Windows shrink it, which blurs it.
+            # Load the one-colour icon drawn at exactly the tray's size instead.
+            if self._icon_handle:
+                return
+            try:
+                size = ctypes.windll.user32.GetSystemMetrics(SM_CXSMICON) or 16
+                image = make_tray_icon_image(size, lit=self.lit, light_taskbar=self._light_taskbar)
+                fd, path = tempfile.mkstemp(suffix=".ico")
+                os.close(fd)
+                try:
+                    image.save(path, format="ICO", sizes=[(size, size)])
+                    self._icon_handle = win32.LoadImage(None, path, win32.IMAGE_ICON, size, size, win32.LR_LOADFROMFILE)
+                finally:
+                    os.remove(path)
+            except Exception as e:
+                log.error(f"Could not draw the tray icon, using the colour one: {e}")
+                super()._assert_icon_handle()
+
         def _on_notify(self, wparam, lparam):
             if lparam in (win32.WM_LBUTTONUP, win32.WM_RBUTTONUP):
                 finder.refresh()
@@ -186,6 +284,7 @@ def run_tray(identify, next_app, set_freeze, is_frozen, reload_config, config_di
     def toggle_animation(icon, item):
         paused = not is_paused()
         set_paused(paused)
+        icon.lit = not paused
         icon.icon = make_icon_image(lit=not paused)
         icon.title = tooltip(paused)
 
@@ -263,4 +362,5 @@ def run_tray(identify, next_app, set_freeze, is_frozen, reload_config, config_di
                       is_turn_off_with_lid=is_turn_off_with_lid, is_music_mode=is_music_mode)
     icon_class = _icon_class(pystray, finder)
     icon = icon_class(platform_utils.APP_NAME, make_icon_image(lit=not is_paused()), tooltip(is_paused()), menu)
+    icon.lit = not is_paused()
     icon.run()
