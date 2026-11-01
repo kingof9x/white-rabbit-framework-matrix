@@ -46,6 +46,10 @@ STYLES = [
     ("double-wave", "Double waveform", "Two waves side by side: the left and the right channel."),
     ("radial", "Radial bars", "Bars that point out from a circle in the middle, one direction per band. "
                               "The left panel is a mirror image of the right one."),
+    ("radial-fan", "Radial fan", "Half a circle on each panel that fans out from the keyboard side: bass points up, "
+                                 "treble points down. Together the panels look like one circle split by the keyboard."),
+    ("radial-facing", "Radial facing", "A circle on each panel with the bass bars pointing towards the keyboard and "
+                                       "the treble bars pointing outwards, so the two panels face each other."),
     ("rings", "Rings", "Circles around the middle, bass inside and treble outside; brighter means louder."),
     ("pulse", "Pulse", "A glow in the middle that swells with the beat."),
     ("sparkle", "Sparkle", "LEDs twinkle all over; the louder it gets, the more of them."),
@@ -54,7 +58,7 @@ STYLE_KEYS = [key for key, _, _ in STYLES]
 STYLE_LABELS = {key: label for key, label, _ in STYLES}
 STYLE_DESCRIPTIONS = {key: text for key, _, text in STYLES}
 # Looks that show bars, where peak dots and shading mean something
-BAR_STYLES = ("classic", "bars", "centre", "dots", "waterfall", "meter", "radial", "rings")
+BAR_STYLES = ("classic", "bars", "centre", "dots", "waterfall", "meter", "radial", "radial-fan", "radial-facing", "rings")
 
 # Levels (out of 34) the bars drop per second
 FALL_SPEEDS = {"slow": 30.0, "normal": 70.0, "fast": 160.0}
@@ -563,6 +567,44 @@ class Visualizer:
             # The two panels mirror each other: bass points outwards on both
             grid = grid[::-1, :]
         return grid
+
+    def _radial_from(self, radius, band, inner, stretch, glow):
+        """Bars out from inner to their level along each direction; band says which bar each LED is on."""
+        levels = self.shown / MAX_LEVEL
+        reach = inner + levels[band] * (1.0 - inner) * stretch
+        grid = np.where((radius >= inner) & (radius <= reach), 1.0, 0.0)
+        if self.settings["shaded"]:
+            grid = grid * np.clip(0.3 + 0.7 * (radius - inner) / np.maximum(reach - inner, 1e-6), 0, 1)
+        if self.settings["peak-dots"]:
+            peak_reach = inner + (self.peaks / MAX_LEVEL)[band] * (1.0 - inner) * stretch
+            grid = np.maximum(grid, np.where(np.abs(radius - peak_reach) < 0.05, 0.8, 0.0))
+        # The middle glows with the bass
+        bass = float(levels[0]) if self.n_bands else 0.0
+        return np.maximum(grid, np.where(glow, 0.25 + 0.75 * bass, 0.0))
+
+    def _keyboard_side(self, grid):
+        # Drawn for the right panel, whose keyboard side is column 0; the left panel is its mirror image
+        return grid[::-1, :] if self.side == "left" else grid
+
+    def _draw_radial_fan(self, chunk, dt):
+        # Half a circle centred just past the keyboard-side edge, reaching the outer edge
+        x = (np.arange(WIDTH, dtype=float)[:, None] + 0.5) / 9.0
+        y = (np.arange(HEIGHT, dtype=float)[None, :] - 16.5) / 17.0
+        radius = np.sqrt(x ** 2 + y ** 2)
+        # 0 = straight up, 1 = straight down
+        direction = np.arctan2(x, -y) / np.pi
+        band = np.clip((direction * self.n_bands).astype(int), 0, self.n_bands - 1)
+        inner = 0.15
+        return self._keyboard_side(self._radial_from(radius, band, inner, 1.1, radius < inner * 0.9))
+
+    def _draw_radial_facing(self, chunk, dt):
+        radius, angle = self._polar()
+        # 0 = towards the keyboard (bass), 1 = outwards (treble), the same above and below
+        direction = 1.0 - np.abs(angle) / np.pi
+        band = np.clip((direction * self.n_bands).astype(int), 0, self.n_bands - 1)
+        inner = 0.18
+        return self._keyboard_side(self._radial_from(radius, band, inner, 1.15,
+                                                     np.abs(radius - inner * 0.6) < 0.08))
 
     def _draw_rings(self, chunk, dt):
         radius, _ = self._polar()

@@ -87,9 +87,10 @@ microphone hears (pick any microphone Windows has).
 - **Music mode** shows the visualizer on both panels until you turn it off.
   Turn it on here, with *Music mode* in the tray menu, or with
   `Ctrl`+`Alt`+`Shift`+`M`. It uses the look last picked on this tab.
-- **13 looks:** classic, spectrum analyzer, centre out, dots, spectrogram,
-  level meter, waveform, mirror waveform, double waveform, radial bars, rings,
-  pulse and sparkle.
+- **15 looks:** classic, spectrum analyzer, centre out, dots, spectrogram,
+  level meter, waveform, mirror waveform, double waveform, radial bars,
+  radial fan, radial facing, rings, pulse and sparkle. On the radial looks the
+  left panel is a mirror image of the right one.
 - **Options:** one 18-bar spectrum across both panels, peak dots, shading,
   upside down, falling speed, sensitivity, and automatic sensitivity.
 - A live preview of both panels and a sound check, which show whether the
