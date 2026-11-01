@@ -55,14 +55,14 @@ def test_rows_that_arent_frames_are_ignored():
     assert not stats.add_row(["game.exe"])
 
 
-def test_draws_digits_graph_and_question_mark(drawing):
+def test_draws_digits_gpu_graph_and_question_mark(drawing):
     grid = np.zeros((9, 34), dtype=int)
-    drawing.draw_fps(grid, 144.4, [144, 72, None], True, 160)
+    drawing.draw_fps(grid, 144.4, [1.0, 0.5, None], True, 160)
     rows = grid.T
     for slot, digit in enumerate("144"):
         assert (rows[1 + slot * 8:8 + slot * 8, :] == drawing.numerals[digit] * 160).all()
-    assert (grid[1:8, 26] == 160).all()           # 144 of 144: full row
-    assert list(grid[1:5, 27]) == [160, 160, 160, 80]  # 72 of 144: 3.5 pixels
+    assert (grid[1:8, 26] == 160).all()           # GPU at 100%: full row
+    assert list(grid[1:5, 27]) == [160, 160, 160, 80]  # 50%: 3.5 pixels
     assert not grid[:, 28].any()                    # no reading
 
     grid = np.zeros((9, 34), dtype=int)
@@ -70,9 +70,30 @@ def test_draws_digits_graph_and_question_mark(drawing):
     assert not grid.T[1:8, :].any()                 # leading blank for two digits
     assert (grid.T[9:16, :] == drawing.numerals["6"] * 160).all()
 
+    # FPS can't be measured: a "?", and the GPU graph still shows
     grid = np.zeros((9, 34), dtype=int)
-    drawing.draw_fps(grid, None, [], False, 160)
+    drawing.draw_fps(grid, None, [1.0], False, 160)
     assert (grid.T[13:19, :] == drawing.symbols["?"] * 160).all()
+    assert (grid[1:8, 26] == 160).all()
+
+
+def test_fps_graph_shows_the_chosen_gpu(drawing, monkeypatch):
+    from led_mon import gpu
+    from led_mon.rendering import make_base_app_functions, render_panel
+    from led_mon.monitors import CPUMonitor, MemoryMonitor, BatteryMonitor, DiskMonitor, NetworkMonitor
+    asked = []
+
+    class FakeGpus:
+        def get(self, name=None):
+            asked.append(name)
+            return {"RX 7700S": 1.0}.get(name, 0.0)
+    monkeypatch.setattr(gpu, "shared_monitor", lambda: FakeGpus())
+    monkeypatch.setattr(fps, "find_presentmon", lambda: None)
+    functions = make_base_app_functions(CPUMonitor(), MemoryMonitor(), BatteryMonitor(), DiskMonitor(), NetworkMonitor())
+    grid = np.zeros((9, 34), dtype=int)
+    render_panel(grid, [{"name": "fps", "scope": "panel", "args": {"gpu": "RX 7700S"}}], functions, 160, 35)
+    assert asked == ["RX 7700S"]
+    assert (grid[1:8, 26] == 160).all()
 
 
 FAKE_PRESENTMON = '''
@@ -240,4 +261,5 @@ def test_editor_offers_the_fps_app(drawing):
     info = catalog.get("fps")
     assert info.size == catalog.FULL
     assert catalog.new_app("fps", "left") == {"name": "fps"}
+    assert [s.key for s in info.settings] == ["process", "gpu"]
     assert drawing.id_patterns["fps"].shape == (9, 34)

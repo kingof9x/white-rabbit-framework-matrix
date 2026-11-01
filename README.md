@@ -192,6 +192,9 @@ Something not working? Right-click the tray icon > *Open log*, or run
   full-screen game in front and keeps showing it while you switch to other windows. To
   watch one game all the time, open the list and pick it by its window title; apps
   drawing frames right now are at the top with their FPS.
+  The graph under the number is GPU use over the last 8 seconds. On a Framework 16
+  with the graphics module, set *GPU for the graph* to the Radeon RX 7700S, since
+  games run on it.
 - **[Libre Hardware Monitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases)** has no installer, so the
   tray looks anywhere in your Desktop, Downloads and Documents (three folders
   deep), in Program Files, `C:\`, and next to `WhiteRabbit.exe`. If it isn't in any of those, the tray item says *Find Libre

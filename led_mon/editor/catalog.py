@@ -108,11 +108,12 @@ APPS = [
                 help="Quiet and loud songs both fill the panel"),
     ], fixed={"persistent-draw": True, "dispose-fn": "equalizer_dispose"},
        fixed_args={"external-filter": False, "border": False}),
-    AppInfo("fps", "FPS counter", "Frames per second of a game, with a graph of the last few seconds below. "
+    AppInfo("fps", "FPS counter", "Frames per second of a game, with a graph of GPU use over the last 8 seconds below. "
             "Windows only, and needs a one-time setup (see the README); shows ? until then.", FULL, [
         Setting("process", "Game to watch", "process", "",
                 help="Automatic follows the full-screen game in front and keeps it while you switch to other "
                      "windows. Or pick a game from the list; games drawing frames right now are at the top."),
+        Setting("gpu", "GPU for the graph", "gpu", None, help="Which graphics card the graph under the FPS shows"),
     ]),
     AppInfo("snap", "Picture", "A still pattern from the snapshot files.", FULL, [
         Setting("file", "Picture", "snapshot", None),
