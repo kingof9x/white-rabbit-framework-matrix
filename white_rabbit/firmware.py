@@ -17,11 +17,13 @@ from inputmodule.inputmodule import bootloader_jump
 log = logging.getLogger(__name__)
 
 BUNDLED = [
-    ("white-rabbit", "White Rabbit firmware (startup animation setting, extra Game of Life patterns)"),
+    ("white-rabbit", "White Rabbit firmware (startup animation setting, extra Game of Life patterns, faster refresh)"),
     ("framework-0.2.0", "Framework's official firmware 0.2.0"),
 ]
 FIRMWARE_FILE = "ledmatrix.uf2"
 BOOTLOADER_WAIT_SECONDS = 10
+# How long a panel may take to restart after flashing, before the next panel is flashed
+RESTART_WAIT_SECONDS = 20
 
 
 def resource_dir():
@@ -52,7 +54,18 @@ def wait_for_drives(seconds=BOOTLOADER_WAIT_SECONDS, get_drives=uf2conv.get_driv
         sleep(0.5)
 
 
-def flash(panel, path, status=lambda text: None, get_drives=uf2conv.get_drives, jump=bootloader_jump):
+def wait_for_drives_gone(seconds=RESTART_WAIT_SECONDS, get_drives=uf2conv.get_drives, sleep=time.sleep):
+    """Wait up to seconds for the RPI-RP2 drives to go away (the panels restarting). True if they did."""
+    deadline = time.monotonic() + seconds
+    while get_drives():
+        if time.monotonic() >= deadline:
+            return False
+        sleep(0.5)
+    return True
+
+
+def flash(panel, path, status=lambda text: None, get_drives=uf2conv.get_drives, jump=bootloader_jump,
+          sleep=time.sleep):
     """Put the panel into bootloader mode and copy the firmware onto its drive. Returns a message.
 
     Raises RuntimeError when no bootloader drive shows up.
@@ -71,4 +84,8 @@ def flash(panel, path, status=lambda text: None, get_drives=uf2conv.get_drives, 
         log.info(f"Flashing {path} onto {drive}")
         # Not os.path.join: on Windows that gives "E:NEW.UF2", relative to E:'s current folder
         uf2conv.write_file(drive + "/NEW.UF2", firmware)
+    # Let the panel restart before anything else happens, so flashing the next panel doesn't find
+    # this one's drive still there and copy onto it again
+    status(f"Waiting for the {panel.side} panel to restart...")
+    wait_for_drives_gone(get_drives=get_drives, sleep=sleep)
     return f"Flashed {len(drives)} panel{'s' if len(drives) > 1 else ''}. It restarts with the new firmware in a few seconds."
