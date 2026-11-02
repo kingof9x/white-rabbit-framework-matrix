@@ -49,6 +49,11 @@ class AppInfo:
     fixed_args: dict = field(default_factory=dict)
 
 
+# Which program the FPS apps watch
+GAME_SETTING = Setting("process", "Game to watch", "process", "",
+                       help="Automatic follows the full-screen game in front and keeps it while you switch to other "
+                            "windows. Or pick a game from the list; games drawing frames right now are at the top.")
+
 APPS = [
     AppInfo("cpu", "CPU cores", "Load on each CPU core, drawn as small spirals (or a bar per core when there are more than eight).", HALF),
     AppInfo("cpu-graph", "CPU graph", "Overall CPU use over the last 15 seconds. Each row is one second, newest at the top; a longer row is a busier CPU.", HALF),
@@ -108,12 +113,13 @@ APPS = [
                 help="Quiet and loud songs both fill the panel"),
     ], fixed={"persistent-draw": True, "dispose-fn": "equalizer_dispose"},
        fixed_args={"external-filter": False, "border": False}),
-    AppInfo("fps", "FPS counter", "Frames per second of a game, with a graph of GPU use over the last 8 seconds below. "
-            "Windows only, and needs a one-time setup (see the README); shows ? until then.", FULL, [
-        Setting("process", "Game to watch", "process", "",
-                help="Automatic follows the full-screen game in front and keeps it while you switch to other "
-                     "windows. Or pick a game from the list; games drawing frames right now are at the top."),
-        Setting("gpu", "GPU for the graph", "gpu", None, help="Which graphics card the graph under the FPS shows"),
+    AppInfo("fps", "FPS counter", "Frames per second of a game on the top half, with a histogram below that "
+            "scrolls left, one column per second, newest on the right. Windows only, and needs a one-time setup (see the README); shows ? until then.", FULL, [
+        GAME_SETTING,
+    ]),
+    AppInfo("fps-num", "FPS number", "Just the frames per second of a game, as numbers. Windows only, and needs a "
+            "one-time setup (see the README); shows ? until then.", HALF, [
+        GAME_SETTING,
     ]),
     AppInfo("snap", "Picture", "A still pattern from the snapshot files.", FULL, [
         Setting("file", "Picture", "snapshot", None),

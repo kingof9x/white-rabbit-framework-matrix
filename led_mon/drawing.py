@@ -12,7 +12,7 @@ import logging
 
 # Internal Dependencies
 from led_mon.commands import Commands, send_command, do_animate
-from led_mon.patterns import lightning_bolt_bot, lightning_bolt_top, lookup_table, id_patterns, symbols, numerals, icons
+from led_mon.patterns import lightning_bolt_bot, lightning_bolt_top, lookup_table, id_patterns, symbols, numerals, icons, digits_3_x_5
 from led_mon.platform_utils import package_dir, plugins_dir
 from led_mon.serial_ports import open_port, port_lock
 from led_mon.shared_state import is_led_matrix_port
@@ -105,12 +105,12 @@ def half_rows(y):
     return range(y + 1, 16) if y == 0 else range(y + 1, 33)
 
 # Lights a horizontal bar from column 1, up to 7 pixels long; a partly filled last pixel is dimmer
-def draw_hbar(grid, ratio, fill_value, row, width = 7):
+def draw_hbar(grid, ratio, fill_value, row, width = 7, start = 1):
     length = max(0.0, min(1.0, ratio)) * width
     full = int(length)
-    grid[1:1+full, row] = fill_value
+    grid[start:start+full, row] = fill_value
     if full < width:
-        grid[1+full, row] = int(round(fill_value * (length - full)))
+        grid[start+full, row] = int(round(fill_value * (length - full)))
 
 # One horizontal bar per core, for CPUs with more cores than the eight spirals fit.
 # More cores than rows (not on any Framework 16 CPU) are averaged in pairs, and so on.
@@ -164,22 +164,62 @@ def draw_disk_net(grid, disk_values, net_values, fill_value, y):
     draw_short_bar(grid, net_values[0], fill_value, 1, net_top, net_bottom)
     draw_short_bar(grid, net_values[1], fill_value, 5, net_top, net_bottom)
 
-# The fps app, on the whole panel: the FPS as up to three digits stacked from the top,
-# and below them a graph of GPU use over the last 8 seconds, like the GPU graph app: newest at
-# the top, a longer row is a busier GPU. A "?" means FPS can't be measured (see the log).
-def draw_fps(grid, fps, gpu_history, available, fill_value):
-    char_map = {**numerals, **symbols}
-    rows = grid.T
+# FPS as numbers in a 9 x 16 area: 3x5 digits drawn twice as tall (3 x 10), side by side.
+# 100-199 draws the 1 as a single column so the digits keep a gap; 200 and up use every column,
+# with the middle digit dimmer so the three stay apart. A "?" means FPS can't be measured.
+def fps_number_columns(fps):
+    value = max(0, min(999, int(round(fps or 0))))
+    if value >= 200:
+        return [(str(value // 100), 0, False), (str(value // 10 % 10), 3, True), (str(value % 10), 6, False)]
+    if value >= 100:
+        return [("|", 0, False), (str(value // 10 % 10), 2, False), (str(value % 10), 6, False)]
+    if value >= 10:
+        return [(str(value // 10), 1, False), (str(value % 10), 5, False)]
+    return [(str(value), 3, False)]
+
+def draw_fps_number(grid, fps, available, fill_value, top):
+    """The number in rows top .. top+9."""
     if not available:
-        rows[13:19, :] = char_map["?"] * fill_value
-    else:
-        text = str(min(999, int(round(fps or 0)))).rjust(3)
-        for i, ch in enumerate(text):
-            if ch != " ":
-                rows[1+i*8:8+i*8, :] = char_map[ch] * fill_value
-    for row, v in zip(range(26, 34), gpu_history):
-        if v is not None:
-            draw_hbar(grid, v, fill_value, row)
+        grid[:, top + 2:top + 8] = symbols["?"].T * fill_value
+        return
+    for ch, x, dim in fps_number_columns(fps):
+        value = int(round(fill_value * 0.55)) if dim else fill_value
+        if ch == "|":
+            grid[x, top:top + 10] = value
+        else:
+            grid[x:x + 3, top:top + 10] = np.repeat(digits_3_x_5[ch], 2, axis=0).T * value
+
+# Highest FPS on the histogram's scale: the first of these at or above the highest reading, so the
+# bars don't change size every time the highest reading changes
+FPS_SCALES = (30, 60, 90, 120, 144, 165, 240, 360, 500, 1000)
+
+def fps_scale(history):
+    top = max([v for v in history if v] + [1.0])
+    return next((s for s in FPS_SCALES if s >= top), FPS_SCALES[-1])
+
+# The fps app, on the whole panel: the FPS as numbers on the top half, and below them a histogram:
+# one column per second across the full width, newest on the right, scrolling left. Each column
+# grows up from the bottom row; a partly filled top pixel is dimmer.
+FPS_HISTOGRAM_TOP = 18      # rows 18-33: 16 pixels tall
+FPS_HISTOGRAM_COLUMNS = 9   # the last 9 seconds
+def draw_fps(grid, fps, history, available, fill_value):
+    draw_fps_number(grid, fps, available, fill_value, 3)
+    scale = fps_scale(history)
+    height = grid.shape[1] - FPS_HISTOGRAM_TOP
+    for i, v in enumerate(list(history)[:FPS_HISTOGRAM_COLUMNS]):
+        if not v:
+            continue
+        x = FPS_HISTOGRAM_COLUMNS - 1 - i
+        length = max(0.0, min(1.0, v / scale)) * height
+        full = int(length)
+        bottom = grid.shape[1]
+        grid[x, bottom - full:bottom] = fill_value
+        if full < height and length > full:
+            grid[x, bottom - full - 1] = int(round(fill_value * (length - full)))
+
+# The fps-num app: just the FPS as numbers, in the top or bottom half
+def draw_fps_half(grid, fps, available, fill_value, y):
+    draw_fps_number(grid, fps, available, fill_value, 3 if y == 0 else 20)
 
 warned = set()
 def draw_snapshot(grid, fill_value, **kwargs):
@@ -324,6 +364,10 @@ direct_draw_funcs = {
     "fps": {
         "fn": draw_fps,
         "border": lambda *x: None # Whole panel, no border
+    },
+    "fps-num": {
+        "fn": draw_fps_half,
+        "border": lambda *x: None # Just the numbers
     },
     "snap": {
         "fn": draw_snapshot,
