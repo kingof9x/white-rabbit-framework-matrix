@@ -20,6 +20,14 @@ from white_rabbit import bridge, info_tab, math_tab, music, panels as panels_mod
 log = logging.getLogger(__name__)
 
 TITLE = "White Rabbit"
+
+
+def window_title():
+    """'White Rabbit 1.1': the title bar shows which version is running."""
+    version = info_tab.app_version()
+    return f"{TITLE} {version}" if version else TITLE
+
+
 WINDOW_MUTEX = "WhiteRabbit_window"
 WAIT_FOR_MONITOR_SECONDS = 10
 
@@ -102,7 +110,7 @@ class WhiteRabbitWindow:
         self.ui_calls = queue.Queue()
         self.monitor_running = False
 
-        root.title(TITLE)
+        root.title(window_title())
         root.geometry("1340x760")
         root.minsize(1000, 700)
         root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -362,7 +370,7 @@ def _focus_open_window():
         global _window_mutex
         _window_mutex = handle
         return False
-    hwnd = user32.FindWindowW(None, TITLE)
+    hwnd = user32.FindWindowW(None, window_title())
     if hwnd:
         SW_RESTORE = 9
         user32.ShowWindow(hwnd, SW_RESTORE)
@@ -450,7 +458,7 @@ def run_window(args, start_tab=None, wait=False):
             # The build adds a VERSION file for the Info tab and the update check
             version = window.info_tab.version
             if version:
-                log.info(f"Smoke test: Info tab shows version {version}")
+                log.info(f"Smoke test: Info tab shows version {version}, title bar '{root.title()}'")
             else:
                 log.error("Smoke test failed: the Info tab has no version")
         root.after(5000, check_info_tab)
