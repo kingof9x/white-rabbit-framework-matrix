@@ -22,8 +22,8 @@ log = logging.getLogger(__name__)
 HINT = "#555555"
 LINK = "#1a5fb4"
 
-# TODO: Callum's Ko-fi page (placeholder until he sends the link)
-KOFI_URL = "https://ko-fi.com/"
+# Tips for the developer
+KOFI_URL = "https://ko-fi.com/kingof9x"
 REPO = "kingof9x/white-rabbit-framework-matrix"
 REPO_URL = f"https://github.com/{REPO}"
 ISSUES_URL = f"{REPO_URL}/issues"

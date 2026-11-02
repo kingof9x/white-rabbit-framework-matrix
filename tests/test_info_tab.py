@@ -111,6 +111,10 @@ def test_tray_quit_from_elsewhere():
     assert quits == [True]
 
 
+def test_kofi_link():
+    assert info_tab.KOFI_URL == "https://ko-fi.com/kingof9x"
+
+
 def test_versions_typed_in_different_ways_match():
     # The workflow can be given "1.1" or "v1.1.0"; the release tag and the build's VERSION must still agree
     assert not info_tab.is_newer("1.1", "1.1.0")
