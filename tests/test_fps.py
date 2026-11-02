@@ -55,45 +55,56 @@ def test_rows_that_arent_frames_are_ignored():
     assert not stats.add_row(["game.exe"])
 
 
-def test_draws_digits_gpu_graph_and_question_mark(drawing):
+def test_number_columns_keep_the_digits_apart(drawing):
+    assert drawing.fps_number_columns(7) == [("7", 3, False)]
+    assert drawing.fps_number_columns(62.4) == [("6", 1, False), ("2", 5, False)]
+    assert drawing.fps_number_columns(144) == [("|", 0, False), ("4", 2, False), ("4", 6, False)]
+    assert drawing.fps_number_columns(240) == [("2", 0, False), ("4", 3, True), ("0", 6, False)]
+    assert drawing.fps_number_columns(5000)[0][0] == "9"
+
+
+def test_full_app_numbers_on_top_half_and_histogram_below(drawing):
     grid = np.zeros((9, 34), dtype=int)
-    drawing.draw_fps(grid, 144.4, [1.0, 0.5, None], True, 160)
+    # Newest first: 60 now, 30 a second ago, no reading two seconds ago, then 60s
+    drawing.draw_fps(grid, 62, [60, 30, None] + [60] * 6 + [60, 60], True, 160)
     rows = grid.T
-    for slot, digit in enumerate("144"):
-        assert (rows[1 + slot * 8:8 + slot * 8, :] == drawing.numerals[digit] * 160).all()
-    assert (grid[1:8, 26] == 160).all()           # GPU at 100%: full row
-    assert list(grid[1:5, 27]) == [160, 160, 160, 80]  # 50%: 3.5 pixels
-    assert not grid[:, 28].any()                    # no reading
+    tall_6 = np.repeat(drawing.digits_3_x_5["6"], 2, axis=0) * 160
+    assert (rows[3:13, 1:4] == tall_6).all()
+    top = drawing.FPS_HISTOGRAM_TOP
+    assert not rows[13:top].any()                     # numbers stay on the top half
+    height = 34 - top
+    assert (grid[8, top:] == 160).all()               # newest on the right: 60 of a 60 scale, full height
+    assert (grid[7, 34 - height // 2:] == 160).all()  # 30 of 60: half height
+    assert not grid[7, top:34 - height // 2].any()
+    assert not grid[6, top:].any()                    # no reading
+    assert (grid[0:6, top:] == 160).all()             # 9 columns: older readings are dropped
 
     grid = np.zeros((9, 34), dtype=int)
-    drawing.draw_fps(grid, 60, [], True, 160)
-    assert not grid.T[1:8, :].any()                 # leading blank for two digits
-    assert (grid.T[9:16, :] == drawing.numerals["6"] * 160).all()
+    drawing.draw_fps(grid, 62, [45], True, 160)       # 45 of 60: 12 pixels, all on the right
+    assert list(grid[8, top:]) == [0] * 4 + [160] * 12
+    assert not grid[:8, top:].any()
 
-    # FPS can't be measured: a "?", and the GPU graph still shows
     grid = np.zeros((9, 34), dtype=int)
-    drawing.draw_fps(grid, None, [1.0], False, 160)
-    assert (grid.T[13:19, :] == drawing.symbols["?"] * 160).all()
-    assert (grid[1:8, 26] == 160).all()
+    drawing.draw_fps(grid, None, [], False, 160)
+    assert (grid.T[5:11, :] == drawing.symbols["?"] * 160).all()
 
 
-def test_fps_graph_shows_the_chosen_gpu(drawing, monkeypatch):
-    from led_mon import gpu
-    from led_mon.rendering import make_base_app_functions, render_panel
-    from led_mon.monitors import CPUMonitor, MemoryMonitor, BatteryMonitor, DiskMonitor, NetworkMonitor
-    asked = []
+def test_histogram_scale_changes_in_steps(drawing):
+    assert drawing.fps_scale([]) == 30
+    assert drawing.fps_scale([59, 20]) == 60
+    assert drawing.fps_scale([61, None]) == 90
+    assert drawing.fps_scale([144]) == 144
+    assert drawing.fps_scale([145]) == 165
+    assert drawing.fps_scale([4000]) == 1000
 
-    class FakeGpus:
-        def get(self, name=None):
-            asked.append(name)
-            return {"RX 7700S": 1.0}.get(name, 0.0)
-    monkeypatch.setattr(gpu, "shared_monitor", lambda: FakeGpus())
-    monkeypatch.setattr(fps, "find_presentmon", lambda: None)
-    functions = make_base_app_functions(CPUMonitor(), MemoryMonitor(), BatteryMonitor(), DiskMonitor(), NetworkMonitor())
-    grid = np.zeros((9, 34), dtype=int)
-    render_panel(grid, [{"name": "fps", "scope": "panel", "args": {"gpu": "RX 7700S"}}], functions, 160, 35)
-    assert asked == ["RX 7700S"]
-    assert (grid[1:8, 26] == 160).all()
+
+def test_half_app_draws_just_the_number(drawing):
+    for y, top in ((0, 3), (16, 20)):
+        grid = np.zeros((9, 34), dtype=int)
+        drawing.draw_fps_half(grid, 62, True, 160, y)
+        rows = grid.T
+        assert rows[top:top + 10].any()
+        assert not np.delete(rows, range(top, top + 10), axis=0).any()
 
 
 FAKE_PRESENTMON = '''
@@ -249,7 +260,8 @@ def test_fps_app_renders_without_errors(drawing, caplog, monkeypatch):
     from led_mon.rendering import make_base_app_functions, render_panel
     from led_mon.monitors import CPUMonitor, MemoryMonitor, BatteryMonitor, DiskMonitor, NetworkMonitor
     functions = make_base_app_functions(CPUMonitor(), MemoryMonitor(), BatteryMonitor(), DiskMonitor(), NetworkMonitor())
-    for app in ({"name": "fps", "scope": "panel"}, {"name": "fps", "scope": "panel", "args": {"process": "game.exe"}}):
+    for app in ({"name": "fps", "scope": "panel"}, {"name": "fps", "scope": "panel", "args": {"process": "game.exe"}},
+                {"name": "fps-num", "scope": "top"}, {"name": "fps-num", "scope": "bottom"}):
         grid = np.zeros((9, 34), dtype=int)
         with caplog.at_level(logging.ERROR):
             render_panel(grid, [app], functions, 160, 35)
@@ -261,5 +273,8 @@ def test_editor_offers_the_fps_app(drawing):
     info = catalog.get("fps")
     assert info.size == catalog.FULL
     assert catalog.new_app("fps", "left") == {"name": "fps"}
-    assert [s.key for s in info.settings] == ["process", "gpu"]
+    assert [s.key for s in info.settings] == ["process"]
+    half = catalog.get("fps-num")
+    assert half.size == catalog.HALF and [s.key for s in half.settings] == ["process"]
+    assert "fps-num" in drawing.id_patterns
     assert drawing.id_patterns["fps"].shape == (9, 34)

@@ -848,6 +848,12 @@ id_patterns = {
         letters_5_x_6["F"], np.zeros((3,9)),
         letters_5_x_6["P"], np.zeros((3,9)),
         letters_5_x_6["S"], np.zeros((6,9)))).T,
+    "fps-num": np.concatenate((
+        letters_small["F"],
+        np.zeros((1,7)),
+        letters_small["P"],
+        np.zeros((1,7)),
+        letters_small["S"])).T,
     "snap": np.concatenate((np.zeros((2,9)),
         letters_5_x_6["S"], np.zeros((2,9)),
         letters_5_x_6["N"], np.zeros((2,9)),

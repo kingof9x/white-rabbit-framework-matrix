@@ -57,15 +57,18 @@ def make_base_app_functions(cpu_monitor, memory_monitor, battery_monitor, disk_m
             gpu_histories[key] = HistoryMonitor(lambda: gpu_info.shared_monitor().get(key or None))
         draw_app(arg, grid, gpu_histories[key].get(), foreground_value, idx)
 
-    # The graph under the FPS: GPU use once a second, the last 8 seconds, per GPU (shared with the GPU graph's readings)
-    fps_gpu_histories = {}
-    def draw_fps(arg, grid, foreground_value, idx, process=None, gpu=None, **kwargs):
+    # Readings once a second for the histogram under the FPS, per watched app
+    fps_histories = {}
+    def draw_fps(arg, grid, foreground_value, idx, process=None, **kwargs):
         capture = fps_info.capture_for(process)
         value, status = capture.get()
-        key = gpu or ""
-        if key not in fps_gpu_histories:
-            fps_gpu_histories[key] = HistoryMonitor(lambda: gpu_info.shared_monitor().get(key or None), size=8)
-        draw_app(arg, grid, value, fps_gpu_histories[key].get(), status == fps_info.OK, foreground_value)
+        if capture not in fps_histories:
+            fps_histories[capture] = HistoryMonitor(lambda: capture.get()[0], size=9, clamp=False)
+        draw_app(arg, grid, value, fps_histories[capture].get(), status == fps_info.OK, foreground_value)
+
+    def draw_fps_num(arg, grid, foreground_value, idx, process=None, **kwargs):
+        value, status = fps_info.capture_for(process).get()
+        draw_app(arg, grid, value, status == fps_info.OK, foreground_value, idx)
 
     def draw_disk_net(arg, grid, foreground_value, idx, **kwargs):
         draw_app(arg, grid, disk_monitor.get(), network_monitor.get(), foreground_value, idx)
@@ -80,6 +83,7 @@ def make_base_app_functions(cpu_monitor, memory_monitor, battery_monitor, disk_m
         "gpu-graph": draw_gpu_graph,
         "disk-net": draw_disk_net,
         "fps": draw_fps,
+        "fps-num": draw_fps_num,
         "none": lambda *x: x # noop
     }
 

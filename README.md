@@ -43,7 +43,7 @@ and comes back when you press *Stop* or *Back to system monitor*.
 - **Layout editor** with a live preview: drag apps onto the left and right
   panel, top or bottom half, and set up several pages that take turns.
 - **Half-panel apps:** CPU cores, CPU graph, GPU graph, memory + battery,
-  disk, network, disk + network, temperatures, fans.
+  disk, network, disk + network, temperatures, fans, FPS number.
 - **Whole-panel apps:** clock, weather, audio visualizer, FPS counter for
   games, picture.
 - Brightness follows the laptop screen, or set it yourself.
@@ -210,9 +210,10 @@ Something not working? Right-click the tray icon > *Open log*, or run
   full-screen game in front and keeps showing it while you switch to other windows. To
   watch one game all the time, open the list and pick it by its window title; apps
   drawing frames right now are at the top with their FPS.
-  The graph under the number is GPU use over the last 8 seconds. On a Framework 16
-  with the graphics module, set *GPU for the graph* to the Radeon RX 7700S, since
-  games run on it.
+  The full-panel *FPS counter* shows the number on the top half and a histogram below
+  it that scrolls left, one column per second (the last 9 seconds). The half-panel
+  *FPS number* shows just the number. Both count the frames an app puts on screen, so an app with its own counter (such as
+  Resolume) can show a different number, and a covered window that stops drawing shows 0.
 - **[Libre Hardware Monitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases)** has no installer, so the
   tray looks anywhere in your Desktop, Downloads and Documents (three folders
   deep), in Program Files, `C:\`, and next to `WhiteRabbit.exe`. If it isn't in any of those, the tray item says *Find Libre
