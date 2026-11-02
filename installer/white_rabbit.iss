@@ -8,6 +8,10 @@
 #ifndef AppVersion
   #define AppVersion "0.0.0"
 #endif
+; The numbers-only version for the installer's file details (Windows needs e.g. 1.1.0, not 1.1.0-beta)
+#ifndef AppVersionNumbers
+  #define AppVersionNumbers "0.0.0"
+#endif
 
 [Setup]
 AppId={{ED186F4E-2A8B-421A-A7B2-CA34A1532E4F}
@@ -15,6 +19,17 @@ AppName=White Rabbit
 AppVersion={#AppVersion}
 AppPublisher=kingof9x
 AppPublisherURL=https://github.com/kingof9x/white-rabbit-framework-matrix
+AppCopyright=MIT License
+; File details shown in the installer's Properties. Without these the installer's file version is 0.0.0.0,
+; and an exe with blank details looks more suspicious to antivirus scanners.
+VersionInfoVersion={#AppVersionNumbers}
+VersionInfoProductVersion={#AppVersionNumbers}
+VersionInfoTextVersion={#AppVersion}
+VersionInfoProductTextVersion={#AppVersion}
+VersionInfoCompany=kingof9x
+VersionInfoDescription=White Rabbit installer
+VersionInfoProductName=White Rabbit
+VersionInfoOriginalFileName=WhiteRabbit-setup.exe
 DefaultDirName={localappdata}\Programs\WhiteRabbit
 DefaultGroupName=White Rabbit
 DisableProgramGroupPage=yes
