@@ -14,6 +14,13 @@ The newest version is on the [Releases](https://github.com/kingof9x/white-rabbit
 - [`ledmatrix.uf2`](https://github.com/kingof9x/white-rabbit-framework-matrix/releases/latest/download/ledmatrix.uf2): LED Matrix firmware with the startup animation setting and the extra Game of Life patterns (the app can flash it for you)
 
 
+<!-- virus-scan:start -->
+### 🛡 Virus scan
+
+Not scanned yet. Run *Actions > Virus scan > Run workflow* and the results from
+[VirusTotal](https://www.virustotal.com) will appear here.
+<!-- virus-scan:end -->
+
 ## Why one app?
 
 Until now there were two separate apps for the LED Matrix:
@@ -237,6 +244,15 @@ as `1.0.0`, and run it. When it finishes, the release `v1.0.0` appears on the
 Releases page with `WhiteRabbit-setup.exe`, `WhiteRabbit.exe` and
 `ledmatrix.uf2` attached. Leaving the version empty makes a test build (the
 files are under the run's *Artifacts*) without a release.
+
+### Virus scan
+
+After a release, go to *Actions > Virus scan > Run workflow* (leave the box
+empty for the newest release) and run it. It uploads `WhiteRabbit-setup.exe`
+and `WhiteRabbit.exe` to [VirusTotal](https://www.virustotal.com), waits for
+the results (a few minutes) and updates the *Virus scan* section at the top of
+this README. It needs a free VirusTotal API key saved as the repository secret
+`VIRUSTOTAL_API_KEY` (*Settings > Secrets and variables > Actions*).
 
 The firmware is built in [kingof9x/inputmodule-rs](https://github.com/kingof9x/inputmodule-rs):
 each White Rabbit build bundles the newest firmware from its Releases page.
