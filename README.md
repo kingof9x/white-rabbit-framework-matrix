@@ -5,9 +5,7 @@ It runs in the system tray, turns the LED panels into a system monitor you
 design yourself, and lets you play games and patterns, choose the startup
 animation and update the firmware, all from the same window.
 
-> **Status: first version, not tested on real hardware yet.** Everything below
-> works against simulated panels and passes the automated builds. The testing
-> checklist at the bottom tracks what has been confirmed on a real Framework 16.
+> **Status: fully tested in windows on a first generation (batch 3) framework 16**
 
 ### ⬇ Downloads
 
