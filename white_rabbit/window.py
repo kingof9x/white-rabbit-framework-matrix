@@ -1,6 +1,6 @@
 # The White Rabbit window: the layout editor and the LED Matrix controls in one place.
 #
-# Tabs: Panels (layout editor), Startup animation, Games & patterns, Math, Music, Firmware, Keyboard shortcuts.
+# Tabs: Panels (layout editor), Startup animation, Games & patterns, Math, Audio, Firmware, Keyboard shortcuts, Info.
 # The bar at the bottom picks which panels the controls act on, and shows whether each panel is
 # showing the system monitor or something from this window. Playing a game or showing a pattern
 # borrows the panel from the monitor; "Back to system monitor" returns it.
@@ -15,7 +15,7 @@ from tkinter import ttk
 
 # Internal Dependencies
 from led_mon import platform_utils
-from white_rabbit import bridge, math_tab, music, panels as panels_mod, tabs
+from white_rabbit import bridge, info_tab, math_tab, music, panels as panels_mod, tabs
 
 log = logging.getLogger(__name__)
 
@@ -139,8 +139,11 @@ class WhiteRabbitWindow:
         self.notebook.add(self.firmware_tab, text="Firmware")
         self.shortcuts_tab = tabs.ShortcutsTab(self.notebook, self)
         self.notebook.add(self.shortcuts_tab, text="Keyboard shortcuts")
+        self.info_tab = info_tab.InfoTab(self.notebook, self)
+        self.notebook.add(self.info_tab, text="Info")
         tab = {"startup": self.startup_tab, "play": self.play_tab, "math": self.math_tab, "audio": self.music_tab, "music": self.music_tab,
-               "firmware": self.firmware_tab, "shortcuts": self.shortcuts_tab}.get(start_tab)
+               "firmware": self.firmware_tab, "shortcuts": self.shortcuts_tab,
+               "info": self.info_tab}.get(start_tab)
         if tab is not None:
             self.notebook.select(tab)
         # The Audio tab listens to the sound only while it is showing
@@ -315,6 +318,35 @@ class WhiteRabbitWindow:
                 log.warning(f"Could not give the panels back: {e}")
         self.root.destroy()
 
+    def quit_for_update(self, start_installer):
+        """Close the window and the monitor, then start_installer() (the Info tab's Download and install)."""
+        if self.editor is not None and not self.editor.close():
+            return
+        self.music_tab.set_visible(False)
+
+        def work():
+            import time
+            borrowed = [p for p in self.panels if self.lender.is_borrowed(p)]
+            if borrowed:
+                try:
+                    self.lender.give_back(borrowed)
+                except Exception as e:
+                    log.warning(f"Could not give the panels back: {e}")
+            if self.link.running(fresh=True):
+                self.link.request({"cmd": "quit"}, timeout=5)
+                deadline = time.monotonic() + 15
+                while time.monotonic() < deadline and self.link.running(fresh=True):
+                    time.sleep(0.5)
+            start_installer()
+
+        def done(_):
+            log.info("Closing for the update")
+            self.root.destroy()
+
+        def failed(e):
+            self.info_tab.show(f"Couldn't start the installer: {e}")
+        self.in_background(work, done, failed)
+
 
 def _focus_open_window():
     """If the window is already open (Windows), bring it to the front. Returns True if it was."""
@@ -413,6 +445,15 @@ def run_window(args, start_tab=None, wait=False):
             except Exception as e:
                 log.error(f"Smoke test failed: the Weather app's location settings: {e}")
         root.after(4500, check_weather_location)
+
+        def check_info_tab():
+            # The build adds a VERSION file for the Info tab and the update check
+            version = window.info_tab.version
+            if version:
+                log.info(f"Smoke test: Info tab shows version {version}")
+            else:
+                log.error("Smoke test failed: the Info tab has no version")
+        root.after(5000, check_info_tab)
 
         def finish():
             if window.editor is not None:

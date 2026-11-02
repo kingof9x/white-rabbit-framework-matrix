@@ -150,6 +150,7 @@ jobs:
               if (-not (Select-String -Path $log -Pattern "Smoke test: temperature and fan source" -Quiet)) { throw "$exe $arguments didn't check the temperature and fan source" }
               if (-not (Select-String -Path $log -Pattern "Smoke test: temperature and fan refresh" -Quiet)) { throw "$exe $arguments didn't check the refresh setting" }
               if (-not (Select-String -Path $log -Pattern "Smoke test: weather location settings shown" -Quiet)) { throw "$exe $arguments didn't show the weather location settings" }
+              if (-not (Select-String -Path $log -Pattern "Smoke test: Info tab shows version" -Quiet)) { throw "$exe $arguments didn't show its version on the Info tab" }
             }
           }
 

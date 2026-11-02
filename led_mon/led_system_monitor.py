@@ -649,6 +649,14 @@ def app(args, base_apps, plugin_apps):
             if message.get('reload'):
                 source.reload()
             return {'sensor_source': source.status()}
+        if cmd == 'quit':
+            # The White Rabbit window is about to install an update: quit like the tray's Quit, after replying
+            def quit_now():
+                from led_mon import tray
+                if not tray.quit_from_elsewhere():
+                    shutdown_event.set()
+            threading.Timer(0.5, quit_now).start()
+            return {}
         if cmd in extra_control_handlers:
             return extra_control_handlers[cmd](message)
         return {'ok': False, 'error': f"Unknown command {cmd}"}

@@ -37,10 +37,22 @@ hiddenimports = [
     'led_mon.diagnose',
     # The White Rabbit window and the LED Matrix controls
     'white_rabbit', 'white_rabbit.main', 'white_rabbit.window', 'white_rabbit.tabs', 'white_rabbit.bridge',
-    'white_rabbit.panels', 'white_rabbit.firmware', 'white_rabbit.music', 'inputmodule', 'inputmodule.gui', 'inputmodule.gui.ledmatrix',
+    'white_rabbit.panels', 'white_rabbit.firmware', 'white_rabbit.music', 'white_rabbit.info_tab', 'inputmodule', 'inputmodule.gui', 'inputmodule.gui.ledmatrix',
     'inputmodule.gui.pygames.snake', 'inputmodule.gui.pygames.ledris', 'inputmodule.inputmodule.ledmatrix',
     'inputmodule.uf2conv', 'inputmodule.font', 'pygame', 'tkinter.filedialog',
 ]
+
+# A release build passes its version in WHITE_RABBIT_VERSION; otherwise use the one in pyproject.toml
+import tomllib
+app_version = os.environ.get('WHITE_RABBIT_VERSION', '').strip()
+if not app_version:
+    with open('pyproject.toml', 'rb') as f:
+        app_version = tomllib.load(f)['project']['version']
+# The Info tab shows this version and compares it with the newest release
+os.makedirs('build', exist_ok=True)
+with open(os.path.join('build', 'VERSION'), 'w') as f:
+    f.write(app_version + '\n')
+datas.append((os.path.join('build', 'VERSION'), 'white_rabbit'))
 
 icon = None
 version_info = None
@@ -62,14 +74,8 @@ if IS_WINDOWS:
     icon = os.path.join('build', 'WhiteRabbit.ico')
     make_icon_image(256).save(icon, sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
     # Version details shown in the exe's Properties; an exe without them looks more suspicious to scanners
-    import tomllib
     from PyInstaller.utils.win32.versioninfo import (VSVersionInfo, FixedFileInfo, StringFileInfo, StringTable,
                                                      StringStruct, VarFileInfo, VarStruct)
-    # A release build passes its version in WHITE_RABBIT_VERSION; otherwise use the one in pyproject.toml
-    app_version = os.environ.get('WHITE_RABBIT_VERSION', '').strip()
-    if not app_version:
-        with open('pyproject.toml', 'rb') as f:
-            app_version = tomllib.load(f)['project']['version']
     import re
     version_numbers = [int(n) for n in re.findall(r'\d+', app_version)]
     version_tuple = tuple((version_numbers + [0] * 4)[:4])
