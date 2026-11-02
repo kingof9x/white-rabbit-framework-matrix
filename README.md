@@ -17,8 +17,16 @@ The newest version is on the [Releases](https://github.com/kingof9x/white-rabbit
 <!-- virus-scan:start -->
 ### 🛡 Virus scan
 
-Not scanned yet. Run *Actions > Virus scan > Run workflow* and the results from
-[VirusTotal](https://www.virustotal.com) will appear here.
+[v1.1.0](https://github.com/kingof9x/white-rabbit-framework-matrix/releases/tag/v1.1.0) was checked with [VirusTotal](https://www.virustotal.com) on 2026-11-02. VirusTotal runs each file past about 70 antivirus programs.
+
+| File | Result | Full report |
+| --- | --- | --- |
+| `WhiteRabbit-setup.exe` | ⚠️ 1 of 64 flagged it (DeepInstinct) | [VirusTotal report](https://www.virustotal.com/gui/file/4f310111d1fb5c56dac3caa653b12b2348e0c8147b835d147d4990b7b51d76bc) |
+| `WhiteRabbit.exe` | ⚠️ 1 of 64 flagged it (Bkav) | [VirusTotal report](https://www.virustotal.com/gui/file/1d834461de484b9d2cc41b07091ce2a93c2656489fc3363b977f9a0c79ff4159) |
+
+White Rabbit isn't code-signed yet and is built with PyInstaller, which some antivirus
+programs flag on sight, so a few warnings from lesser-known scanners are expected (false
+positives). Windows Defender (listed as *Microsoft*) is the one most people will meet.
 <!-- virus-scan:end -->
 
 ## Why one app?
