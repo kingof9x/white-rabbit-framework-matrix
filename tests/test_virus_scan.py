@@ -62,3 +62,39 @@ def test_real_readme_has_the_markers():
     path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "README.md")
     text = open(path, encoding="utf-8").read()
     assert text.count(virus_scan.START) == 1 and text.count(virus_scan.END) == 1
+
+
+class FakeResponse:
+    def __init__(self, status, body):
+        self.status_code = status
+        self.body = body
+        self.content = b"x"
+
+    def json(self):
+        return self.body
+
+
+class FakeSession:
+    def __init__(self, responses):
+        self.responses = list(responses)
+
+    def get(self, url):
+        return self.responses.pop(0)
+
+
+def test_vt_get_retries_errors(monkeypatch):
+    monkeypatch.setattr(virus_scan.time, "sleep", lambda s: None)
+    session = FakeSession([
+        FakeResponse(404, {"error": {"code": "NotFoundError", "message": "not yet"}}),
+        FakeResponse(429, {"error": {"code": "QuotaExceededError", "message": "slow down"}}),
+        FakeResponse(200, {"data": {"attributes": {"status": "completed"}}}),
+    ])
+    assert virus_scan.vt_get(session, "u")["attributes"]["status"] == "completed"
+
+
+def test_vt_get_stops_on_a_bad_key(monkeypatch):
+    monkeypatch.setattr(virus_scan.time, "sleep", lambda s: None)
+    session = FakeSession([FakeResponse(401, {"error": {"code": "WrongCredentialsError"}})])
+    import pytest
+    with pytest.raises(SystemExit):
+        virus_scan.vt_get(session, "u")
