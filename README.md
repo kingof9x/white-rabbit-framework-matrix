@@ -94,6 +94,14 @@ microphone hears (pick any microphone Windows has).
 
 The same looks and options are on the *Audio visualizer* app in the layout
 editor, so it can also take turns with the other apps.
+
+![The Audio tab with music mode on](docs/screenshots/white-rabbit-audio.png)
+
+![All 15 audio visualizer looks, left and right panel](docs/screenshots/audio-visualizer-looks.png)
+
+*All 15 looks playing the same moment of music, drawn by the app's own
+visualizer code.*
+
 ### Math tab
 
 Graphs and simulations drawn in greyscale on the panels. With both panels
@@ -132,8 +140,11 @@ Lists the monitor's keyboard shortcuts and what each one does, with a
 checkbox to turn each shortcut on or off. A shortcut that's off is left free
 for other programs, and the change works straight away without restarting.
 
+![The Keyboard shortcuts tab](docs/screenshots/white-rabbit-shortcuts.png)
+
 *Screenshots taken on Linux with simulated panels, so the window looks a little
-different from Windows.*
+different from Windows (the shortcuts show as `Alt` + key there instead of
+`Ctrl`+`Alt`+`Shift` + key).*
 
 ## Install and use
 
