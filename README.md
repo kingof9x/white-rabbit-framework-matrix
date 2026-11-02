@@ -13,7 +13,6 @@ The newest version is on the [Releases](https://github.com/kingof9x/white-rabbit
 - [`WhiteRabbit.exe`](https://github.com/kingof9x/white-rabbit-framework-matrix/releases/latest/download/WhiteRabbit.exe): portable app, nothing is installed
 - [`ledmatrix.uf2`](https://github.com/kingof9x/white-rabbit-framework-matrix/releases/latest/download/ledmatrix.uf2): LED Matrix firmware with the startup animation setting and the extra Game of Life patterns (the app can flash it for you)
 
-These links work once the first release has been published.
 
 ## Why one app?
 

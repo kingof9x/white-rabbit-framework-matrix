@@ -109,3 +109,20 @@ def test_tray_quit_from_elsewhere():
     finally:
         tray._quit_from_elsewhere = None
     assert quits == [True]
+
+
+def test_versions_typed_in_different_ways_match():
+    # The workflow can be given "1.1" or "v1.1.0"; the release tag and the build's VERSION must still agree
+    assert not info_tab.is_newer("1.1", "1.1.0")
+    assert not info_tab.is_newer("v1.1.0", "1.1")
+    assert info_tab.is_newer("1.1", "1")       # the first release was tagged v1
+    assert not info_tab.is_newer("1", "1.1")
+    assert info_tab.is_newer("1.10", "1.9")
+
+
+def test_window_title_shows_the_version(monkeypatch):
+    from white_rabbit import window
+    monkeypatch.setattr(info_tab, "app_version", lambda: "1.1")
+    assert window.window_title() == "White Rabbit 1.1"
+    monkeypatch.setattr(info_tab, "app_version", lambda: None)
+    assert window.window_title() == "White Rabbit"
