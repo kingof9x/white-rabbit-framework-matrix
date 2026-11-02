@@ -5,8 +5,6 @@ It runs in the system tray, turns the LED panels into a system monitor you
 design yourself, and lets you play games and patterns, choose the startup
 animation and update the firmware, all from the same window.
 
-> **Status: fully tested in windows on a first generation (batch 3) framework 16**
-
 ### ⬇ Downloads
 
 The newest version is on the [Releases](https://github.com/kingof9x/white-rabbit-framework-matrix/releases/latest) page:
