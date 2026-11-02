@@ -109,3 +109,7 @@ def test_tray_quit_from_elsewhere():
     finally:
         tray._quit_from_elsewhere = None
     assert quits == [True]
+
+
+def test_kofi_link():
+    assert info_tab.KOFI_URL == "https://ko-fi.com/kingof9x"
