@@ -74,6 +74,10 @@ jobs:
           elseif ("${{ inputs.version }}") { $version = "${{ inputs.version }}".Trim().TrimStart("v") }
           else { $version = python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])" }
           "version=$version" >> $env:GITHUB_OUTPUT
+          # Numbers only (1.2.0-beta becomes 1.2.0) for the installer's file details
+          $numbers = ([regex]::Matches($version, '\d+') | Select-Object -First 4 | ForEach-Object { $_.Value }) -join '.'
+          if (-not $numbers) { $numbers = "0.0.0" }
+          "numbers=$numbers" >> $env:GITHUB_OUTPUT
           "WHITE_RABBIT_VERSION=$version" >> $env:GITHUB_ENV
           Write-Host "Version $version"
 
@@ -239,8 +243,14 @@ jobs:
       - name: Build installer
         shell: pwsh
         run: |
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=${{ steps.version.outputs.version }}" installer\white_rabbit.iss
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=${{ steps.version.outputs.version }}" "/DAppVersionNumbers=${{ steps.version.outputs.numbers }}" installer\white_rabbit.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+          # Both exes should carry their file details (antivirus scanners distrust blank ones)
+          foreach ($exe in @("dist\WhiteRabbit-setup.exe", "dist\WhiteRabbit.exe")) {
+            $info = (Get-Item $exe).VersionInfo
+            $info | Format-List FileName, FileVersion, ProductVersion, CompanyName, FileDescription, ProductName, LegalCopyright
+            if (-not $info.CompanyName -or $info.FileVersion -match '^0\.0\.0') { throw "$exe has blank file details" }
+          }
 
       - name: Upload portable exe
         uses: actions/upload-artifact@v4
