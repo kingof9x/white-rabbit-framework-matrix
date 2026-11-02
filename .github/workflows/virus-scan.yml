@@ -1,0 +1,43 @@
+name: Virus scan
+
+# Run it by hand: Actions > Virus scan > Run workflow.
+# Uploads the release's WhiteRabbit-setup.exe and WhiteRabbit.exe to VirusTotal
+# and writes the results into the README. Needs the VIRUSTOTAL_API_KEY secret.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release to scan (e.g. v1.1.0). Leave empty for the latest release."
+        required: false
+
+permissions:
+  contents: write  # commit the updated README
+
+concurrency:
+  group: virus-scan
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install requests
+      - name: Scan with VirusTotal
+        env:
+          VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: python scripts/virus_scan.py
+      - name: Commit the results to the README
+        run: |
+          if git diff --quiet README.md; then echo "README unchanged"; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "README: update virus scan results" README.md
+          git push
