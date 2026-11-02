@@ -24,7 +24,7 @@ END = "<!-- virus-scan:end -->"
 # Engines that couldn't scan the file don't count towards the total
 COUNTED = ("malicious", "suspicious", "undetected", "harmless")
 # The free API allows 4 requests a minute
-WAIT = 20
+WAIT = 30
 
 
 def sha256(path: Path) -> str:
@@ -92,6 +92,26 @@ def update_readme(readme: str, section: str) -> str:
 # ---- network parts (run in the workflow only) ----
 
 
+def vt_get(session, url: str, tries: int = 10) -> dict:
+    """GET from VirusTotal, waiting and retrying when it answers with an error.
+
+    Right after an upload VirusTotal can answer "not found" for a while, and the free
+    API answers "quota exceeded" if asked more than 4 times a minute.
+    """
+    for attempt in range(1, tries + 1):
+        response = session.get(url)
+        body = response.json() if response.content else {}
+        if response.status_code == 200 and "data" in body:
+            return body["data"]
+        error = body.get("error", {})
+        code = error.get("code", response.status_code)
+        print(f"  VirusTotal answered {code}: {error.get('message', '')} (try {attempt} of {tries})")
+        if code in ("WrongCredentialsError", "AuthenticationRequiredError"):
+            sys.exit("VirusTotal didn't accept the API key. Check the VIRUSTOTAL_API_KEY secret.")
+        time.sleep(WAIT * 2)
+    sys.exit(f"VirusTotal kept answering with errors for {url}, try again later")
+
+
 def scan(session, path: Path) -> dict:
     sha = sha256(path)
     print(f"{path.name}: sha256 {sha}")
@@ -107,17 +127,16 @@ def scan(session, path: Path) -> dict:
     response.raise_for_status()
     analysis = response.json()["data"]["id"]
     print(f"{path.name}: uploaded, waiting for the scan to finish")
-    for _ in range(90):  # up to 30 minutes
+    for _ in range(60):  # up to 30 minutes
         time.sleep(WAIT)
-        status = session.get(f"{VT}/analyses/{analysis}").json()["data"]["attributes"]["status"]
+        status = vt_get(session, f"{VT}/analyses/{analysis}")["attributes"]["status"]
+        print(f"  scan status: {status}")
         if status == "completed":
             break
     else:
         sys.exit(f"{path.name}: VirusTotal didn't finish scanning in time, try again later")
     time.sleep(WAIT)
-    report = session.get(f"{VT}/files/{sha}")
-    report.raise_for_status()
-    result = summarise(sha, report.json()["data"]["attributes"])
+    result = summarise(sha, vt_get(session, f"{VT}/files/{sha}")["attributes"])
     print(f"{path.name}: {result['flagged']} of {result['total']} flagged {result['engines']}")
     return result
 
