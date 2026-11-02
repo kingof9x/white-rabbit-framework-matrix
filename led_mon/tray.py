@@ -310,6 +310,18 @@ def _icon_class(pystray, finder):
     return ClickMenuIcon
 
 
+# While the tray runs: quits the app as if Quit was clicked (the White Rabbit window uses it before installing an update)
+_quit_from_elsewhere = None
+
+
+def quit_from_elsewhere():
+    """Quit the running tray from another thread. Returns False if no tray is running."""
+    if _quit_from_elsewhere is None:
+        return False
+    _quit_from_elsewhere()
+    return True
+
+
 def run_tray(identify, next_app, set_freeze, is_frozen, reload_config, config_dir, log_file, quit,
              edit_layout=None, set_paused=None, is_paused=None, show_brightness=None, lhm_path="",
              set_turn_off_with_lid=None, is_turn_off_with_lid=None, set_music_mode=None, is_music_mode=None):
@@ -435,4 +447,9 @@ def run_tray(identify, next_app, set_freeze, is_frozen, reload_config, config_di
     icon_class = _icon_class(pystray, finder)
     icon = icon_class(platform_utils.APP_NAME, make_icon_image(lit=not is_paused()), tooltip(is_paused()), menu)
     icon.lit = not is_paused()
-    icon.run()
+    global _quit_from_elsewhere
+    _quit_from_elsewhere = lambda: on_quit(icon, None)
+    try:
+        icon.run()
+    finally:
+        _quit_from_elsewhere = None
