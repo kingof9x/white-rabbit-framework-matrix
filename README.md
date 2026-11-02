@@ -122,6 +122,11 @@ thing, even with no panels connected.
   math graph.
 - **One-line automata**: elementary rules like Rule 30 and Rule 90, and
   3-colour totalistic codes like 777, scrolling up one generation per row.
+- **More maths**: Langton's Ant, Collatz sequences, the prime sieve and Ulam
+  spiral, the Lorenz attractor, a double pendulum, bubble/quick/merge sort,
+  building and solving a maze, Fourier circles drawing the White Rabbit,
+  random-walk frost, digits of pi and e, and Lissajous curves. Each one sets
+  the speed it looks best at when you start it.
 - **Random grey noise**, and a speed slider for all of them.
 
 ![The Math tab](docs/screenshots/white-rabbit-math.png)
@@ -272,10 +277,11 @@ White Rabbit combines two open source projects, both MIT licensed (see
 
 Thanks to everyone who worked on those.
 
-The Math tab's ideas come from mariobx's
+Most of the Math tab's graphs and simulations come from mariobx's
 [Framework-LED-Matrix](https://github.com/mariobx/Framework-LED-Matrix). That
 project is GPL-3.0 licensed, so no code was copied: the Math tab is written
-from scratch from the textbook definitions of each graph and simulation.
+from scratch from the textbook definitions of each graph and simulation. The
+"More maths" effects are classic math demos, also written from scratch.
 
 ## Project status
 
