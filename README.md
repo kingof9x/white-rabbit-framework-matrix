@@ -236,24 +236,6 @@ Something not working? Right-click the tray icon > *Open log*, or run
   tray icon (that's what runs at login); `--window` only the window;
   `--window --tab firmware` opens it on a tab.
 
-## Testing checklist
-
-Tested on a real Framework Laptop 16 with two LED Matrix modules on Windows 11.
-Confirmed items are removed from this list (kept in step with the Project Workbench). Tick items off (edit this file, or mention them
-in an issue) as they are confirmed. Items marked *(confirmed in the old app)*
-worked in led_mon or LED Matrix Control, but need checking again here.
-
-**Firmware tab**
-- [ ] The bundled White Rabbit firmware includes Patterns 2 to 5 (builds made after 2026-10-28 06:00 UTC)
-
-## Making a release
-
-In GitHub go to *Actions > Windows build > Run workflow*, type a version such
-as `1.0.0`, and run it. When it finishes, the release `v1.0.0` appears on the
-Releases page with `WhiteRabbit-setup.exe`, `WhiteRabbit.exe` and
-`ledmatrix.uf2` attached. Leaving the version empty makes a test build (the
-files are under the run's *Artifacts*) without a release.
-
 ### Virus scan
 
 After a release, go to *Actions > Virus scan > Run workflow* (leave the box
