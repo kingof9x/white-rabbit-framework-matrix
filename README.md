@@ -212,82 +212,12 @@ Something not working? Right-click the tray icon > *Open log*, or run
 ## Testing checklist
 
 Tested on a real Framework Laptop 16 with two LED Matrix modules on Windows 11.
-Ticked items are confirmed (kept in step with Callum's Project Workbench). Tick items off (edit this file, or mention them
+Confirmed items are removed from this list (kept in step with the Project Workbench). Tick items off (edit this file, or mention them
 in an issue) as they are confirmed. Items marked *(confirmed in the old app)*
 worked in led_mon or LED Matrix Control, but need checking again here.
 
-**Install and start**
-- [x] The installer installs without an admin prompt, and the panels and the window come up afterwards
-- [x] The portable `WhiteRabbit.exe` starts and both panels light up
-- [x] After logging in, only the tray icon starts (no window), and *Start with Windows* in the tray turns that on and off
-- [x] Opening the app again, or the tray's *Open White Rabbit...*, shows the window (only one window at a time)
-- [x] Installing a newer version over an old one keeps the settings and the layout
-- [x] Uninstalling from *Settings > Apps* removes the app and the startup entry
-- [x] An existing led_mon layout, brightness and `.env` are picked up on the first start
-
-**Sharing the panels between monitor and controls**
-- [x] Starting a Game of Life pattern borrows only the ticked panel; the other keeps showing the monitor
-- [x] *Stop* and *Back to system monitor* bring the monitor back, at the right brightness
-- [x] Saving the startup animation plays it once, then the monitor comes back by itself after about 10 seconds
-- [x] Closing the window while a game runs gives the panel back to the monitor
-- [x] With the tray app quit, the window's controls still work on their own
-- [x] If another program (like the old `ledmatrixgui.exe` or led_mon) holds a panel, the Firmware tab says so
-
-**Panels**
-- [x] Left and right panels are detected the right way round; if not, the *Port* boxes on the Panels tab fix it
-- [x] Unplugging and plugging back a panel: the app picks it up again
-- [x] Sleep and wake (lid close / open) still work
-
-**Tray menu**
-- [x] Left-click and right-click both open the menu
-- [x] *Brightness* slider and *Follow screen brightness* work
-- [x] *Stop animation* / *Start animation* turn the panels off and on
-- [x] *Libre Hardware Monitor*, *Open Framework Control*, *Open log*, *Quit* work; *Quit* turns the panels dark
-- [ ] *Libre Hardware Monitor* finds `LibreHardwareMonitor.exe` in a folder on the Desktop
-- [ ] When it isn't found, *Find Libre Hardware Monitor...* opens a normal Windows file window, remembers the choice and opens it
-
-**Panels tab (layout editor)**
-- [x] Dragging apps onto panels, pages and settings all work; *Apply to panels* switches straight away *(confirmed in the old app)*
-- [x] *Send preview* and *Resume monitor* work
-- [x] *Ready-made layouts > Classic monitor* fills in both panels
-- [x] Closing the window with unsaved layout changes asks whether to apply them
-
-**Monitor apps**
-- [x] CPU cores shows every core; CPU graph and GPU graph move with the load
-- [x] Disk, network and disk + network react to copying files and downloading
-- [x] Memory + battery shows the battery and the charging animation
-- [x] Temperatures and fans show values with `framework_tool.exe`
-- [x] Clock, weather (needs an API key) and equalizer work
-- [x] FPS counter shows a game's frame rate after the one-time *Performance Log Users* setup
-- [x] Keyboard shortcuts work and don't steal `Alt`+`F` from other programs
-
-**Startup animation tab**
-- [x] *Always this one* plays the chosen animation at every power on *(confirmed in the old app)*
-- [x] *Random out of these* only shows ticked animations over several restarts
-- [x] *Random* still picks different animations
-- [x] *None*: the panels stay dark until the app uses them
-- [x] The setting survives a full shutdown, not just a restart
-- [x] With Framework's official firmware, the tab says the setting needs the White Rabbit firmware
-
-**Games & patterns tab**
-- [x] Each Game of Life pattern starts, and *Stop* ends it
-- [x] Patterns 2 to 5 run on the panels (needs firmware with them)
-- [x] Snake and Ledris open their small window and play on the panels
-- [x] Patterns, text, fill, clock, countdown and random equalizer work
-
-**Keyboard shortcuts tab**
-- [x] All four shortcuts are listed with `Ctrl`+`Alt`+`Shift` keys
-- [x] Unticking a shortcut stops it working straight away; ticking it again brings it back
-- [x] The choice is remembered after quitting and starting White Rabbit again
-
 **Firmware tab**
-- [x] *Installed firmware* shows the right version and whether the startup setting is there
-- [x] *Enter bootloader* puts the ticked panel into bootloader mode *(confirmed in the old app)*
-- [x] *Flash* with the White Rabbit firmware works on each panel, and the monitor comes back afterwards
-- [x] *Flash* with a `.uf2` file you choose works *(confirmed 2026-10-28 with the Patterns 2 to 5 test firmware)*
 - [ ] The bundled White Rabbit firmware includes Patterns 2 to 5 (builds made after 2026-10-28 06:00 UTC)
-- [x] Flashing Framework's official firmware and back again works, and keeps the saved startup setting
-- [x] No flicker while the monitor is running *(confirmed with the 0.2.0-based firmware)*
 
 ## Making a release
 
@@ -342,15 +272,8 @@ from scratch from the textbook definitions of each graph and simulation.
 
 ## Project status
 
-**Status:** Waiting on Callum  
-**Waiting on:** Callum: run the testing checklist  
+**Status:** Waiting on developer  
+**Waiting on:** Developer: run the testing checklist  
 **Notes:** One tray app combining led_mon and the LED Matrix controls. Not released yet. Newest additions: Keyboard shortcuts tab, Open Hardware Monitor finder fixes.  
-**Last updated:** 2026-11-01
-
-### Task list
-
-- [ ] windows system tray - app missing from taskbar personalization preventing the white rabbit tray icon from being persistent.
-- [ ] change icon - white rabbit or white version of current icon
-- [ ] new tray icon + pin tray icon
-- [ ] new fps monitor app picket
+**Last updated:** 2026-11-02
 
