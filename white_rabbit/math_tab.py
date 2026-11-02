@@ -1,5 +1,5 @@
 # The Math tab: graphs of functions and simulations (Game of Life and other rules, traffic, gas
-# particles, one-dimensional automata) played on the LED panels, with a preview in the window.
+# particles, one-dimensional automata, and more maths like Langton's Ant and sorting) played on the LED panels, with a preview in the window.
 #
 # With both panels ticked they act as one 18 x 34 picture; with one ticked it is 9 x 34.
 # The maths is in white_rabbit/math_sims.py.
@@ -16,6 +16,7 @@ import numpy as np
 
 # Internal Dependencies
 from white_rabbit import math_sims as sims
+from white_rabbit import math_effects as effects
 
 log = logging.getLogger(__name__)
 
@@ -194,6 +195,7 @@ class MathTab(ttk.Frame):
         self.build_traffic(section(left, "Traffic jam (Biham-Middleton-Levine)"))
         self.build_gas(section(left, "Gas particles bouncing in a box (Hardy-Pomeau-Pazzis)"))
         self.build_automata(section(left, "One-line automata (each new row is the next generation)"))
+        self.build_effects(section(left, "More maths"))
         extra = ttk.Frame(left)
         extra.pack(fill="x", padx=12, pady=4)
         ttk.Button(extra, text="Random grey noise", command=lambda: self.play(
@@ -296,6 +298,19 @@ class MathTab(ttk.Frame):
         self.automaton_start.pack(side="left", padx=4)
         self.kind_changed()
 
+    def build_effects(self, frame):
+        self.effect = ttk.Combobox(frame, values=effects.EFFECT_NAMES, state="readonly", width=30)
+        self.effect.current(0)
+        self.effect.grid(row=0, column=0, sticky="w")
+        self.effect.bind("<<ComboboxSelected>>", lambda e: self.effect_changed())
+        ttk.Button(frame, text="Start", command=self.start_effect).grid(row=0, column=1, sticky="w", padx=8)
+        self.effect_about = ttk.Label(frame, text="", foreground=HINT, wraplength=640, justify="left")
+        self.effect_about.grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        self.effect_changed()
+
+    def effect_changed(self):
+        self.effect_about.configure(text=effects.EFFECTS[self.effect.current()][3])
+
     def rule_changed(self):
         name = self.rule.get()
         custom = name == CUSTOM_RULE
@@ -376,6 +391,16 @@ class MathTab(ttk.Frame):
         start = self.automaton_start.get()
         label = f"Rule {value}" if top == 255 else f"Code {value}"
         self.play(label, lambda w: sims.automaton_frames(self.rng, w, kind, value, start))
+
+    def start_effect(self):
+        name, make, speed, _ = effects.EFFECTS[self.effect.current()]
+        # Each one has a speed it looks best at; the slider still changes it afterwards
+        self.fps.set(speed)
+        self.fps_value = speed
+        if make is effects.sorting_frames:
+            self.play(name, lambda w: make(self.rng, w, on_change=self.show_soon))
+        else:
+            self.play(name, lambda w: make(self.rng, w))
 
     def show_soon(self, text):
         """For messages from the animation thread."""
