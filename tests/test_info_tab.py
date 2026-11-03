@@ -130,3 +130,35 @@ def test_window_title_shows_the_version(monkeypatch):
     assert window.window_title() == "White Rabbit 1.1"
     monkeypatch.setattr(info_tab, "app_version", lambda: None)
     assert window.window_title() == "White Rabbit"
+
+
+def test_installer_is_started_with_a_command_cmd_understands(monkeypatch):
+    # Windows said "cannot find '\\'" because the quotes reached cmd as \" (Python's list quoting)
+    import subprocess
+    path = r"C:\Users\Some One\AppData\Local\Temp\WhiteRabbit-update-x\WhiteRabbit-setup.exe"
+    started = []
+    monkeypatch.setattr(subprocess, "Popen", lambda args, **kw: started.append(args))
+    info_tab.start_installer_after_exit(path)
+    assert started == [f'cmd /c ping -n 3 127.0.0.1 >nul & start "" "{path}"']
+    assert '\\"' not in started[0]
+
+
+def test_installer_really_starts_on_windows(tmp_path):
+    # Run the real command (as the update does) with a stand-in "installer" in a folder with a space,
+    # and check it actually ran
+    import subprocess
+    import sys
+    import time
+    import pytest
+    if sys.platform != "win32":
+        pytest.skip("cmd only exists on Windows")
+    folder = tmp_path / "White Rabbit update"
+    folder.mkdir()
+    marker = folder / "ran.txt"
+    installer = folder / "WhiteRabbit-setup.cmd"
+    installer.write_text(f'@echo ran> "{marker}"\r\n@exit\r\n')
+    subprocess.Popen(info_tab.installer_command(str(installer)), close_fds=True)
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline and not marker.exists():
+        time.sleep(0.5)
+    assert marker.exists(), "the stand-in installer never started"
