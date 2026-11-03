@@ -14,21 +14,6 @@ The newest version is on the [Releases](https://github.com/kingof9x/white-rabbit
 - [`ledmatrix.uf2`](https://github.com/kingof9x/white-rabbit-framework-matrix/releases/latest/download/ledmatrix.uf2): LED Matrix firmware with the startup animation setting and the extra Game of Life patterns (the app can flash it for you)
 
 
-<!-- virus-scan:start -->
-### 🛡 Virus scan
-
-[v1.1.0](https://github.com/kingof9x/white-rabbit-framework-matrix/releases/tag/v1.1.0) was checked with [VirusTotal](https://www.virustotal.com) on 2026-11-02. VirusTotal runs each file past about 70 antivirus programs.
-
-| File | Result | Full report |
-| --- | --- | --- |
-| `WhiteRabbit-setup.exe` | ⚠️ 1 of 64 flagged it (DeepInstinct) | [VirusTotal report](https://www.virustotal.com/gui/file/4f310111d1fb5c56dac3caa653b12b2348e0c8147b835d147d4990b7b51d76bc) |
-| `WhiteRabbit.exe` | ⚠️ 1 of 67 flagged it (Bkav) | [VirusTotal report](https://www.virustotal.com/gui/file/1d834461de484b9d2cc41b07091ce2a93c2656489fc3363b977f9a0c79ff4159) |
-
-White Rabbit isn't code-signed yet and is built with PyInstaller, which some antivirus
-programs flag on sight, so a few warnings from lesser-known scanners are expected (false
-positives). Windows Defender (listed as *Microsoft*) is the one most people will meet.
-<!-- virus-scan:end -->
-
 ## Why one app?
 
 Until now there were two separate apps for the LED Matrix:
@@ -241,8 +226,8 @@ Something not working? Right-click the tray icon > *Open log*, or run
 After a release, go to *Actions > Virus scan > Run workflow* (leave the box
 empty for the newest release) and run it. It uploads `WhiteRabbit-setup.exe`
 and `WhiteRabbit.exe` to [VirusTotal](https://www.virustotal.com), waits for
-the results (a few minutes) and updates the *Virus scan* section at the top of
-this README. It needs a free VirusTotal API key saved as the repository secret
+the results (a few minutes) and adds a *Virus scan* section with the results
+near the top of this README (or updates it if it's there). It needs a free VirusTotal API key saved as the repository secret
 `VIRUSTOTAL_API_KEY` (*Settings > Secrets and variables > Actions*).
 
 The firmware is built in [kingof9x/inputmodule-rs](https://github.com/kingof9x/inputmodule-rs):
