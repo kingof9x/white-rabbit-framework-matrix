@@ -43,6 +43,10 @@ CHUNK_SIZE = 1024
 DEVICE_CHECK_SEC = 3
 # Sound older than this counts as silence (WASAPI loopback delivers nothing while nothing plays)
 STALE_AUDIO_SEC = 0.25
+# A microphone sends sound all the time, even in a quiet room. If its recording gives nothing for this
+# long it has stalled (e.g. after the screen turned off or another app took the microphone), so it is
+# opened again. Playback is not checked: it gives nothing whenever nothing plays.
+MIC_STALL_SEC = 5
 DEFAULT_MICROPHONE = "Default microphone"
 
 
@@ -106,6 +110,7 @@ class Capture:
         self.problem = None
         self.generation = 0
         self.current_id = None
+        self.recording_since = 0.0
         self._stream = None
 
     # Shared by the recording threads
@@ -166,10 +171,22 @@ class Capture:
         mic = sc.default_microphone()
         return mic, mic.name
 
+    def stalled(self, now=None):
+        """True when the microphone's recording has given nothing for MIC_STALL_SEC."""
+        if self.input_mode != "microphone" or self.current_id is None:
+            return False
+        now = time.monotonic() if now is None else now
+        return now - max(self.updated, self.recording_since) > MIC_STALL_SEC
+
     def _supervise(self):
         _com_init_mta()
         error_logged = False
         while not self.stopped.is_set():
+            if self.stalled():
+                log.warning(f"Audio visualizer heard nothing from {self.device_name} for {MIC_STALL_SEC} seconds; "
+                            f"opening it again")
+                # Start a new recording below; the stalled one ends if it ever wakes up
+                self.current_id = None
             try:
                 source, name = self._resolve_source()
                 if source.id != self.current_id:
@@ -177,6 +194,7 @@ class Capture:
                     self.current_id = source.id
                     self.device_name = name
                     self.generation += 1
+                    self.recording_since = time.monotonic()
                     log.info(f"Audio visualizer listening to {name}")
                     threading.Thread(target=self._record, args=(source, self.generation), daemon=True).start()
                     if not first and self.input_mode == "playback" and self.on_device_change:

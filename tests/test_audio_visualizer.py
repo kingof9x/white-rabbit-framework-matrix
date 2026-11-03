@@ -388,3 +388,65 @@ def test_recording_thread_can_use_soundcard_on_windows():
         assert "0x100000001" not in str(capture.problem or "")
     finally:
         capture.stop()
+
+
+def steady_music(t, rng, amplitude=0.003, noise=0.00005):
+    """Music with a beat every half second, heard by a microphone in a quiet room."""
+    n = np.arange(looks.FFT_SIZE) / RATE + t
+    beat = 1 + 3 * np.exp(-(t % 0.5) / 0.08)
+    x = amplitude * beat * (np.sin(2 * np.pi * 110 * n) + 0.5 * np.sin(2 * np.pi * 440 * n)
+                            + 0.3 * np.sin(2 * np.pi * 2000 * n))
+    x = x + noise * rng.standard_normal(looks.FFT_SIZE)
+    return np.stack([x, x], axis=1)
+
+
+def test_microphone_music_comes_back_after_the_microphone_gave_nothing():
+    # A few seconds with no sound at all from the microphone (muted, taken by another app, or a stalled
+    # recording) used to drag the room's noise down to nothing. When the music came back, its level
+    # set the bars' full height so high that the music then counted as silence for about a minute,
+    # and the panel showed the silence pulse instead of the music until music mode was turned off and on.
+    rng = np.random.default_rng(0)
+    v = looks.Visualizer({"style": "bars", "input-mode": "microphone"}, "right")
+    t = 0.0
+    for _ in range(170):  # the room
+        v.frame(steady_music(t, rng, amplitude=0.0), 0.03)
+        t += 0.03
+    for _ in range(330):  # music
+        v.frame(steady_music(t, rng), 0.03)
+        t += 0.03
+    for _ in range(170):  # about 5 seconds of nothing at all
+        v.frame(np.zeros((looks.FFT_SIZE, 2)), 0.03)
+        assert v.is_silent()
+        t += 0.03
+    silent_run = longest = 0
+    for _ in range(2000):  # a minute of music
+        v.frame(steady_music(t, rng), 0.03)
+        t += 0.03
+        silent_run = silent_run + 1 if v.is_silent() else 0
+        longest = max(longest, silent_run)
+    # Never silent for long enough to start the silence pulse (4 seconds)
+    assert longest * 0.03 < 2.0
+
+
+def test_microphone_bars_full_height_has_a_limit():
+    rng = np.random.default_rng(0)
+    v = looks.Visualizer({"style": "bars", "input-mode": "microphone"}, "left")
+    for x in microphone(0.00003, 0, 150, rng):
+        v.frame(x, 0.03)
+    v.frame(tone(1000, 0.5), 0.03)  # far louder than anything a laptop microphone hears
+    assert v.analyzer.peak_above <= looks.MIC_MAX_SPAN_DB
+
+
+def test_stalled_microphone_recording_is_noticed():
+    capture = audio.Capture("microphone")
+    assert not capture.stalled(now=1000.0)  # not recording yet
+    capture.current_id = "mic"
+    capture.recording_since = 1000.0
+    assert not capture.stalled(now=1000.0 + audio.MIC_STALL_SEC - 1)  # just started
+    assert capture.stalled(now=1000.0 + audio.MIC_STALL_SEC + 1)
+    capture.updated = 1004.0  # sound arrived
+    assert not capture.stalled(now=1004.0 + audio.MIC_STALL_SEC - 1)
+    # Playback gives nothing whenever nothing plays, so it is never called stalled
+    playback = audio.Capture("playback")
+    playback.current_id = "speakers"
+    assert not playback.stalled(now=1000.0 + audio.MIC_STALL_SEC + 1)
