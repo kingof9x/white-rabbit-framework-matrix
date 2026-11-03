@@ -3,7 +3,9 @@
 import pytest
 from serial.tools.list_ports_common import ListPortInfo
 
-from led_mon import drawing, shared_state
+# led_mon.drawing loads the plugins, which need the full dependencies (the light test job skips this file)
+pytest.importorskip("requests")
+from led_mon import drawing, shared_state  # noqa: E402
 
 
 def port(device, location, vid=0x32AC, pid=0x0020):
