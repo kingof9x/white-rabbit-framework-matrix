@@ -367,7 +367,7 @@ def app(args, base_apps, plugin_apps):
                                       "and that no other program (such as the LED Matrix GUI) is using them.")
         sys.exit(0)
     elif len(led_devices) == 1:
-        log.warning(f"Only one LED device found ({led_devices[0]}). Right panel args will be ignored")
+        log.warning(f"Only one LED device found ({led_devices[0]}). The right panel will be drawn when one appears")
     else:
         log.info(f"Found LED devices: Left: {led_devices[0]}, Right: {led_devices[1]}")
     # Use the port name when the USB location is unknown
@@ -398,20 +398,22 @@ def app(args, base_apps, plugin_apps):
     disk_monitor = DiskMonitor()
     network_monitor = NetworkMonitor()
 
-    # Setup left panel drawing queue
+    # One drawing thread per side. Each finds its panel again when the modules are moved to other
+    # slots, and the right one also starts drawing when a second panel shows up later (some slots
+    # come up a few seconds after the first one).
     left_drawing_queue = LatestFrameQueue()
-    left_drawing_thread = DrawingThread(locations[0], left_drawing_queue)
+    left_drawing_thread = DrawingThread(locations[0], left_drawing_queue, side_index=0)
     left_drawing_thread.set_animate(False)
     left_drawing_thread.start()    
     drawing_queues.append(left_drawing_queue)
 
-    # Setup right panel drawing queue (if panel is present)
-    if len(locations) == 2:
-        right_drawing_queue = LatestFrameQueue()
-        right_drawing_thread = DrawingThread(locations[1], right_drawing_queue)
-        right_drawing_thread.set_animate(False)
-        right_drawing_thread.start()
-        drawing_queues.append(right_drawing_queue)
+    right_drawing_queue = LatestFrameQueue()
+    right_drawing_thread = DrawingThread(locations[1] if len(locations) > 1 else None, right_drawing_queue,
+                                         side_index=1)
+    right_drawing_thread.set_animate(False)
+    right_drawing_thread.start()
+    drawing_queues.append(right_drawing_queue)
+    drawing_threads = [left_drawing_thread, right_drawing_thread]
     
     app_functions = make_base_app_functions(cpu_monitor, memory_monitor, battery_monitor, disk_monitor, network_monitor)
 
@@ -608,7 +610,7 @@ def app(args, base_apps, plugin_apps):
     def handle_control_request(message):
         cmd = message.get('cmd')
         if cmd == 'status':
-            reply = {'ports': [device for _, device in led_devices],
+            reply = {'ports': [t.port_name for t in drawing_threads if t.port_name],
                      'config_file': platform_utils.resolve_config_file(args.config_file),
                      'brightness': brightness.get()}
             if platform_utils.IS_WINDOWS:
@@ -970,7 +972,6 @@ def app(args, base_apps, plugin_apps):
     def shutdown():
         """Turn the panels dark, stop drawing and release both serial ports (tray Quit)."""
         dispose_active_apps()
-        drawing_threads = [left_drawing_thread] + ([right_drawing_thread] if len(locations) == 2 else [])
         for draw_queue in drawing_queues:
             stop_drawing_queue(draw_queue, blank=True)
         for thread in drawing_threads:

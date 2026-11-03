@@ -512,20 +512,99 @@ def init_device(location = "1-3.2", fatal=True):
         raise
 
 
+# {port name in lower case: the DrawingThread drawing on it}, so two threads never pick the same panel
+_claimed_ports = {}
+_claim_guard = threading.Lock()
+
+
+def _claim(port_name, owner):
+    """Mark port_name as owner's panel. False if another drawing thread already has it."""
+    key = port_name.lower()
+    with _claim_guard:
+        holder = _claimed_ports.get(key)
+        if holder is not None and holder is not owner:
+            return False
+        _claimed_ports[key] = owner
+        return True
+
+
+def _unclaim(owner):
+    with _claim_guard:
+        for key in [k for k, v in _claimed_ports.items() if v is owner]:
+            del _claimed_ports[key]
+
+
+def _claimed_by_other(port_name, owner):
+    with _claim_guard:
+        holder = _claimed_ports.get(port_name.lower())
+        return holder is not None and holder is not owner
+
+
+def _find_panel_port(port_location, side_index, owner, device_list=None):
+    """The port this drawing thread should draw on now, or None.
+
+    First the panel at the thread's own USB location (or port name). If no panel is there any more,
+    for example because the modules were moved to other slots, the panel that is now on this side
+    (left = first, right = second, as at startup), as long as another drawing thread isn't using it.
+    """
+    from led_mon.shared_state import discover_led_devices
+    if device_list is None:
+        device_list = list_ports.comports()
+    if port_location:
+        for device in device_list:
+            if device.device.lower() == str(port_location).lower() and not _claimed_by_other(device.device, owner):
+                return device.device
+        for device in device_list:
+            if (device.location and device.location.startswith(port_location) and is_led_matrix_port(device)
+                    and not _claimed_by_other(device.device, owner)):
+                return device.device
+    if side_index is None:
+        return None
+    found = discover_led_devices(device_list) or []
+    if side_index < len(found):
+        port = found[side_index][1]
+        if not _claimed_by_other(port, owner):
+            return port
+    # The panel on this side is taken (e.g. the other panel moved onto this side): use any free one
+    for _, port in found:
+        if not _claimed_by_other(port, owner):
+            return port
+    return None
+
+
 class DrawingThread(threading.Thread):
-    def __init__(self, port_location, input_queue):
+    def __init__(self, port_location, input_queue, side_index=None):
+        """Draws the frames put in input_queue on one LED panel.
+
+        port_location is the panel's USB location (or port name) at startup; it may be None when the
+        panel isn't connected yet. side_index (0 = left, 1 = right) lets the thread find its panel
+        again after the modules were moved to other slots, or when it is plugged in later.
+        """
         super().__init__()
         self.daemon = True
         self.port_location = port_location
-        self.serial_port = init_device(self.port_location)
+        self.side_index = side_index
         self.input_queue = input_queue
         self.animate_active= False
         self._reconnect_backoff_sec = 0.5
         self._max_reconnect_backoff_sec = 8.0
         self._next_reconnect_time = 0.0
+        self._warned_missing = False
+        self.serial_port = None
+        if port_location is not None or side_index is None:
+            if side_index is None:
+                self.serial_port = init_device(self.port_location)
+            else:
+                self._attempt_reconnect(force=True)
+
+    @property
+    def port_name(self):
+        """The serial port this thread is drawing on now, or None while its panel is missing."""
+        return self.serial_port.port if self.serial_port is not None else None
 
     def set_animate(self, animate):
-        do_animate(self.serial_port, animate=animate)
+        if self.serial_port is not None:
+            do_animate(self.serial_port, animate=animate)
 
     def _close_serial_port(self):
         if self.serial_port is None:
@@ -536,24 +615,45 @@ class DrawingThread(threading.Thread):
             log.debug(f"Error closing serial port during reconnect: {e}")
         finally:
             self.serial_port = None
+            _unclaim(self)
 
     def _attempt_reconnect(self, force=False):
         now = time.monotonic()
         if not force and now < self._next_reconnect_time:
             return False
         try:
-            self.serial_port = init_device(self.port_location, fatal=False)
+            if self.side_index is None:
+                self.serial_port = init_device(self.port_location, fatal=False)
+            else:
+                port = _find_panel_port(self.port_location, self.side_index, self)
+                if port is None or not _claim(port, self):
+                    raise RuntimeError(f"No free LED panel found for location '{self.port_location}'")
+                try:
+                    self.serial_port = open_port(port)
+                except Exception:
+                    _unclaim(self)
+                    raise
+                # Remember where the panel is now, so the next reconnect looks there first
+                self.port_location = next((d.location for d in list_ports.comports()
+                                           if d.device.lower() == port.lower() and d.location), port)
             do_animate(self.serial_port, animate=self.animate_active)
             self._reconnect_backoff_sec = 0.5
             self._next_reconnect_time = 0.0
-            log.info(f"Reconnected LED panel at location {self.port_location}")
+            self._warned_missing = False
+            log.info(f"Connected LED panel {self.port_name} at location {self.port_location}")
             return True
         except Exception as e:
+            if self.serial_port is not None:
+                self._close_serial_port()
             self._next_reconnect_time = now + self._reconnect_backoff_sec
             self._reconnect_backoff_sec = min(self._reconnect_backoff_sec * 2, self._max_reconnect_backoff_sec)
-            log.warning(f"Unable to reconnect LED panel at {self.port_location}: {e}")
+            if not self._warned_missing:
+                log.warning(f"Unable to connect LED panel at {self.port_location}: {e}")
+                self._warned_missing = True
+            else:
+                log.debug(f"Still unable to connect LED panel at {self.port_location}: {e}")
             return False
-    
+
     def run(self):
         while True:
             try:
