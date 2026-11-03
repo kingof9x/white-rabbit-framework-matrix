@@ -164,8 +164,9 @@ def test_monitor_shows_preview_and_reloads(monkeypatch, tmp_path):
     drawn = {"left": queue.Queue(), "right": queue.Queue()}
 
     class FakeDrawingThread:
-        def __init__(self, location, input_queue):
+        def __init__(self, location, input_queue, side_index=None):
             self.side = "left" if location == "1-1" else "right"
+            self.port_name = {"1-1": "PANEL0", "1-2": "PANEL1"}.get(location)
             self.input_queue = input_queue
 
         def set_animate(self, animate):
