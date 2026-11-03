@@ -123,9 +123,17 @@ def start_installer_after_exit(path):
     The installer refuses to start while White Rabbit is running, so it waits in a hidden cmd.
     """
     import subprocess
-    command = f'ping -n 3 127.0.0.1 >nul & start "" "{path}"'
-    subprocess.Popen(["cmd", "/c", command], creationflags=platform_utils.subprocess_flags(),
+    subprocess.Popen(installer_command(path), creationflags=platform_utils.subprocess_flags(),
                      close_fds=True)
+
+
+def installer_command(path):
+    """The cmd line that waits a moment and then starts the installer at path.
+
+    It is one string on purpose: given a list, Python adds backslashes before the inner quotes,
+    which cmd doesn't understand, so start got a broken path ("Windows cannot find '\\\\'").
+    """
+    return f'cmd /c ping -n 3 127.0.0.1 >nul & start "" "{path}"'
 
 
 # The tab
