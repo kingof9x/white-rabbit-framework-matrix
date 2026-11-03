@@ -13,6 +13,8 @@ The newest version is on the [Releases](https://github.com/kingof9x/white-rabbit
 - [`WhiteRabbit.exe`](https://github.com/kingof9x/white-rabbit-framework-matrix/releases/latest/download/WhiteRabbit.exe): portable app, nothing is installed
 - [`ledmatrix.uf2`](https://github.com/kingof9x/white-rabbit-framework-matrix/releases/latest/download/ledmatrix.uf2): LED Matrix firmware with the startup animation setting and the extra Game of Life patterns (the app can flash it for you)
 
+<!-- virus-scan:start -->
+<!-- virus-scan:end -->
 
 ## Why one app?
 
@@ -226,8 +228,8 @@ Something not working? Right-click the tray icon > *Open log*, or run
 After a release, go to *Actions > Virus scan > Run workflow* (leave the box
 empty for the newest release) and run it. It uploads `WhiteRabbit-setup.exe`
 and `WhiteRabbit.exe` to [VirusTotal](https://www.virustotal.com), waits for
-the results (a few minutes) and adds a *Virus scan* section with the results
-near the top of this README (or updates it if it's there). It needs a free VirusTotal API key saved as the repository secret
+the results (a few minutes) and puts them in a *Virus scan* section near the
+top of this README. It needs a free VirusTotal API key saved as the repository secret
 `VIRUSTOTAL_API_KEY` (*Settings > Secrets and variables > Actions*).
 
 The firmware is built in [kingof9x/inputmodule-rs](https://github.com/kingof9x/inputmodule-rs):
