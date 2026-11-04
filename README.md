@@ -66,9 +66,18 @@ so it works even when the app isn't running. Needs the White Rabbit firmware.
 
 ### Games & patterns tab
 
-Game of Life with 10 extra patterns (R-pentomino, Acorn, spaceships and more),
-Snake and Ledris, the firmware's built-in patterns, text, a clock, a countdown
-and a random equalizer.
+Four games played right on the panels: **Snake**, **Ledris**, **Breakout** and
+**Rabbit run** (dodge the falling rocks, catch the carrots). With both panels
+ticked a game uses them as one 18 x 34 screen; Ledris puts the next piece, the
+score and the level on the right panel. Play with the arrow keys (space to
+drop, launch or play again) while the game's preview in the window has the
+keyboard; Esc or P pauses, and the game pauses by itself if you click away.
+A 3-2-1 starts each game, the score shows on the panels at the end, and the best
+score for each game is kept.
+
+Also on this tab: Game of Life with 10 extra patterns (R-pentomino, Acorn,
+spaceships and more), the firmware's built-in patterns, text, a clock, a
+countdown and a random equalizer.
 
 ![The Games & patterns tab](docs/screenshots/white-rabbit-games.png)
 
