@@ -3,7 +3,7 @@
 import io
 from contextlib import contextmanager
 
-import inputmodule.cli  # noqa: F401  (loads the package the way the app does, avoiding an import loop)
+import inputmodule.gui.gui_threading  # noqa: F401  (loads first, as in the app, to avoid an import loop)
 from inputmodule.inputmodule import ledmatrix
 from inputmodule.inputmodule.ledmatrix import (
     STARTUP_ANIMATIONS, STARTUP_ANIMATION_NAMES, ALL_STARTUP_ANIMATIONS, StartupMode,
