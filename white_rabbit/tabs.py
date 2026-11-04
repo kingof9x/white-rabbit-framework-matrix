@@ -57,7 +57,8 @@ class StartupTab(ttk.Frame):
         self.window = window
         frame = section(self, "Startup animation")
         ttk.Label(frame, text="Saved on the panels themselves, so it works even when White Rabbit isn't running. "
-                  "Needs the White Rabbit firmware (see the Firmware tab).", foreground=HINT,
+                  "Needs the White Rabbit firmware (see the Firmware tab). The last six, from Rabbit hole to "
+                  "Campfire, need the newest version of it.", foreground=HINT,
                   wraplength=760, justify="left").pack(anchor="w", pady=(0, 6))
         self.mode = tk.IntVar(value=StartupMode.RandomAll)
         self.animation = ttk.Combobox(frame, values=STARTUP_ANIMATIONS, state="readonly", width=40)
