@@ -102,6 +102,14 @@ MIC_MARGIN_DB = 6.0
 MIC_MIN_SPAN_DB = 12.0
 MIC_FIXED_SPAN_DB = 30.0
 MIC_PEAK_FALL_DB_PER_SEC = 1.5
+# The loudest sound sets the bars' full height, but never more than this far above the room's noise.
+# Without a limit, one very loud moment (or sound coming back after the microphone gave nothing at all)
+# set it so high that ordinary music stayed under the noise gate for a minute or more, which looked
+# like silence and showed the silence pulse instead of the music.
+MIC_MAX_SPAN_DB = 40.0
+# Quieter than this (in dB) means the microphone gave nothing at all (it was muted, busy, or the
+# recording stalled), not a quiet room. Such sound is left out of the room's noise.
+MIC_NOTHING_DB = -150.0
 # Bars shorter than this count as nothing; the sum of the bars at or below SILENCE_SUM counts as silence
 DEFAULT_NOISE_GATE = {"playback": 1, "microphone": 2}
 DEFAULT_SILENCE_SUM = {"playback": 2, "microphone": 8}
@@ -231,7 +239,11 @@ class Analyzer:
         return 20.0 * np.log10(rms + 1e-10)
 
     def microphone_levels(self, samples, dt):
-        db = self.band_db(samples) + self.gain_db
+        db = self.band_db(samples)
+        if float(db.max()) < MIC_NOTHING_DB:
+            # Nothing recorded: show nothing, and keep the room's noise and the loudest sound as they were
+            return np.zeros(self.n_bands)
+        db = db + self.gain_db
         if not self.history:
             self.history = [db]
         self.history_wait += dt
@@ -244,8 +256,9 @@ class Analyzer:
         above = db - floor - MIC_MARGIN_DB
         if self.auto:
             # The loudest recent sound fills the panel, but background noise is never stretched to fill it
-            self.peak_above = max(float(above.max()), self.peak_above - MIC_PEAK_FALL_DB_PER_SEC * dt,
-                                  MIC_MIN_SPAN_DB)
+            self.peak_above = min(MIC_MAX_SPAN_DB,
+                                  max(float(above.max()), self.peak_above - MIC_PEAK_FALL_DB_PER_SEC * dt,
+                                      MIC_MIN_SPAN_DB))
             span = self.peak_above * 1.1
         else:
             span = MIC_FIXED_SPAN_DB
