@@ -145,20 +145,27 @@ class PlayTab(ttk.Frame):
         self.status = ttk.Label(self, text="These borrow the ticked panels from the system monitor. "
                                 "Stop, or Back to system monitor, gives them back.", foreground=HINT)
         self.status.pack(side="bottom", anchor="w", padx=12, pady=6)
+        # The game and its preview on the right, everything else on the left
+        game_box = ttk.LabelFrame(self, text="Game", padding=8)
+        game_box.pack(side="right", fill="y", padx=(0, 12), pady=6)
+        left = ttk.Frame(self)
+        left.pack(side="left", fill="both", expand=True)
 
-        gol = section(self, "Game of Life")
+        games = section(left, "Games (played on the panels with the arrow keys)")
+        from white_rabbit.games_tab import GamePlayer
+        self.games = GamePlayer(self, games, game_box)
+
+        gol = section(left, "Game of Life")
+        columns = 5
         for i, (name, param) in enumerate(GAME_OF_LIFE):
             ttk.Button(gol, text=name, width=18,
                        command=lambda p=param: self.run(lambda d: send_command(d, CommandVals.StartGame,
                                                                                [Game.GameOfLife, p]))
-                       ).grid(row=i // 6, column=i % 6, padx=2, pady=2)
-        ttk.Button(gol, text="Stop", command=self.stop).grid(row=(len(GAME_OF_LIFE) + 5) // 6, column=0, padx=2, pady=(8, 2), sticky="w")
+                       ).grid(row=i // columns, column=i % columns, padx=2, pady=2)
+        ttk.Button(gol, text="Stop", command=self.stop).grid(row=(len(GAME_OF_LIFE) + columns - 1) // columns, column=0,
+                                                             padx=2, pady=(8, 2), sticky="w")
 
-        games = section(self, "Games (played in a small window with the arrow keys)")
-        ttk.Button(games, text="Snake", command=lambda: self.pygame("snake")).pack(side="left", padx=2)
-        ttk.Button(games, text="Ledris", command=lambda: self.pygame("ledris")).pack(side="left", padx=2)
-
-        shapes = section(self, "Patterns and text")
+        shapes = section(left, "Patterns and text")
         ttk.Label(shapes, text="Pattern:").grid(row=0, column=0, sticky="w")
         self.pattern = ttk.Combobox(shapes, values=PATTERNS, state="readonly", width=36)
         self.pattern.grid(row=0, column=1, sticky="w", padx=4)
@@ -177,7 +184,7 @@ class PlayTab(ttk.Frame):
         ttk.Button(shapes, text="Scroll the picture", command=lambda: self.run(lambda d: animate(d, True))
                    ).grid(row=3, column=1, sticky="w", padx=4, pady=4)
 
-        moving = section(self, "Clock, countdown and equalizer")
+        moving = section(left, "Clock, countdown and equalizer")
         ttk.Button(moving, text="Clock", command=lambda: self.thread_per_panel("clock")).pack(side="left", padx=2)
         self.seconds = tk.Spinbox(moving, from_=1, to=600, width=5)
         self.seconds.delete(0, "end")
@@ -195,6 +202,7 @@ class PlayTab(ttk.Frame):
         self.window.act(action, self.show)
 
     def stop(self):
+        self.games.stop()
         self.window.give_back(self.window.selected_panels())
         self.show("Stopped. The system monitor has the panels again.")
 
@@ -209,21 +217,6 @@ class PlayTab(ttk.Frame):
             reset_thread()
             threading.Thread(target=target, args=(panel,), daemon=True).start()
         self.window.act(start, self.show)
-
-    def pygame(self, name):
-        def start(panels):
-            try:
-                if name == "snake":
-                    from inputmodule.gui.pygames import snake as game
-                else:
-                    from inputmodule.gui.pygames import ledris as game
-                game.main_devices(panels)
-            except Exception as e:
-                self.window.call_soon(lambda: self.show(f"The game couldn't start: {e}"))
-
-        panels = self.window.selected_panels()
-        if self.window.act(lambda panel: None, self.show, panels=panels):
-            threading.Thread(target=start, args=(panels,), daemon=True).start()
 
 
 class FirmwareTab(ttk.Frame):
