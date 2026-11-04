@@ -53,6 +53,13 @@ STYLES = [
     ("rings", "Rings", "Circles around the middle, bass inside and treble outside; brighter means louder."),
     ("pulse", "Pulse", "A glow in the middle that swells with the beat."),
     ("sparkle", "Sparkle", "LEDs twinkle all over; the louder it gets, the more of them."),
+    ("bonfire", "Bonfire", "Flames that grow with the music, bass by the keyboard; sparks fly up on the beat."),
+    ("beat-tunnel", "Beat tunnel", "Each beat sends a frame out from the keyboard, like flying down a tunnel."),
+    ("fountain", "Fountain", "Every column throws up drops; the louder its band, the higher they go."),
+    ("lava-lamp", "Lava lamp", "Soft blobs float up and down, swell with the bass and merge when they meet."),
+    ("heartbeat", "Heartbeat", "A heart monitor line running down the panel. "
+                               "The left panel beats with the bass, the right panel with the treble."),
+    ("dancing-rabbit", "Dancing rabbit", "The White Rabbit jumps on the beat, over a small spectrum at the bottom."),
 ]
 STYLE_KEYS = [key for key, _, _ in STYLES]
 STYLE_LABELS = {key: label for key, label, _ in STYLES}
@@ -328,6 +335,8 @@ class Visualizer:
         self.meter_auto = 0.0
         self.meter_peak = np.zeros(2)
         self.meter_peak_time = np.zeros(2)
+        # State of the newer looks (fire, drops, rings, blobs, trace, jump)
+        self.fx = {}
 
     def is_silent(self):
         """True when the last frame heard (next to) nothing."""
@@ -673,6 +682,180 @@ class Visualizer:
                 if peak > 0:
                     grid[col, HEIGHT - peak] = 1.0
         return grid
+
+    # The newer looks. They are drawn for the right panel (keyboard side is column 0); the left panel
+    # gets the mirror image, so the two panels look like one picture split by the keyboard.
+    def _band_levels(self):
+        """Loudness of each of the panel's 9 columns, 0 ... 1."""
+        return np.array(self._column_levels(self.shown)) / MAX_LEVEL
+
+    def _bass(self):
+        return float(np.mean(self.shown[:max(1, self.n_bands // 3)])) / MAX_LEVEL
+
+    def _treble(self):
+        return float(np.mean(self.shown[-max(1, self.n_bands // 3):])) / MAX_LEVEL
+
+    def _beat(self, level=None):
+        """True on the frame a beat starts: the bass (or the given level) jumps up above its recent average."""
+        fx = self.fx
+        level = self._bass() if level is None else level
+        rise = level - fx.get("beat-last", 0.0)
+        beat = rise > 0.12 and level > fx.get("beat-average", 0.0) and level > 0.15
+        fx["beat-last"] = level
+        fx["beat-average"] = fx.get("beat-average", 0.0) * 0.9 + level * 0.1
+        return beat
+
+    def _draw_bonfire(self, chunk, dt):
+        fx = self.fx
+        k = min(3.0, dt / 0.04)
+        heat = fx.setdefault("heat", np.zeros((WIDTH, HEIGHT + 2)))
+        levels = self._band_levels()
+        heat[:, -2:] = (np.clip(levels * 1.4, 0, 1)[:, None] * (0.6 + 0.4 * self.rng.random((WIDTH, 2))))
+        left = np.vstack([heat[:1], heat[:-1]])
+        right = np.vstack([heat[1:], heat[-1:]])
+        cool = (self.rng.random((WIDTH, HEIGHT)) ** 3 * 0.14 + 0.008) * k
+        heat[:, :HEIGHT] = (heat[:, 1:HEIGHT + 1] * 2 + left[:, 1:HEIGHT + 1] + right[:, 1:HEIGHT + 1]
+                            + heat[:, 2:HEIGHT + 2]) / 5.0 - cool
+        np.clip(heat, 0.0, 1.0, out=heat)
+        sparks = fx.setdefault("sparks", [])
+        if self._beat():
+            for _ in range(3):
+                sparks.append([int(self.rng.integers(0, WIDTH)), 20.0 + float(self.rng.random()) * 6, 0.8 + float(self.rng.random()) * 0.6])
+        grid = np.clip(heat[:, :HEIGHT] * 1.25, 0.0, 1.0) ** 1.6
+        alive = []
+        for spark in sparks:
+            spark[1] -= spark[2] * k
+            if spark[1] > 0:
+                grid[spark[0], int(spark[1])] = 1.0
+                if self.rng.random() < 0.3:
+                    spark[0] = int(np.clip(spark[0] + self.rng.integers(-1, 2), 0, WIDTH - 1))
+                alive.append(spark)
+        fx["sparks"] = alive
+        return self._keyboard_side(grid)
+
+    def _draw_beat_tunnel(self, chunk, dt):
+        fx = self.fx
+        k = min(3.0, dt / 0.04)
+        rings = fx.setdefault("rings", [])
+        loud = float(np.mean(self.shown)) / MAX_LEVEL
+        if self._beat():
+            rings.append(0.0)
+        # Measured from just past the keyboard edge (the gap counts as two columns), as a rectangle
+        x = np.arange(WIDTH, dtype=float)[:, None] + 1.5
+        y = np.arange(HEIGHT, dtype=float)[None, :] - 16.5
+        distance = np.maximum(np.abs(x) * 1.8, np.abs(y))
+        grid = np.zeros((WIDTH, HEIGHT))
+        alive = []
+        for r in rings:
+            r += (0.6 + r * 0.06) * k
+            grid = np.maximum(grid, np.clip(1.0 - np.abs(distance - r) / 1.3, 0, 1) * min(1.0, 0.5 + loud))
+            if r < 22:
+                alive.append(r)
+        fx["rings"] = alive
+        # A glow by the keyboard that breathes with the music
+        glow = np.clip(1.0 - distance / (2.0 + loud * 6.0), 0, 1) * 0.5 * min(1.0, loud * 3.0)
+        return self._keyboard_side(np.maximum(grid, glow))
+
+    def _draw_fountain(self, chunk, dt):
+        fx = self.fx
+        k = min(3.0, dt / 0.04)
+        drops = fx.setdefault("drops", [])
+        levels = self._band_levels()
+        for col, level in enumerate(levels):
+            if level > 0.02 and self.rng.random() < (0.04 + level * 0.3) * k:
+                speed = (0.4 + level * 1.45) * (0.8 + 0.3 * float(self.rng.random()))
+                drops.append([col + (float(self.rng.random()) - 0.5) * 0.4, HEIGHT - 1.0, -speed])
+        grid = fx.get("water", np.zeros((WIDTH, HEIGHT))) * (0.4 ** k)
+        alive = []
+        for drop in drops:
+            drop[2] += 0.06 * k
+            drop[1] += drop[2] * k
+            col, row = int(round(drop[0])), int(round(drop[1]))
+            if 0 <= row < HEIGHT and 0 <= col < WIDTH:
+                grid[col, row] = 1.0
+                alive.append(drop)
+        fx["drops"] = alive
+        fx["water"] = grid
+        return self._keyboard_side(grid.copy())
+
+    def _draw_lava_lamp(self, chunk, dt):
+        fx = self.fx
+        k = min(3.0, dt / 0.04)
+        if "blobs" not in fx:
+            r = self.rng.random((4, 5))
+            fx["blobs"] = [[a * 9, b * 34, c * 0.3 - 0.15, d * 0.6 - 0.3, 2 + e * 1.5] for a, b, c, d, e in r]
+        bass = self._bass()
+        loud = float(np.mean(self.shown)) / MAX_LEVEL
+        x = np.arange(WIDTH, dtype=float)[:, None]
+        y = np.arange(HEIGHT, dtype=float)[None, :]
+        field = np.zeros((WIDTH, HEIGHT))
+        for blob in fx["blobs"]:
+            blob[0] += blob[2] * k
+            blob[1] += blob[3] * (0.6 + loud * 2) * k
+            if not 0 < blob[0] < WIDTH - 1:
+                blob[2] = -blob[2]
+                blob[0] = min(max(blob[0], 0.0), WIDTH - 1.0)
+            if not 0 < blob[1] < HEIGHT - 1:
+                blob[3] = -blob[3]
+                blob[1] = min(max(blob[1], 0.0), HEIGHT - 1.0)
+            size = blob[4] * (0.25 + bass * 1.4)
+            field += size * size / ((x - blob[0]) ** 2 * 1.6 + (y - blob[1]) ** 2 + 0.5)
+        return self._keyboard_side(np.clip((field - 0.8) / 1.2, 0, 1))
+
+    HEARTBEAT = (0, 1, 1, 0, -1, 4, 4, -3, -2, 0, 0, 1, 2, 1, 0)
+
+    def _draw_heartbeat(self, chunk, dt):
+        fx = self.fx
+        trace = fx.setdefault("trace", [0.0] * HEIGHT)
+        queue = fx.setdefault("queue", [])
+        level = self._bass() if self.side == "left" else self._treble()
+        if self.side == "left":
+            hit = self._beat()
+        else:
+            hit = level - fx.get("level", 0.0) > 0.08 and level > 0.1
+            fx["level"] = level
+        if hit and not queue:
+            queue.extend(v * (0.5 + level) for v in self.HEARTBEAT)
+        # The line moves on about 25 times a second, whatever the frame rate
+        fx["wait"] = fx.get("wait", 0.0) + dt
+        while fx["wait"] >= 0.04:
+            fx["wait"] -= 0.04
+            noise = (float(self.rng.random()) - 0.5) * 0.4 if self.loudness > self.silence_sum else 0.0
+            trace.insert(0, queue.pop(0) if queue else noise)
+            trace.pop()
+        grid = np.zeros((WIDTH, HEIGHT))
+        for row in range(HEIGHT):
+            fade = 1.0 - row / HEIGHT * 0.85
+            here = int(round(4 + trace[row]))
+            there = int(round(4 + trace[row + 1])) if row + 1 < HEIGHT else here
+            low, high = sorted((here, there))
+            grid[max(0, low):min(WIDTH - 1, high) + 1, row] = fade
+        return grid
+
+    RABBIT = ("0110110", "0110110", "0110110", "0110110", "0111110",
+              "1111111", "1101011", "1111111", "0111110", "0011100")
+
+    def _draw_dancing_rabbit(self, chunk, dt):
+        fx = self.fx
+        k = min(3.0, dt / 0.04)
+        grid = np.zeros((WIDTH, HEIGHT))
+        # The floor: a small spectrum, up to 4 rows tall
+        for col, level in enumerate(self._band_levels()):
+            h = int(round(level * 4))
+            if h:
+                grid[col, HEIGHT - h:] = 0.45
+        jump, speed = fx.get("jump", 0.0), fx.get("speed", 0.0)
+        if self._beat() and jump == 0:
+            speed = 1.6 + self._bass() * 1.4
+        jump = max(0.0, jump + speed * k)
+        speed = speed - 0.5 * k if jump > 0 else 0.0
+        fx["jump"], fx["speed"] = jump, speed
+        top = int(round(HEIGHT - len(self.RABBIT) - 4 - jump * 1.6))
+        for dy, line in enumerate(self.RABBIT):
+            for dx, c in enumerate(line):
+                if c == "1" and 0 <= top + dy < HEIGHT:
+                    grid[1 + dx, top + dy] = 1.0
+        return self._keyboard_side(grid)
 
 
 def to_leds(grid, foreground_value):

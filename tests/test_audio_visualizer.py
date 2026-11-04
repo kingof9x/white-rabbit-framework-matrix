@@ -44,8 +44,9 @@ def test_every_look_draws_a_panel_and_goes_dark_in_silence(style, span):
         assert music.shape == (9, 34) and music.min() >= 0.0 and music.max() <= 1.0
         assert music.max() > 0, "music should light something"
         quiet = run(looks.Visualizer(options, side, seed=1), np.zeros((looks.FFT_SIZE, 2)), frames=60)
-        if style in ("wave", "mirror-wave", "double-wave", "radial", "radial-fan", "radial-facing"):
-            # A flat line (or the circle in the middle) stays, like an oscilloscope's
+        if style in ("wave", "mirror-wave", "double-wave", "radial", "radial-fan", "radial-facing",
+                     "heartbeat", "dancing-rabbit"):
+            # A flat line (or the circle in the middle, or the rabbit) stays, like an oscilloscope's
             assert (quiet > 0).sum() <= 110
         elif style != "rings":
             assert quiet.max() <= 0.3, "silence should leave the panel (nearly) dark"
@@ -55,6 +56,48 @@ def test_every_look_has_a_label_and_description():
     for key in looks.STYLE_KEYS:
         assert looks.STYLE_LABELS[key] and looks.STYLE_DESCRIPTIONS[key]
         assert hasattr(looks.Visualizer, "_draw_" + key.replace("-", "_"))
+
+
+def beats(seconds=4.0, frame=0.03):
+    """Bass drum hits twice a second, as one slice of sound per frame."""
+    out = []
+    for i in range(int(seconds / frame)):
+        t = i * frame
+        loud = 0.6 if (t % 0.5) < 0.12 else 0.0
+        out.append(tone(50, amplitude=loud) if loud else np.zeros((looks.FFT_SIZE, 2)))
+    return out
+
+
+def test_the_dancing_rabbit_jumps_on_the_beat():
+    v = looks.Visualizer({"style": "dancing-rabbit"}, "right", seed=1)
+    tops = []
+    for samples in beats():
+        grid = v.frame(samples, 0.03)
+        lit = np.nonzero(grid[:, :30].max(axis=0) >= 1.0)[0]
+        tops.append(int(lit.min()) if len(lit) else 99)
+    assert max(tops) - min(tops) >= 5, "the rabbit should jump up and land again"
+
+
+def test_the_beat_tunnel_sends_out_a_ring_per_beat():
+    v = looks.Visualizer({"style": "beat-tunnel"}, "right", seed=1)
+    for samples in beats(seconds=1.0):
+        v.frame(samples, 0.03)
+    assert 1 <= len(v.fx["rings"]) <= 3
+
+
+@pytest.mark.parametrize("style", ["bonfire", "beat-tunnel", "fountain", "lava-lamp", "dancing-rabbit"])
+def test_new_looks_mirror_across_the_keyboard(style):
+    # The same sound in both channels and the same random numbers: the left is the right's mirror image
+    sound = tone(60) + tone(2000, amplitude=0.2)
+    left = run(looks.Visualizer({"style": style}, "left", seed=3), sound)
+    right = run(looks.Visualizer({"style": style}, "right", seed=3), sound)
+    assert right.max() > 0 and np.array_equal(left, right[::-1, :])
+
+
+def test_bonfire_is_taller_when_louder():
+    quiet = run(looks.Visualizer({"style": "bonfire", "auto-sensitivity": False}, "right", seed=1), tone(60, 0.003), 40)
+    loud = run(looks.Visualizer({"style": "bonfire", "auto-sensitivity": False}, "right", seed=1), tone(60, 0.5), 40)
+    assert (loud > 0.1).sum() > (quiet > 0.1).sum()
 
 
 def test_a_note_lights_the_right_band():
