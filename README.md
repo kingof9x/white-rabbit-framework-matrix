@@ -84,10 +84,11 @@ microphone hears (pick any microphone Windows has).
 - **Music mode** shows the visualizer on both panels until you turn it off.
   Turn it on here, with *Music mode* in the tray menu, or with
   `Ctrl`+`Alt`+`Shift`+`M`. It uses the look last picked on this tab.
-- **15 looks:** classic, spectrum analyzer, centre out, dots, spectrogram,
+- **21 looks:** classic, spectrum analyzer, centre out, dots, spectrogram,
   level meter, waveform, mirror waveform, double waveform, radial bars,
-  radial fan, radial facing, rings, pulse and sparkle. On the radial looks the
-  left panel is a mirror image of the right one.
+  radial fan, radial facing, rings, pulse, sparkle, bonfire, beat tunnel,
+  fountain, lava lamp, heartbeat and dancing rabbit. On the radial looks and
+  most of the newer ones the left panel is a mirror image of the right one.
 - **Options:** one 18-bar spectrum across both panels, peak dots, shading,
   upside down, falling speed, sensitivity, and automatic sensitivity.
 - A live preview of both panels and a sound check, which show whether the
@@ -98,9 +99,9 @@ editor, so it can also take turns with the other apps.
 
 ![The Audio tab with music mode on](docs/screenshots/white-rabbit-audio.png)
 
-![All 15 audio visualizer looks, left and right panel](docs/screenshots/audio-visualizer-looks.png)
+![All 21 audio visualizer looks, left and right panel](docs/screenshots/audio-visualizer-looks.png)
 
-*All 15 looks playing the same moment of music, drawn by the app's own
+*All 21 looks playing the same moment of music, drawn by the app's own
 visualizer code.*
 
 ### Math tab
