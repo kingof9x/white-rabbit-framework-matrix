@@ -1,0 +1,62 @@
+name: Rust monitor
+
+# The Rust rewrite of the monitor (rust/). Checks that it still draws exactly what the Python monitor
+# draws (the golden frames in tests/golden/) and builds WhiteRabbit-rust-test.exe for trying it out.
+# The exe is a test build: it is attached to the workflow run (Actions > this run > Artifacts), not
+# to a release.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Formatting
+        run: cargo fmt --check
+      - name: Tests
+        run: cargo test --workspace
+      - name: Lints
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  build:
+    name: Build WhiteRabbit-rust-test.exe
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Build
+        working-directory: rust
+        run: cargo build --release -p wr-monitor
+      - name: Size
+        shell: pwsh
+        run: "Get-Item rust/target/release/WhiteRabbit-rust-test.exe | Select-Object Name, Length"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WhiteRabbit-rust-test
+          path: rust/target/release/WhiteRabbit-rust-test.exe
