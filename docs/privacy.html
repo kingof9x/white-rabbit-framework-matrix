@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>White Rabbit privacy policy</title>
+<meta name="description" content="What White Rabbit, the Framework 16 LED Matrix app, does and doesn't do with your data.">
+<style>
+:root{--bg:#0c0d10;--card:#181b21;--line:#2a2e37;--text:#eceef2;--muted:#9aa1ad;--link:#c9d4ff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--link)}
+main{max-width:760px;margin:0 auto;padding:48px 16px 64px}
+h1{font-size:34px;line-height:1.15;margin:0 0 6px}
+h2{font-size:20px;margin:34px 0 8px}
+.fine{color:var(--muted);font-size:14px;margin:0 0 28px}
+ul{padding-left:22px}
+li{margin:6px 0}
+.box{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 18px}
+</style>
+</head>
+<body>
+<main>
+<p><a href="./">&larr; White Rabbit</a></p>
+<h1>Privacy policy</h1>
+<p class="fine">White Rabbit, the app for the Framework Laptop 16 LED Matrix. Last updated 9 November 2026.</p>
+
+<div class="box">
+<p><strong>In short:</strong> White Rabbit doesn't have accounts, ads, analytics or tracking. It doesn't send anything about you to its developer. Your settings stay on your computer.</p>
+</div>
+
+<h2>What stays on your computer</h2>
+<p>White Rabbit reads your computer's CPU, memory, disk, network, battery, temperature and fan levels so it can show them on the LED panels. These readings are only used to draw the panels and are never sent anywhere. Your settings, panel layout and the app's log file are saved on your computer only.</p>
+
+<h2>When White Rabbit uses the internet</h2>
+<ul>
+<li><strong>Weather (only if you add the weather app to a panel).</strong> White Rabbit asks a weather service for the forecast at your location: Open-Meteo by default, or OpenWeatherMap if you enter your own API key. It sends that service the postcode you entered, or an approximate location. If you turn on "use my location", Windows Location provides this. Otherwise it is worked out from your internet address by one of these services: ipify, ipwho.is, ipapi.co, ipinfo.io or IPLocate. Those services see your internet address, as any website you visit does. Each one handles requests under its own privacy policy.</li>
+<li><strong>Update check (installer and portable versions).</strong> When you press "Check for updates" on the Info tab, White Rabbit asks GitHub for the newest release. The Microsoft Store version doesn't do this, because the Store updates it.</li>
+<li><strong>Firmware.</strong> The firmware White Rabbit installs on the panels comes bundled inside the app. Updating the panels doesn't download anything.</li>
+<li><strong>Links you click</strong> (GitHub, Ko-fi, bug reports) open in your web browser.</li>
+</ul>
+
+<h2>Microphone and location</h2>
+<p>Music mode can listen to a microphone you pick so the panels can react to sound. That sound is analysed as it plays and is never recorded or sent anywhere. Location is used only for the weather, as described above. You can turn off either one at any time in Windows Settings &gt; Privacy &amp; security.</p>
+
+<h2>Children</h2>
+<p>White Rabbit doesn't collect personal information from anyone, including children.</p>
+
+<h2>Changes and contact</h2>
+<p>If this policy changes, the new version will be posted on this page with a new date. Questions? Open an issue on <a href="https://github.com/kingof9x/white-rabbit-framework-matrix/issues">GitHub</a>.</p>
+</main>
+</body>
+</html>
