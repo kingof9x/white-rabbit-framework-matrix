@@ -112,9 +112,17 @@ def download(url, progress=None, get=None):
     return path
 
 
+STORE_UPDATES_TEXT = "This copy of White Rabbit came from the Microsoft Store, which installs new versions for you."
+
+
+def store_updates():
+    """The Microsoft Store app gets its updates from the Store, so it doesn't check GitHub."""
+    return platform_utils.is_store_package()
+
+
 def can_install_updates():
     """Only the Windows exe can install the new version itself; elsewhere the release page opens."""
-    return platform_utils.IS_WINDOWS and platform_utils.is_frozen()
+    return platform_utils.IS_WINDOWS and platform_utils.is_frozen() and not store_updates()
 
 
 def start_installer_after_exit(path):
@@ -163,14 +171,19 @@ class InfoTab(ttk.Frame):
         ttk.Button(tips, text="Leave a tip on Ko-fi", command=lambda: self.open(KOFI_URL)).pack(anchor="w")
 
         updates = self.section("Updates")
-        row = ttk.Frame(updates)
-        row.pack(anchor="w", fill="x")
-        self.check_button = ttk.Button(row, text="Check for updates", command=self.check)
-        self.check_button.pack(side="left")
-        self.install_button = ttk.Button(row, text="Download and install", command=self.install)
-        self.page_button = ttk.Button(row, text="Open the download page", command=self.open_release_page)
-        self.update_status = ttk.Label(updates, text="", foreground=HINT, wraplength=760, justify="left")
-        self.update_status.pack(anchor="w", pady=(6, 0))
+        if store_updates():
+            # A Store app may only be updated by the Store, so there is no GitHub check here
+            self.update_status = ttk.Label(updates, text=STORE_UPDATES_TEXT, wraplength=760, justify="left")
+            self.update_status.pack(anchor="w")
+        else:
+            row = ttk.Frame(updates)
+            row.pack(anchor="w", fill="x")
+            self.check_button = ttk.Button(row, text="Check for updates", command=self.check)
+            self.check_button.pack(side="left")
+            self.install_button = ttk.Button(row, text="Download and install", command=self.install)
+            self.page_button = ttk.Button(row, text="Open the download page", command=self.open_release_page)
+            self.update_status = ttk.Label(updates, text="", foreground=HINT, wraplength=760, justify="left")
+            self.update_status.pack(anchor="w", pady=(6, 0))
 
         credits = self.section("Based on")
         ttk.Label(credits, text="White Rabbit is built on these open source projects. Thanks to everyone who "

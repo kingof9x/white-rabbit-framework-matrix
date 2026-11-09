@@ -92,6 +92,13 @@ def report(config_file=None, device_list=None, find_apps=None, read_sensors=None
             lines.append(f"Windows Location (weather): {windows_location.describe()}")
         except Exception as e:
             lines.append(f"Windows Location (weather): could not be checked ({e})")
+        lines.append(f"Microsoft Store package: {platform_utils.package_family_name() or 'no'}")
+        try:
+            from winrt.windows.applicationmodel import StartupTask  # noqa: F401
+            import winrt.windows.applicationmodel.activation  # noqa: F401
+            lines.append("Store startup task support: included")
+        except Exception as e:
+            lines.append(f"Store startup task support: missing ({e})")
     return lines
 
 

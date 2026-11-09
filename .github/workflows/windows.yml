@@ -216,6 +216,8 @@ jobs:
           # Windows Location for the weather app: the exe must include WinRT geolocation and get a clear answer
           if ($outputs["auto"] -notmatch "Windows Location \(weather\): (on|not available)") { throw "--diagnose didn't check Windows Location" }
           if ($outputs["auto"] -match "WinRT geolocation isn't installed|can't be used on this computer") { throw "The exe can't use Windows Location" }
+          # The Microsoft Store app's "Start with Windows" needs WinRT's startup task in the exe
+          if ($outputs["auto"] -notmatch "Store startup task support: included") { throw "The exe is missing the Store startup task support" }
           Stop-Process -Id $server.Id -ErrorAction SilentlyContinue
           if ($lhm) { Stop-Process -Id $lhm.Id -ErrorAction SilentlyContinue }
           # Framework Control (the stand-in) gives its four temperatures and both fans, and both choices that
@@ -251,6 +253,71 @@ jobs:
             $info | Format-List FileName, FileVersion, ProductVersion, CompanyName, FileDescription, ProductName, LegalCopyright
             if (-not $info.CompanyName -or $info.FileVersion -match '^0\.0\.0') { throw "$exe has blank file details" }
           }
+
+      # The Microsoft Store package. The Store signs it, so it isn't signed here. Its identity comes from
+      # the repository's Actions variables (Settings > Secrets and variables > Actions > Variables), copied
+      # from Partner Center > the app > Product identity. Without them it's a test package the Store refuses.
+      - name: Build Microsoft Store package (MSIX)
+        shell: pwsh
+        env:
+          MSIX_IDENTITY_NAME: ${{ vars.MSIX_IDENTITY_NAME }}
+          MSIX_PUBLISHER: ${{ vars.MSIX_PUBLISHER }}
+          MSIX_PUBLISHER_DISPLAY_NAME: ${{ vars.MSIX_PUBLISHER_DISPLAY_NAME }}
+        run: |
+          python scripts/build_msix.py --version "${{ steps.version.outputs.version }}"
+          if ($LASTEXITCODE -ne 0) { throw "Building the MSIX failed" }
+          Get-Item dist\WhiteRabbit.msix | Format-Table Name, Length
+
+      # Install a copy of the package the way Windows would from the Store, start it, and check it runs
+      # packaged. Windows only installs signed packages, so the copy gets a throwaway certificate.
+      - name: Test-install the Store package
+        shell: pwsh
+        run: |
+          [xml]$manifest = Get-Content build\msix\layout\AppxManifest.xml
+          $publisher = $manifest.Package.Identity.Publisher
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject $publisher -KeyUsage DigitalSignature `
+                  -CertStoreLocation Cert:\CurrentUser\My -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3", "2.5.29.19={text}")
+          $password = ConvertTo-SecureString -String ([guid]::NewGuid().ToString()) -Force -AsPlainText
+          Export-PfxCertificate -Cert $cert -FilePath test-cert.pfx -Password $password | Out-Null
+          Import-PfxCertificate -FilePath test-cert.pfx -CertStoreLocation Cert:\LocalMachine\TrustedPeople -Password $password | Out-Null
+          Copy-Item dist\WhiteRabbit.msix test-signed.msix
+          $signtool = (Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\10.*\x64\signtool.exe" | Sort-Object FullName | Select-Object -Last 1).FullName
+          & $signtool sign /fd SHA256 /sha1 $cert.Thumbprint /s My test-signed.msix
+          if ($LASTEXITCODE -ne 0) { throw "Signing the test copy failed" }
+
+          Add-AppxPackage -Path test-signed.msix
+          $package = Get-AppxPackage -Name $manifest.Package.Identity.Name
+          if (-not $package) { throw "The package didn't install" }
+          $package | Format-List Name, Version, PackageFamilyName, InstallLocation
+          $family = $package.PackageFamilyName
+          $log = "$env:LOCALAPPDATA\Packages\$family\LocalState\WhiteRabbit\WhiteRabbit.log"
+
+          # Opened from Start: the monitor and the window, both from the package
+          Start-Process "shell:AppsFolder\$family!WhiteRabbit"
+          $deadline = (Get-Date).AddSeconds(90)
+          while ((Get-Date) -lt $deadline) {
+            $running = @(Get-Process WhiteRabbit -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$($package.InstallLocation)*" })
+            if ($running.Count -ge 2 -and (Test-Path $log) -and (Select-String -Path $log -Pattern "Microsoft Store app" -Quiet)) { break }
+            Start-Sleep -Seconds 3
+          }
+          Start-Sleep -Seconds 10
+          Get-Process WhiteRabbit -ErrorAction SilentlyContinue | Format-Table Id, Path
+          Get-Content $log -ErrorAction SilentlyContinue
+          $running = @(Get-Process WhiteRabbit -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$($package.InstallLocation)*" })
+          Get-Process WhiteRabbit -ErrorAction SilentlyContinue | Stop-Process -Force
+          Start-Sleep -Seconds 2
+          Remove-AppxPackage -Package $package.PackageFullName
+          if (-not (Test-Path $log)) { throw "The Store app didn't write its log in its package data folder" }
+          if (-not (Select-String -Path $log -Pattern "Running as the Microsoft Store app \($([regex]::Escape($family))\)" -Quiet)) { throw "The app didn't know it was the Store app" }
+          if (Select-String -Path $log -Pattern "Traceback|stopped with an error|couldn.t start" -Quiet) { throw "The Store app logged an error" }
+          if ($running.Count -lt 2) { throw "Expected the monitor and the window running from the package, found $($running.Count)" }
+
+      - name: Upload Microsoft Store package
+        uses: actions/upload-artifact@v4
+        with:
+          name: WhiteRabbit.msix
+          path: dist/WhiteRabbit.msix
+          if-no-files-found: error
 
       - name: Upload portable exe
         uses: actions/upload-artifact@v4

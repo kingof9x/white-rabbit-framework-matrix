@@ -45,6 +45,8 @@ def run(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     platform_utils.load_env_file()
     platform_utils.setup_logging()
+    if platform_utils.is_store_package():
+        log.info(f"Running as the Microsoft Store app ({platform_utils.package_family_name()})")
     try:
         if "--find-lhm" in argv:
             # The tray's Find Libre Hardware Monitor... item: a file picker needs a main thread of its own
@@ -62,6 +64,11 @@ def run(argv=None):
             return
         if any(option in argv for option in REPORT_OPTIONS) or not platform_utils.IS_WINDOWS:
             # Linux keeps led_mon's behaviour (a console app or systemd service); open the window with --window
+            run_monitor(argv)
+            return
+        from led_mon import startup
+        if startup.started_by_startup_task():
+            # The Store app started at login: like --background, just the monitor and tray icon
             run_monitor(argv)
             return
         from led_mon import control

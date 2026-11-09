@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Microsoft Store package (MSIX) of White Rabbit. scripts/build_msix.py fills in the {placeholders}.
+  Identity Name, Publisher and PublisherDisplayName must match the app's Partner Center page
+  (Product identity); CI reads them from the repository variables MSIX_IDENTITY_NAME, MSIX_PUBLISHER and
+  MSIX_PUBLISHER_DISPLAY_NAME. Without them it builds a test package with stand-in values.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap desktop rescap">
+
+  <Identity Name="{identity_name}" Publisher="{publisher}" Version="{version}" ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>White Rabbit</DisplayName>
+    <PublisherDisplayName>{publisher_display_name}</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <Description>One app for the Framework 16 LED Matrix panels: the system monitor, games, patterns, startup animations and firmware updates.</Description>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Applications>
+    <Application Id="WhiteRabbit" Executable="WhiteRabbit.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="White Rabbit"
+        Description="White Rabbit for the Framework 16 LED Matrix"
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
+      </uap:VisualElements>
+      <Extensions>
+        <!-- "Start with Windows" (led_mon/startup.py switches it). Windows starts the app at login once it
+             has been opened one time, like the installer version's startup entry. -->
+        <desktop:Extension Category="windows.startupTask" Executable="WhiteRabbit.exe" EntryPoint="Windows.FullTrustApplication">
+          <desktop:StartupTask TaskId="WhiteRabbitStartup" Enabled="true" DisplayName="White Rabbit" />
+        </desktop:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <!-- A normal Windows desktop app: the panels' serial ports, the tray icon, hotkeys, sensors -->
+    <rescap:Capability Name="runFullTrust" />
+    <!-- Windows Location, for the weather app's "use my location" -->
+    <DeviceCapability Name="location" />
+    <!-- The music mode can listen to a microphone -->
+    <DeviceCapability Name="microphone" />
+  </Capabilities>
+</Package>

@@ -64,7 +64,9 @@ if IS_WINDOWS:
     # Windows Location for the weather app (WinRT). winrt-runtime's own PyInstaller hook adds each
     # namespace's _table.pywinrt data file; these are named because the app imports them lazily.
     hiddenimports += ['winrt.windows.devices.geolocation', 'winrt.windows.foundation', 'winrt.windows.foundation.collections',
-                      'winrt.system', 'winrt.runtime']
+                      'winrt.system', 'winrt.runtime',
+                      # The Microsoft Store app's startup task
+                      'winrt.windows.applicationmodel', 'winrt.windows.applicationmodel.activation']
     # soundcard reads its C header at runtime; zoneinfo needs the tzdata database on Windows
     datas += collect_data_files('soundcard') + collect_data_files('tzdata')
     # Build the exe icon from the same drawing as the tray icon

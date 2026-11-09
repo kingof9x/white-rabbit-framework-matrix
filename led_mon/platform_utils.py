@@ -48,18 +48,71 @@ def app_dir():
     return package_dir()
 
 
+# Microsoft Store (MSIX) package. The Store copy runs "packaged": Windows gives it an identity, installs
+# updates itself, and quietly redirects files it writes in %APPDATA% / %LOCALAPPDATA% to a private copy
+# that Explorer and Notepad can't see. So a packaged White Rabbit keeps its settings and log in its own
+# package data folder instead, where the tray's "Open settings folder" and "Open log" still find them.
+
+APPMODEL_ERROR_NO_PACKAGE = 15700
+_NOT_CHECKED = object()
+_package_family = _NOT_CHECKED
+
+
+def _read_package_family_name():
+    import ctypes
+    from ctypes import wintypes
+    kernel32 = ctypes.windll.kernel32
+    length = wintypes.UINT(0)
+    result = kernel32.GetCurrentPackageFamilyName(ctypes.byref(length), None)
+    if result == APPMODEL_ERROR_NO_PACKAGE or length.value == 0:
+        return None
+    buffer = ctypes.create_unicode_buffer(length.value)
+    if kernel32.GetCurrentPackageFamilyName(ctypes.byref(length), buffer) != 0:
+        return None
+    return buffer.value or None
+
+
+def package_family_name():
+    """The Store package's family name (e.g. "kingof9x.WhiteRabbit_abc123"), or None when not packaged."""
+    global _package_family
+    if _package_family is _NOT_CHECKED:
+        name = None
+        if IS_WINDOWS:
+            try:
+                name = _read_package_family_name()
+            except Exception as e:
+                log.debug(f"Could not check for a package identity: {e}")
+        _package_family = name
+    return _package_family
+
+
+def is_store_package():
+    """True when running as the Microsoft Store (MSIX) app."""
+    return package_family_name() is not None
+
+
+def package_data_dir():
+    """The Store package's own data folder: %LOCALAPPDATA%\\Packages\\<family name>\\LocalState."""
+    base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+    return os.path.join(base, "Packages", package_family_name(), "LocalState")
+
+
 def user_config_dir():
     """Where the user's config.yaml / config-local.yaml / .env live.
 
-    Windows: %APPDATA%\\WhiteRabbit. Linux: next to the package, as before.
+    Windows: %APPDATA%\\WhiteRabbit (Store app: its package data folder). Linux: next to the package, as before.
     """
     if IS_WINDOWS:
+        if is_store_package():
+            return os.path.join(package_data_dir(), APP_NAME)
         base = os.environ.get("APPDATA") or os.path.expanduser("~")
         return os.path.join(base, APP_NAME)
     return package_dir()
 
 
 def user_log_dir():
+    if IS_WINDOWS and is_store_package():
+        return os.path.join(package_data_dir(), APP_NAME)
     base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA") or os.path.expanduser("~")
     return os.path.join(base, APP_NAME)
 
@@ -87,19 +140,27 @@ def ensure_user_config():
         log.error(f"Could not create default config file {cfg}: {e}")
 
 
-# Files from %APPDATA%\\led_mon worth keeping: the layout, brightness / app settings and API keys
+# Files worth keeping from an earlier app: the layout, brightness / app settings and API keys
 OLD_SETTINGS_FILES = ("config-local.yaml", "config.yaml", "settings.json", ".env")
 
 
-def import_old_settings(appdata=None):
-    """First start on Windows: copy the stand-alone led_mon app's settings, if it was used before.
+def import_old_settings(appdata=None, new_dir=None):
+    """First start on Windows: copy the settings of an earlier app, if one was used before.
 
-    Does nothing once White Rabbit has its own settings folder. Returns the names of the files copied.
+    The installer / portable White Rabbit copies the stand-alone led_mon app's settings. The Store app
+    copies the installer version's settings (or else led_mon's), so switching to the Store keeps them.
+    Does nothing once this app has its own settings folder. Returns the names of the files copied.
     """
     base = appdata or os.environ.get("APPDATA") or os.path.expanduser("~")
-    new_dir = os.path.join(base, APP_NAME)
-    old_dir = os.path.join(base, OLD_APP_NAME)
-    if os.path.exists(new_dir) or not os.path.isdir(old_dir):
+    if new_dir is None:
+        new_dir = user_config_dir() if is_store_package() else os.path.join(base, APP_NAME)
+    if os.path.exists(new_dir):
+        return []
+    candidates = [os.path.join(base, APP_NAME), os.path.join(base, OLD_APP_NAME)]
+    old_dir = next((d for d in candidates
+                    if os.path.normcase(os.path.abspath(d)) != os.path.normcase(os.path.abspath(new_dir))
+                    and os.path.isdir(d)), None)
+    if old_dir is None:
         return []
     copied = []
     try:
@@ -110,7 +171,7 @@ def import_old_settings(appdata=None):
                 shutil.copyfile(old, os.path.join(new_dir, name))
                 copied.append(name)
     except OSError as e:
-        log.error(f"Could not copy the led_mon settings from {old_dir}: {e}")
+        log.error(f"Could not copy the settings from {old_dir}: {e}")
     if copied:
         log.info(f"Copied {', '.join(copied)} from {old_dir}")
     return copied
