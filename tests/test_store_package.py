@@ -28,9 +28,11 @@ def test_package_version_has_four_numbers_ending_in_zero():
     assert build_msix.msix_version("1") == "1.0.0.0"
     assert build_msix.msix_version("1.2.3-beta") == "1.2.3.0"
     assert build_msix.msix_version("1.2.3.4") == "1.2.3.0"
+    # Test builds use pyproject.toml's 0.1.0
+    assert build_msix.msix_version("0.1.0") == "0.1.0.0"
 
 
-@pytest.mark.parametrize("bad", ["", "beta", "0.9.0", "1.70000.0"])
+@pytest.mark.parametrize("bad", ["", "beta", "0.0", "1.70000.0"])
 def test_package_version_refuses_what_the_store_refuses(bad):
     with pytest.raises(ValueError):
         build_msix.msix_version(bad)

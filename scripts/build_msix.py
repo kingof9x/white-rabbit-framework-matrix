@@ -52,8 +52,8 @@ def msix_version(version):
     if not numbers:
         raise ValueError(f"No version numbers in {version!r}")
     numbers += [0] * (3 - len(numbers))
-    if numbers[0] == 0:
-        raise ValueError(f"The Store doesn't take a package version starting with 0: {version!r}")
+    if not any(numbers):
+        raise ValueError(f"A package version can't be all zeros: {version!r}")
     if any(n > 65535 for n in numbers):
         raise ValueError(f"Package version numbers go up to 65535: {version!r}")
     return ".".join(str(n) for n in numbers + [0])
