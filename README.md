@@ -288,8 +288,8 @@ from scratch from the textbook definitions of each graph and simulation. The
 
 ## Project status
 
-**Status:** Waiting on developer  
+**Status:** Active  
 **Waiting on:** Developer: run the testing checklist  
 **Notes:** One tray app combining led_mon and the LED Matrix controls. Not released yet. Newest additions: Keyboard shortcuts tab, Open Hardware Monitor finder fixes.  
-**Last updated:** 2026-11-02
+**Last updated:** 2026-11-09
 
