@@ -306,8 +306,12 @@ jobs:
           $running = @(Get-Process WhiteRabbit -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$($package.InstallLocation)*" })
           Get-Process WhiteRabbit -ErrorAction SilentlyContinue | Stop-Process -Force
           Start-Sleep -Seconds 2
+          # Uninstalling deletes the package data folder, so keep the log first
+          $logFound = Test-Path $log
+          if ($logFound) { Copy-Item $log store-app.log }
           Remove-AppxPackage -Package $package.PackageFullName
-          if (-not (Test-Path $log)) { throw "The Store app didn't write its log in its package data folder" }
+          if (-not $logFound) { throw "The Store app didn't write its log in its package data folder" }
+          $log = "store-app.log"
           if (-not (Select-String -Path $log -Pattern "Running as the Microsoft Store app \($([regex]::Escape($family))\)" -Quiet)) { throw "The app didn't know it was the Store app" }
           if (Select-String -Path $log -Pattern "Traceback|stopped with an error|couldn.t start" -Quiet) { throw "The Store app logged an error" }
           if ($running.Count -lt 2) { throw "Expected the monitor and the window running from the package, found $($running.Count)" }
