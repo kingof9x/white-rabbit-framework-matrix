@@ -40,7 +40,11 @@ and comes back when you press *Stop* or *Back to system monitor*.
 - **Half-panel apps:** CPU cores, CPU graph, GPU graph, memory + battery,
   disk, network, disk + network, temperatures, fans, FPS number.
 - **Whole-panel apps:** clock, weather, audio visualizer, FPS counter for
-  games, picture.
+  games, picture, text.
+- **Text app:** type your own words, with `{time}`, `{battery}` and `{cpu}`
+  filled in live. Three styles: *ticker* (upright letters scrolling up),
+  *sideways* (reads along the panel with your head tilted right) and
+  *stacked* (two letters per row, words split by a dotted line).
 - Brightness follows the laptop screen, or set it yourself.
 - The panels turn off when you close the lid, when the screen turns off, or
   when the laptop goes to sleep, and come back when you open it. Turn this
