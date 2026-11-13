@@ -1,5 +1,19 @@
 # The Now playing app: cover, scrolling song name and small visualizer, across both panels.
-import numpy as np
+import sys
+import importlib.util
+
+import pytest
+
+np = pytest.importorskip("numpy")
+pytest.importorskip("psutil")
+
+# Without the weather library the plugins can't load, so load led_mon.drawing without them
+if importlib.util.find_spec("requests") is None:
+    _argv, sys.argv = sys.argv, [sys.argv[0], "--disable-plugins"]
+    try:
+        from led_mon import drawing  # noqa: E402,F401
+    finally:
+        sys.argv = _argv
 
 from led_mon import now_playing as np_mod
 from led_mon.editor import catalog

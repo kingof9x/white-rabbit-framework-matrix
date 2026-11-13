@@ -296,6 +296,7 @@ def test_charger(monkeypatch):
 
 
 def test_monitor_plays_the_wanted_kinds(monkeypatch):
+    pytest.importorskip("requests")  # The monitor loads the weather plugin
     from led_mon import led_system_monitor as mon
     played = []
     monkeypatch.setattr(mon.effects.manager, "plug", lambda pos, inn: played.append((pos, inn)))
