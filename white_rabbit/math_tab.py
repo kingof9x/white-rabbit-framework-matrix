@@ -2,6 +2,8 @@
 # particles, one-dimensional automata, and more maths like Langton's Ant and sorting) played on the LED panels, with a preview in the window.
 #
 # With both panels ticked they act as one 18 x 34 picture; with one ticked it is 9 x 34.
+# "Both panels" under the preview can instead leave out the columns hidden behind the keyboard,
+# or mirror the right panel onto the left (white_rabbit/span.py).
 # The maths is in white_rabbit/math_sims.py.
 
 # Built In Dependencies
@@ -17,6 +19,7 @@ import numpy as np
 # Internal Dependencies
 from white_rabbit import math_sims as sims
 from white_rabbit import math_effects as effects
+from white_rabbit import span
 
 log = logging.getLogger(__name__)
 
@@ -160,6 +163,8 @@ class MathTab(ttk.Frame):
         self.latest = None
         self.drawn = None
         self.rng = np.random.default_rng()
+        self.span = span.load()
+        self.last_play = None
 
         bottom = ttk.Frame(self)
         bottom.pack(side="bottom", fill="x", padx=12, pady=6)
@@ -185,6 +190,7 @@ class MathTab(ttk.Frame):
         self.preview.pack(anchor="n")
         self.preview_note = ttk.Label(right, text="", foreground=HINT, wraplength=200, justify="left")
         self.preview_note.pack(anchor="w", pady=(4, 0))
+        self.build_span(right)
         # Scrolls when the window is small or Windows display scaling makes everything bigger
         scroller = ScrollFrame(body)
         scroller.pack(side="left", fill="both", expand=True)
@@ -204,6 +210,62 @@ class MathTab(ttk.Frame):
                   ).pack(side="right")
 
         self.after(PREVIEW_MS, self.draw_preview)
+
+    # Both panels: side by side, keyboard gap or mirror
+    def build_span(self, parent):
+        frame = ttk.LabelFrame(parent, text="Both panels", padding=6)
+        frame.pack(anchor="w", fill="x", pady=(10, 0))
+        labels = [label for _, label in span.MODES]
+        keys = [key for key, _ in span.MODES]
+        self.span_mode = ttk.Combobox(frame, values=labels, state="readonly", width=28)
+        self.span_mode.current(keys.index(self.span["mode"]))
+        self.span_mode.pack(anchor="w")
+        self.span_mode.bind("<<ComboboxSelected>>", lambda e: self.span_changed())
+        gap_row = ttk.Frame(frame)
+        gap_row.pack(anchor="w", pady=(6, 0))
+        ttk.Label(gap_row, text="Keyboard gap:").pack(side="left")
+        self.gap_var = tk.StringVar(value=str(self.span["gap_columns"]))
+        self.gap = ttk.Spinbox(gap_row, from_=span.MIN_GAP, to=span.MAX_GAP, width=5, textvariable=self.gap_var,
+                               command=self.span_changed)
+        self.gap.pack(side="left", padx=4)
+        self.gap.bind("<Return>", lambda e: self.span_changed())
+        self.gap.bind("<FocusOut>", lambda e: self.span_changed())
+        ttk.Label(gap_row, text="columns").pack(side="left")
+        self.span_hint = ttk.Label(frame, text="", foreground=HINT, wraplength=230, justify="left")
+        self.span_hint.pack(anchor="w", pady=(4, 0))
+        self.gap_test = ttk.Button(frame, text="Show the gap test", command=lambda: self.play(
+            "Gap test: a dot going across both panels", span.gap_test_frames))
+        self.gap_test.pack(anchor="w", pady=(4, 0))
+        self.update_span_hint()
+
+    def update_span_hint(self):
+        mode = self.span["mode"]
+        self.gap.state(["!disabled"] if mode == span.KEYBOARD_GAP else ["disabled"])
+        self.gap_test.state(["!disabled"] if mode == span.KEYBOARD_GAP else ["disabled"])
+        if mode == span.KEYBOARD_GAP:
+            text = ("The picture carries on behind the keyboard, so things line up when they cross it. "
+                    "Use the gap test: if the dot comes out on the other side too soon, make the gap "
+                    "bigger; if it takes too long, make it smaller.")
+        elif mode == span.MIRROR:
+            text = "The right panel shows the picture; the left panel shows it mirrored."
+        else:
+            text = "The two panels make one picture 18 lights wide, as if they touched."
+        self.span_hint.configure(text=text)
+
+    def span_changed(self):
+        keys = [key for key, _ in span.MODES]
+        new = span.normalize({"mode": keys[max(0, self.span_mode.current())],
+                              "gap_columns": number(self.gap, self.span["gap_columns"], span.MIN_GAP,
+                                                    span.MAX_GAP, int)})
+        self.gap_var.set(str(new["gap_columns"]))
+        if new == self.span:
+            return
+        self.span = new
+        span.save(new)
+        self.update_span_hint()
+        # Start whatever is showing again with the new layout
+        if self.last_play is not None and self.still_running(self.run_id):
+            self.play(*self.last_play)
 
     # Sections
     def build_graphs(self, frame):
@@ -411,14 +473,16 @@ class MathTab(ttk.Frame):
         """Start an animation on the ticked panels (or just the preview if none is ticked)."""
         from inputmodule.gui.gui_threading import reset_thread, set_status
         panels = self.window.selected_panels()
-        width = sims.PANEL_WIDTH * (len(panels) if panels else 2)
-        frames = make_frames(width)
+        count = len(panels) if panels else 2
+        layout = dict(self.span)
+        frames = (span.to_panels(picture, count, layout) for picture in make_frames(span.picture_width(count, layout)))
+        self.last_play = (title, make_frames)
         self.run_id += 1
         run_id = self.run_id
         # Ends a clock or equalizer from the other tab, and any earlier animation from this one
         reset_thread()
         set_status("math")
-        where = " and ".join(f"{p.side} panel" for p in panels)
+        where = " and ".join(p.called for p in panels)
         self.show(f"{title}, on the {where}." if panels else title)
         self.preview_note.configure(text="" if panels else "No panel is ticked, so this only shows here.")
         threading.Thread(target=self.run, args=(run_id, panels, frames), daemon=True).start()

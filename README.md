@@ -143,6 +143,15 @@ thing, even with no panels connected.
   random-walk frost, digits of pi and e, and Lissajous curves. Each one sets
   the speed it looks best at when you start it.
 - **Random grey noise**, and a speed slider for all of them.
+- **Both panels** (under the preview): *Side by side* (the panels act as if
+  they touched), *Side by side, skip the keyboard* (the picture carries on
+  behind the keyboard so moving things line up across it; the gap is set in
+  LED columns, with a gap test to help), or *Mirror* (the left panel shows the
+  right one mirrored).
+
+**Name panels...** at the bottom of the window gives the left and right panels
+names. Identify panels (Panels tab or tray menu) then shows the first five
+letters of each name on the panel for two seconds before the app names.
 
 ![The Math tab](docs/screenshots/white-rabbit-math.png)
 
@@ -289,6 +298,10 @@ Most of the Math tab's graphs and simulations come from mariobx's
 project is GPL-3.0 licensed, so no code was copied: the Math tab is written
 from scratch from the textbook definitions of each graph and simulation. The
 "More maths" effects are classic math demos, also written from scratch.
+
+The mirror, keyboard gap and panel name ideas come from Deovandski's
+[Framework16 LED Matrix Manager](https://github.com/Deovandski/Deo-s-Framework16-LED-Matrix-Manager)
+(MIT). Only the ideas were used; the code here is written separately.
 
 ## Project status
 
