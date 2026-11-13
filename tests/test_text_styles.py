@@ -130,6 +130,10 @@ def test_layout_editor_offers_the_text_app():
 def test_monitor_draws_the_text_app(monkeypatch):
     pytest.importorskip("psutil")
     pytest.importorskip("serial")
+    from led_mon.platform_utils import IS_WINDOWS
+    if IS_WINDOWS:
+        # led_mon.monitors needs it on Windows; the quick CI test job doesn't install it, the build job does
+        pytest.importorskip("wmi")
     monkeypatch.setattr(sys, "argv", ["led_mon", "--disable-plugins"])
     drawing = importlib.import_module("led_mon.drawing")
     from led_mon.rendering import make_base_app_functions, render_panel
