@@ -21,6 +21,9 @@ DEFAULT_SETTINGS = {
     "libre_hardware_monitor_path": "",
     # Turn the panels off while the lid is closed, the screen is off or the PC is going to sleep
     "turn_off_with_lid": True,
+    # Turn the panels off while the laptop's own screen isn't in use: docked with the lid shut, or Windows set
+    # to "Second screen only" (Win+P)
+    "turn_off_when_screen_unused": True,
     # Music mode's audio visualizer: the look and input last picked in the Audio tab (see
     # led_mon/equalizer_files/looks.py for the keys)
     "music": {},

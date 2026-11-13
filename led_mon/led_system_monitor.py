@@ -172,29 +172,56 @@ def handle_music_request(message):
         music_restart.set()
     return {'music_mode': is_music_mode()}
 
-# Set while the lid is closed, the screen is off or the PC is going to sleep: the panels sleep until then
+# Set while the panels should be off (lid closed, screen off, going to sleep, or the laptop's own screen not in
+# use, each as its setting allows): the panels sleep until then
 power_sleep = threading.Event()
 power_watcher = None
 
-def on_power_change(should_sleep):
-    if should_sleep and app_settings.load_settings().get("turn_off_with_lid", True):
+LID_SETTING = "turn_off_with_lid"
+SCREEN_UNUSED_SETTING = "turn_off_when_screen_unused"
+
+def _power_setting(key):
+    return bool(app_settings.load_settings().get(key, app_settings.DEFAULT_SETTINGS.get(key, True)))
+
+def apply_power_state(state=None):
+    """Turn the panels off or back on from what Windows last said and the two settings."""
+    state = state if state is not None else (power_watcher.state if power_watcher is not None else None)
+    if state is not None and state.wants_sleep(_power_setting(LID_SETTING), _power_setting(SCREEN_UNUSED_SETTING)):
         power_sleep.set()
     else:
         power_sleep.clear()
 
+def on_power_change(state):
+    apply_power_state(state)
+
+def _set_power_setting(key, enabled, label):
+    settings = app_settings.load_settings()
+    settings[key] = bool(enabled)
+    app_settings.save_settings(settings)
+    log.info(f"{label} " + ("on" if enabled else "off"))
+    apply_power_state()
+
 def set_turn_off_with_lid(enabled):
     """Tray checkbox: turn the panels off when the lid closes or the screen turns off."""
-    settings = app_settings.load_settings()
-    settings["turn_off_with_lid"] = bool(enabled)
-    app_settings.save_settings(settings)
-    log.info("Turn off with lid " + ("on" if enabled else "off"))
-    if not enabled:
-        power_sleep.clear()
-    elif power_watcher is not None and power_watcher.state.should_sleep:
-        power_sleep.set()
+    _set_power_setting(LID_SETTING, enabled, "Turn off with lid")
 
 def is_turn_off_with_lid():
-    return bool(app_settings.load_settings().get("turn_off_with_lid", True))
+    return _power_setting(LID_SETTING)
+
+def set_turn_off_when_screen_unused(enabled):
+    """Tray checkbox: turn the panels off when the laptop's own screen isn't in use (docked, "Second screen only")."""
+    _set_power_setting(SCREEN_UNUSED_SETTING, enabled, "Turn off when laptop screen isn't used")
+
+def is_turn_off_when_screen_unused():
+    return _power_setting(SCREEN_UNUSED_SETTING)
+
+def handle_power_request(message):
+    """Control channel command 'power': change either setting (when given) and reply with both."""
+    if LID_SETTING in message:
+        set_turn_off_with_lid(message[LID_SETTING])
+    if SCREEN_UNUSED_SETTING in message:
+        set_turn_off_when_screen_unused(message[SCREEN_UNUSED_SETTING])
+    return {LID_SETTING: is_turn_off_with_lid(), SCREEN_UNUSED_SETTING: is_turn_off_when_screen_unused()}
 
 # pynput key helpers: Windows reports left/right Alt as alt_l / alt_r (or alt_gr)
 def is_alt_key(key):
@@ -644,6 +671,9 @@ def app(args, base_apps, plugin_apps):
             enabled = shortcuts.reload()
             start_hotkeys()
             return {'shortcuts': enabled}
+        if cmd == 'power':
+            # The window's "Turn off when..." checkboxes
+            return handle_power_request(message)
         if cmd == 'sensor_source':
             # The window changed the temperature and fan source in settings.json, or asks what is being read
             from led_mon import sensor_sources
@@ -950,7 +980,7 @@ def app(args, base_apps, plugin_apps):
     def run_main_loop():
         global power_watcher
         platform_utils.init_com_for_thread()
-        # Windows: turn the panels off when the lid closes or the screen turns off
+        # Windows: turn the panels off when the lid closes, the screen turns off or the laptop screen isn't used
         from led_mon import power_events
         power_watcher = power_events.PowerWatcher(on_power_change)
         power_watcher.start()
@@ -999,6 +1029,8 @@ def app(args, base_apps, plugin_apps):
             is_paused=is_paused,
             set_turn_off_with_lid=set_turn_off_with_lid,
             is_turn_off_with_lid=is_turn_off_with_lid,
+            set_turn_off_when_screen_unused=set_turn_off_when_screen_unused,
+            is_turn_off_when_screen_unused=is_turn_off_when_screen_unused,
             set_music_mode=set_music_mode,
             is_music_mode=is_music_mode,
             show_brightness=brightness_popup.show,

@@ -45,6 +45,10 @@ and comes back when you press *Stop* or *Back to system monitor*.
 - The panels turn off when you close the lid, when the screen turns off, or
   when the laptop goes to sleep, and come back when you open it. Turn this
   off with *Turn off when lid closes* in the tray menu.
+- The panels also turn off when the laptop's own screen isn't in use: docked
+  with the lid shut, or Windows set to *Second screen only* (`Win`+`P`). Turn
+  this off with *Turn off when laptop screen isn't used* in the tray menu or
+  under the brightness slider in the Panels tab.
 - Runs in the tray and starts with Windows. Keyboard shortcuts
   (`Ctrl`+`Alt`+`Shift` + `I` / `N` / `F` / `U` / `M`) show the app names, skip to
   the next app, freeze or unfreeze app switching, and turn music mode on or
