@@ -541,6 +541,11 @@ def test_music_panel_switches_to_idle_after_silence_and_back_when_sound_returns(
     assert not panel.idle
 
 
-def test_music_mode_no_longer_has_the_separate_silence_animation():
-    from led_mon.equalizer_files import visualize
-    assert not hasattr(visualize.Equalizer, "draw_inverted_silence_pulse")
+def test_music_mode_draws_the_idle_look_not_a_separate_silence_animation():
+    # Read the source: importing visualize loads the monitor's plugins, which other tests don't expect
+    import os
+    path = os.path.join(os.path.dirname(looks.__file__), "visualize.py")
+    with open(path, encoding="utf-8") as f:
+        source = f.read()
+    assert "looks.MusicPanel(" in source
+    assert "silence_pulse" not in source
