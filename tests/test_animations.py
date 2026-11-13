@@ -110,7 +110,10 @@ def _without_plugins(import_it):
 
 def test_animation_app_draws_each_panel_on_its_own():
     _without_plugins(lambda: __import__("led_mon.drawing"))
-    from led_mon.rendering import make_base_app_functions, render_panel
+    try:
+        from led_mon.rendering import make_base_app_functions, render_panel
+    except ImportError as e:
+        pytest.skip(f"full dependencies not installed: {e}")   # the system monitors need wmi on Windows
     from unittest import mock
     fns = make_base_app_functions(*(mock.Mock() for _ in range(5)))
     app = {"name": "animation", "scope": "panel", "args": {"look": "snow"}}
