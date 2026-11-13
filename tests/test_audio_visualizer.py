@@ -493,3 +493,17 @@ def test_stalled_microphone_recording_is_noticed():
     playback = audio.Capture("playback")
     playback.current_id = "speakers"
     assert not playback.stalled(now=1000.0 + audio.MIC_STALL_SEC + 1)
+
+
+def test_water_look_mirrors_and_lights_up_with_music():
+    from led_mon.equalizer_files import looks
+    left = looks.Visualizer({"style": "water"}, "left", seed=3)
+    right = looks.Visualizer({"style": "water"}, "right", seed=3)
+    t = 1.0
+    for _ in range(60):
+        samples = looks.demo_samples(t)
+        a, b = left.frame(samples, 1 / 30), right.frame(samples, 1 / 30)
+        t += 1 / 30
+    assert b.max() > 0.3
+    assert abs(a - b[::-1, :]).max() < 1e-9  # The left panel is the right one mirrored
+    assert "water" in looks.NO_BAR_OPTIONS
