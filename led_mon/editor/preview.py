@@ -131,6 +131,33 @@ def set_brightness(follow_screen, level):
     return False
 
 
+POWER_SETTINGS = ("turn_off_with_lid", "turn_off_when_screen_unused")
+
+
+def power_settings():
+    """The two "Turn off when..." choices ({'turn_off_with_lid': bool, 'turn_off_when_screen_unused': bool}):
+    the running monitor's, or the saved ones."""
+    reply = control.request({"cmd": "power"}, timeout=1.5)
+    if reply and reply.get("ok") and all(key in reply for key in POWER_SETTINGS):
+        return {key: bool(reply[key]) for key in POWER_SETTINGS}
+    saved = app_settings.load_settings()
+    return {key: bool(saved.get(key, True)) for key in POWER_SETTINGS}
+
+
+def set_power_setting(key, enabled):
+    """Change one "Turn off when..." choice. The running monitor applies and saves it straight away; otherwise
+    it is saved for next start. Returns True if the running monitor took it."""
+    if key not in POWER_SETTINGS:
+        raise ValueError(f"unknown power setting {key}")
+    reply = control.request({"cmd": "power", key: bool(enabled)})
+    if reply is not None and reply.get("ok"):
+        return True
+    settings = app_settings.load_settings()
+    settings[key] = bool(enabled)
+    app_settings.save_settings(settings)
+    return False
+
+
 def send_frames(frames, seconds=30):
     """Show still frames ({'left': grid, 'right': grid}) on the panels.
 
