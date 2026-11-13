@@ -37,10 +37,13 @@ and comes back when you press *Stop* or *Back to system monitor*.
 
 - **Layout editor** with a live preview: drag apps onto the left and right
   panel, top or bottom half, and set up several pages that take turns.
-- **Half-panel apps:** CPU cores, CPU graph, GPU graph, memory + battery,
-  disk, network, disk + network, temperatures, fans, FPS number.
-- **Whole-panel apps:** clock, weather, audio visualizer, FPS counter for
-  games, picture.
+- **Half-panel apps:** CPU cores (with an afterglow: a dim trail where each
+  core's load just was), CPU graph, GPU graph, memory + battery, battery as a
+  pile of sand (charging rains sand in, on battery it drains away), disk,
+  network, disk + network, temperatures, fans, FPS number.
+- **Whole-panel apps:** clock, weather, audio visualizer, now playing (the
+  cover of whatever is playing, the song name scrolling along the top and a
+  small visualizer, across both panels), FPS counter for games, picture.
 - Brightness follows the laptop screen, or set it yourself.
 - The panels turn off when you close the lid, when the screen turns off, or
   when the laptop goes to sleep, and come back when you open it. Turn this
@@ -93,10 +96,12 @@ microphone hears (pick any microphone Windows has).
 - **Music mode** shows the visualizer on both panels until you turn it off.
   Turn it on here, with *Music mode* in the tray menu, or with
   `Ctrl`+`Alt`+`Shift`+`M`. It uses the look last picked on this tab.
-- **21 looks:** classic, spectrum analyzer, centre out, dots, spectrogram,
+- **22 looks:** classic, spectrum analyzer, centre out, dots, spectrogram,
   level meter, waveform, mirror waveform, double waveform, radial bars,
   radial fan, radial facing, rings, pulse, sparkle, bonfire, beat tunnel,
-  fountain, lava lamp, heartbeat and dancing rabbit. On the radial looks and
+  fountain, lava lamp, heartbeat, dancing rabbit, and water, glow and sparks
+  (the bass pushes ripples through water, the middle notes glow, the treble
+  throws sparks). On the radial looks and
   most of the newer ones the left panel is a mirror image of the right one.
 - **Options:** one 18-bar spectrum across both panels, peak dots, shading,
   upside down, falling speed, sensitivity, and automatic sensitivity.
@@ -110,8 +115,27 @@ editor, so it can also take turns with the other apps.
 
 ![All 21 audio visualizer looks, left and right panel](docs/screenshots/audio-visualizer-looks.png)
 
-*All 21 looks playing the same moment of music, drawn by the app's own
-visualizer code.*
+*21 of the looks playing the same moment of music, drawn by the app's own
+visualizer code (the water look is newer than this picture).*
+
+### Effects tab
+
+Little extras that play over whatever the panels show.
+
+- **Plug-in ripple:** plug in the charger, headphones or any USB device and a
+  ripple runs across the panel from that port's side. Unplug it and the
+  picture drains out through the port. *Try it* buttons show it without
+  plugging anything in, and if White Rabbit guesses the wrong port you can
+  tell it the right one; it remembers.
+- **Text line:** a line of small letters scrolls across the top of both
+  panels when a new song starts, the charger goes in or out, or the battery is
+  low, or with your own message.
+- **Changing apps:** slide the next app in from the bottom, or cut straight to
+  it.
+- **Keep every shade when dim:** dark pictures keep their detail at low
+  brightness. Needs the newest White Rabbit firmware.
+
+![The Effects tab](docs/screenshots/white-rabbit-effects.png)
 
 ### Math tab
 
@@ -146,7 +170,7 @@ thing, even with no panels connected.
 
 Shows which firmware each panel has, puts a panel into bootloader mode, and
 flashes the bundled firmware: White Rabbit's (startup animation setting, extra
-patterns) or Framework's official 0.2.0, or any `.uf2` file you choose.
+patterns, dimming that keeps every shade) or Framework's official 0.2.0, or any `.uf2` file you choose.
 
 ![The Firmware tab](docs/screenshots/white-rabbit-firmware.png)
 
@@ -279,6 +303,12 @@ White Rabbit combines two open source projects, both MIT licensed (see
   itself is still built there.
 
 Thanks to everyone who worked on those.
+
+The plug-in ripple, the sand battery, the now playing app, the CPU afterglow,
+the text line, the sliding between apps, the water look and dimming by LED
+current were inspired by patate's (slowpaste)
+[pixeled](https://github.com/slowpaste/pixeled). They are written from scratch
+for White Rabbit; no code was copied.
 
 Most of the Math tab's graphs and simulations come from mariobx's
 [Framework-LED-Matrix](https://github.com/mariobx/Framework-LED-Matrix). That
