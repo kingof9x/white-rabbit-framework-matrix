@@ -15,7 +15,14 @@ if importlib.util.find_spec("requests") is None:
     finally:
         sys.argv = _argv
 
-from led_mon import sand, rendering
+from led_mon import sand
+
+
+def _rendering():
+    if sys.platform == "win32":
+        pytest.importorskip("wmi")  # The monitors read the screen brightness through WMI on Windows
+    from led_mon import rendering
+    return rendering
 from led_mon.editor import catalog
 
 
@@ -79,6 +86,7 @@ def test_sand_app_is_offered_with_a_speed_setting():
 
 
 def test_afterglow_fades_after_a_spike():
+    rendering = _rendering()
     state = {}
     assert rendering.glow_values(state, [1.0, 0.2], 0.0) == [1.0, 0.2]
     glow = rendering.glow_values(state, [0.0, 0.2], 1.0)
@@ -96,6 +104,7 @@ class _Fixed:
 
 
 def test_cpu_draws_a_dim_trail_under_the_live_load():
+    rendering = _rendering()
     cpu = _Fixed([1.0] * 8)
     funcs = rendering.make_base_app_functions(cpu, _Fixed(0.5), _Fixed((0.5, False)), _Fixed((0, 0)), _Fixed((0, 0)))
     grid = np.zeros((9, 34), dtype=int)
