@@ -42,6 +42,8 @@ CREDITS = [
      "The LED Matrix firmware and the LED Matrix Control app: patterns, games and firmware updates."),
     ("Framework-LED-Matrix by mariobx", "https://github.com/mariobx/Framework-LED-Matrix",
      "The ideas for the Math tab (written from scratch, no code copied)."),
+    ("Framework16 LED Matrix Manager by Deo", "https://github.com/Deovandski/Deo-s-Framework16-LED-Matrix-Manager",
+     "The ideas for the animations and the old-TV effect (our own code)."),
 ]
 
 

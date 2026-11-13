@@ -40,11 +40,16 @@ and comes back when you press *Stop* or *Back to system monitor*.
 - **Half-panel apps:** CPU cores, CPU graph, GPU graph, memory + battery,
   disk, network, disk + network, temperatures, fans, FPS number.
 - **Whole-panel apps:** clock, weather, audio visualizer, FPS counter for
-  games, picture.
+  games, picture, and animations (fire, plasma, DNA helix, snowfall,
+  chevrons, bouncing ball).
 - Brightness follows the laptop screen, or set it yourself.
 - The panels turn off when you close the lid, when the screen turns off, or
   when the laptop goes to sleep, and come back when you open it. Turn this
   off with *Turn off when lid closes* in the tray menu.
+- When the panels turn off or back on (lid, screen, sleep, or *Stop animation*
+  in the tray), they do it like an old TV: the picture squeezes into a line,
+  then a dot that fades, and the reverse when they come back. Turn this off
+  with *Old-TV effect when turning off and on* in the tray menu.
 - Runs in the tray and starts with Windows. Keyboard shortcuts
   (`Ctrl`+`Alt`+`Shift` + `I` / `N` / `F` / `U` / `M`) show the app names, skip to
   the next app, freeze or unfreeze app switching, and turn music mode on or
@@ -285,6 +290,10 @@ Most of the Math tab's graphs and simulations come from mariobx's
 project is GPL-3.0 licensed, so no code was copied: the Math tab is written
 from scratch from the textbook definitions of each graph and simulation. The
 "More maths" effects are classic math demos, also written from scratch.
+
+The animations and the old-TV effect are ideas from Deo's
+[Framework16 LED Matrix Manager](https://github.com/Deovandski/Deo-s-Framework16-LED-Matrix-Manager)
+(MIT). No code was copied: they are written from scratch.
 
 ## Project status
 

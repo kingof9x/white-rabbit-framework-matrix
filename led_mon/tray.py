@@ -151,7 +151,7 @@ def startup_checked(item):
 
 
 def build_menu(pystray, actions, finder, is_paused, is_frozen, edit_layout_available, startup_supported=None,
-               is_turn_off_with_lid=None, is_music_mode=None):
+               is_turn_off_with_lid=None, is_music_mode=None, is_tv_effect=None):
     """The tray menu. actions maps a name to the function called when that item is chosen."""
     startup_supported = startup.supported() if startup_supported is None else startup_supported
     item = pystray.MenuItem
@@ -177,6 +177,9 @@ def build_menu(pystray, actions, finder, is_paused, is_frozen, edit_layout_avail
         item("Turn off when lid closes", actions.get("toggle_lid"),
              checked=lambda i: bool(is_turn_off_with_lid and is_turn_off_with_lid()),
              visible=is_turn_off_with_lid is not None and "toggle_lid" in actions),
+        item("Old-TV effect when turning off and on", actions.get("toggle_tv"),
+             checked=lambda i: bool(is_tv_effect and is_tv_effect()),
+             visible=is_tv_effect is not None and "toggle_tv" in actions),
         item("Start with Windows", actions["toggle_startup"], checked=startup_checked, visible=startup_supported),
         pystray.Menu.SEPARATOR,
         item("Quit", actions["quit"]),
@@ -324,7 +327,8 @@ def quit_from_elsewhere():
 
 def run_tray(identify, next_app, set_freeze, is_frozen, reload_config, config_dir, log_file, quit,
              edit_layout=None, set_paused=None, is_paused=None, show_brightness=None, lhm_path="",
-             set_turn_off_with_lid=None, is_turn_off_with_lid=None, set_music_mode=None, is_music_mode=None):
+             set_turn_off_with_lid=None, is_turn_off_with_lid=None, set_music_mode=None, is_music_mode=None,
+             set_tv_effect=None, is_tv_effect=None):
     """Show the tray icon and block until Quit is chosen."""
     import pystray
 
@@ -407,6 +411,13 @@ def run_tray(identify, next_app, set_freeze, is_frozen, reload_config, config_di
             notify(icon, f"Could not change the lid setting: {e}")
         icon.update_menu()
 
+    def toggle_tv(icon, item):
+        try:
+            set_tv_effect(not is_tv_effect())
+        except Exception as e:
+            notify(icon, f"Could not change the old-TV effect setting: {e}")
+        icon.update_menu()
+
     def toggle_music(icon, item):
         try:
             set_music_mode(not is_music_mode())
@@ -442,8 +453,13 @@ def run_tray(identify, next_app, set_freeze, is_frozen, reload_config, config_di
         actions["toggle_music"] = toggle_music
     else:
         is_music_mode = None
+    if set_tv_effect is not None and is_tv_effect is not None:
+        actions["toggle_tv"] = toggle_tv
+    else:
+        is_tv_effect = None
     menu = build_menu(pystray, actions, finder, is_paused, is_frozen, edit_layout is not None,
-                      is_turn_off_with_lid=is_turn_off_with_lid, is_music_mode=is_music_mode)
+                      is_turn_off_with_lid=is_turn_off_with_lid, is_music_mode=is_music_mode,
+                      is_tv_effect=is_tv_effect)
     icon_class = _icon_class(pystray, finder)
     icon = icon_class(platform_utils.APP_NAME, make_icon_image(lit=not is_paused()), tooltip(is_paused()), menu)
     icon.lit = not is_paused()

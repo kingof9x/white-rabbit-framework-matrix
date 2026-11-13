@@ -22,7 +22,8 @@ from led_mon.monitors import CPUMonitor, MemoryMonitor, BatteryMonitor, DiskMoni
 from led_mon import shared_state
 from led_mon.shared_state import discover_led_devices
 from led_mon.serial_ports import close_all as close_all_ports, release as release_held_ports
-from led_mon.rendering import make_base_app_functions, build_app_kwargs, render_panel
+from led_mon.rendering import make_base_app_functions, build_app_kwargs, render_panel, SMOOTH_APPS
+from led_mon import animations
 from led_mon import control
 from led_mon import fps
 from led_mon import shortcuts
@@ -195,6 +196,27 @@ def set_turn_off_with_lid(enabled):
 
 def is_turn_off_with_lid():
     return bool(app_settings.load_settings().get("turn_off_with_lid", True))
+
+def set_tv_effect(enabled):
+    """Tray checkbox: the old-TV effect when the panels turn off and back on."""
+    settings = app_settings.load_settings()
+    settings["tv_effect"] = bool(enabled)
+    app_settings.save_settings(settings)
+    log.info("Old-TV effect " + ("on" if enabled else "off"))
+
+def is_tv_effect():
+    return bool(app_settings.load_settings().get("tv_effect", True))
+
+def play_tv_effect(queues_and_frames):
+    """Send each panel its old-TV frames, a frame every animations.TV_FRAME_SECONDS, all panels together.
+
+    queues_and_frames: [(drawing queue, [frames])]. Blocks until the longest list has played."""
+    steps = max((len(frames) for _, frames in queues_and_frames), default=0)
+    for i in range(steps):
+        for draw_queue, frames in queues_and_frames:
+            if i < len(frames):
+                draw_queue.put((frames[i], False))
+        time.sleep(animations.TV_FRAME_SECONDS)
 
 # pynput key helpers: Windows reports left/right Alt as alt_l / alt_r (or alt_gr)
 def is_alt_key(key):
@@ -606,6 +628,8 @@ def app(args, base_apps, plugin_apps):
     previewing = False
     blanked = False
     panels_asleep = False
+    # The last picture sent to each panel (None when an app draws on the panel itself), for the old-TV effect
+    last_grids = {}
 
     def handle_control_request(message):
         cmd = message.get('cmd')
@@ -680,6 +704,10 @@ def app(args, base_apps, plugin_apps):
                 if not blanked:
                     # Stop apps that draw on their own (the equalizer) so they don't light the panels
                     dispose_active_apps()
+                    if is_tv_effect():
+                        # Old TV turning off: the picture squeezes into a line, then a dot that fades
+                        play_tv_effect([(q, animations.tv_off_frames(last_grids.get(i), shared_state.foreground_value or 160))
+                                        for i, q in enumerate(drawing_queues)])
                     for draw_queue in drawing_queues:
                         # Stop any panel animation, then draw a dark frame once it has stopped
                         draw_queue.put((np.zeros((9,34), dtype = int), False))
@@ -695,6 +723,8 @@ def app(args, base_apps, plugin_apps):
                 # Restart panel animations when the display comes back, as after the ID display
                 latch_key_combo = True
                 return
+            # Coming back on after the panels were off: play the old-TV switch-on into the first pictures
+            tv_on = blanked and is_tv_effect()
             blanked = False
             panels_asleep = False
 
@@ -861,6 +891,8 @@ def app(args, base_apps, plugin_apps):
 
             # Music mode: the audio visualizer on both panels instead of the layout's apps
             if music_mode.is_set():
+                # The music draws on the panels itself, so there's no picture to squeeze when they turn off
+                last_grids.clear()
                 if not music_running:
                     # Stop the layout's own self-drawing apps (an audio visualizer) first
                     dispose_active_apps()
@@ -876,6 +908,7 @@ def app(args, base_apps, plugin_apps):
                 for draw_queue, changed in idx_changed.items():
                     idx_changed[draw_queue] = True
 
+            outputs = []
             for i, draw_queue in enumerate(drawing_queues):
                 grid = np.zeros((9,34), dtype = int)
                 if i == 0:
@@ -899,8 +932,13 @@ def app(args, base_apps, plugin_apps):
                 if latch_key_combo:
                     if (animating_left and panel == 'left') or (animating_right and panel == 'right'):
                         do_animate = True
+                last_grids[i] = None if persistent_draw else grid
                 if not persistent_draw:
-                    draw_queue.put((grid, do_animate))
+                    outputs.append((draw_queue, grid, do_animate))
+            if tv_on:
+                play_tv_effect([(q, animations.tv_on_frames(g, foreground_value)[:-1]) for q, g, _ in outputs])
+            for draw_queue, grid, do_animate in outputs:
+                draw_queue.put((grid, do_animate))
             latch_key_combo = False
             for app in apps_to_dispose:
                 dispose_fn = app.get('dispose-fn', None)
@@ -909,7 +947,9 @@ def app(args, base_apps, plugin_apps):
                     kwargs = build_app_kwargs(app)
                     func(**kwargs)
             del apps_to_dispose
-            time.sleep(0.1)     
+            # Animations move smoothly at about 25 frames a second; everything else is drawn 10 times a second
+            smooth = any(a.get('name') in SMOOTH_APPS for a in left_args + right_args)
+            time.sleep(0.04 if smooth else 0.1)
         except KeyboardInterrupt:
             raise
         except Exception as e:
@@ -1001,6 +1041,8 @@ def app(args, base_apps, plugin_apps):
             is_turn_off_with_lid=is_turn_off_with_lid,
             set_music_mode=set_music_mode,
             is_music_mode=is_music_mode,
+            set_tv_effect=set_tv_effect,
+            is_tv_effect=is_tv_effect,
             show_brightness=brightness_popup.show,
             lhm_path=app_settings.load_settings().get("libre_hardware_monitor_path", ""),
         )

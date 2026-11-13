@@ -21,6 +21,9 @@ import math
 # External Dependencies
 import numpy as np
 
+# Internal Dependencies
+from led_mon.animations import spread_heat
+
 WIDTH = 9
 HEIGHT = 34
 MAX_LEVEL = 34
@@ -711,12 +714,7 @@ class Visualizer:
         heat = fx.setdefault("heat", np.zeros((WIDTH, HEIGHT + 2)))
         levels = self._band_levels()
         heat[:, -2:] = (np.clip(levels * 1.4, 0, 1)[:, None] * (0.6 + 0.4 * self.rng.random((WIDTH, 2))))
-        left = np.vstack([heat[:1], heat[:-1]])
-        right = np.vstack([heat[1:], heat[-1:]])
-        cool = (self.rng.random((WIDTH, HEIGHT)) ** 3 * 0.14 + 0.008) * k
-        heat[:, :HEIGHT] = (heat[:, 1:HEIGHT + 1] * 2 + left[:, 1:HEIGHT + 1] + right[:, 1:HEIGHT + 1]
-                            + heat[:, 2:HEIGHT + 2]) / 5.0 - cool
-        np.clip(heat, 0.0, 1.0, out=heat)
+        spread_heat(heat, self.rng, k)
         sparks = fx.setdefault("sparks", [])
         if self._beat():
             for _ in range(3):
