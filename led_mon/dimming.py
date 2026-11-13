@@ -15,17 +15,21 @@ GLOBAL_CURRENT = 0x30
 FULL_CURRENT = 255
 QUERY_TIMEOUT = 0.3
 
-# Per port, when the port isn't a shared one: {id: {"supported": bool|None, "current": int|None}}
-_plain_ports = {}
-
-
 def _state(s):
     entry = getattr(s, "_entry", None)
     if entry is not None:
         if not hasattr(entry, "dimming"):
             entry.dimming = {"supported": None, "current": None}
         return entry.dimming
-    return _plain_ports.setdefault(id(s), {"supported": None, "current": None})
+    # Kept on the port object itself: an id() could be reused by the next port opened
+    state = getattr(s, "_dimming_state", None)
+    if state is None:
+        state = {"supported": None, "current": None}
+        try:
+            s._dimming_state = state
+        except AttributeError:
+            pass
+    return state
 
 
 def _held(s):
