@@ -17,6 +17,8 @@ from led_mon.platform_utils import package_dir, plugins_dir
 from led_mon.serial_ports import open_port, port_lock
 from led_mon.shared_state import is_led_matrix_port
 from led_mon import effects
+from led_mon import dimming
+from led_mon import shared_state
 
 # External Dependencies
 import numpy as np
@@ -437,11 +439,14 @@ RESEND_UNCHANGED_SEC = 5.0
 
 def draw_to_LEDs(s, grid):
     # Ensure all values are valid bytes before sending
-    safe_grid = np.clip(grid, 0, 255).astype(np.uint8)
-    key = safe_grid.tobytes()
     remembers = hasattr(s, 'shows')
     # Hold the port for the whole frame so another thread sharing it can't interleave commands
     with port_lock(s):
+        # "Keep every shade when dim": full-range values, dimmed by the LED current (dimming.py)
+        grid = dimming.prepare(s, grid, effects.manager.settings.get("full_shades"),
+                               shared_state.foreground_value)
+        safe_grid = np.clip(grid, 0, 255).astype(np.uint8)
+        key = safe_grid.tobytes()
         if remembers and s.shows(key, RESEND_UNCHANGED_SEC):
             # Already on the panel: sending it again would only keep the panel busy
             return

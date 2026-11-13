@@ -150,6 +150,13 @@ _held_guard = threading.Lock()
 
 def hold(port_names, owner=None):
     """Stop the monitor drawing on these panels until release()."""
+    # The window draws at full LED current; the monitor lowers it again when it draws next
+    from led_mon import dimming
+    with _ports_guard:
+        entries = [_ports.get(n.lower()) for n in port_names]
+    for entry in entries:
+        if entry is not None:
+            dimming.reset_entry(entry)
     with _held_guard:
         for name in port_names:
             _held[name.lower()] = owner
