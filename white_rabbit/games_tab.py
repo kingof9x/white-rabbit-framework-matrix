@@ -171,7 +171,7 @@ class GamePlayer:
         self.session = games.GameSession(game_class(width), best=self.scores.get(game_class.key, 0))
         self.saved_score = None
         self.title.configure(text=game_class.title)
-        where = " and ".join(f"{p.side} panel" for p in panels)
+        where = " and ".join(p.called for p in panels)
         self.help.configure(text=game_class.controls + " Esc pauses."
                             + ("" if panels else " No panel is ticked, so it only shows here."))
         self.tab.show(f"Playing {game_class.title} on the {where}." if panels else f"Playing {game_class.title} in the window.")

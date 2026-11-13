@@ -1117,7 +1117,7 @@ class LayoutEditor:
                         else "The monitor isn't running.", "")
 
     def identify(self):
-        self.run_action(lambda: "The panels show their app names for a few seconds." if preview.identify()
+        self.run_action(lambda: "The panels show their names (if you gave them any) and app names for a few seconds." if preview.identify()
                         else "Identify needs the monitor to be running.", "")
 
     def run_action(self, action, busy_text):

@@ -27,7 +27,14 @@ DEFAULT_SETTINGS = {
     # Where the Temperatures and Fans apps read from on Windows: auto, framework_control,
     # libre_hardware_monitor or framework_tool (see sensor_sources.py)
     "sensor_source": "auto",
+    # Names the user gave the panels, by side: {"left": "...", "right": "..."}. Identify panels shows
+    # them on the panels (the first PANEL_NAME_LETTERS letters fit).
+    "panel_names": {},
 }
+
+PANEL_SIDES = ("left", "right")
+PANEL_NAME_LETTERS = 5
+PANEL_NAME_MAX = 20
 
 
 def settings_path():
@@ -75,6 +82,27 @@ def save_music(music, path=None):
     from led_mon.equalizer_files import looks
     settings = load_settings(path)
     settings["music"] = looks.normalize(music)
+    return save_settings(settings, path)
+
+
+def clean_panel_names(names):
+    """{side: name} for the sides that have a name, trimmed."""
+    names = names if isinstance(names, dict) else {}
+    clean = {}
+    for side in PANEL_SIDES:
+        name = names.get(side)
+        if isinstance(name, str) and name.strip():
+            clean[side] = " ".join(name.split())[:PANEL_NAME_MAX]
+    return clean
+
+
+def load_panel_names(path=None):
+    return clean_panel_names(load_settings(path).get("panel_names"))
+
+
+def save_panel_names(names, path=None):
+    settings = load_settings(path)
+    settings["panel_names"] = clean_panel_names(names)
     return save_settings(settings, path)
 
 

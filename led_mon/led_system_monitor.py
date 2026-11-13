@@ -27,6 +27,7 @@ from led_mon import control
 from led_mon import fps
 from led_mon import shortcuts
 from led_mon import app_settings
+from led_mon.panel_names import name_grid
 
 # External Dependencies
 import numpy as np
@@ -81,10 +82,28 @@ shutdown_event = threading.Event()
 reload_config_event = threading.Event()
 # Show app IDs (as with Alt+I) until this monotonic time; used by the tray "Identify panels" item
 id_display_until = 0.0
+# Panels with a name (settings.json "panel_names", set in the White Rabbit window) show it first,
+# until this time, then the app IDs
+id_names_until = 0.0
+id_names = {}
+NAME_SECONDS = 2.0
 
 def request_identify(seconds=3.0):
-    global id_display_until
-    id_display_until = time.monotonic() + seconds
+    global id_display_until, id_names_until, id_names
+    now = time.monotonic()
+    try:
+        id_names = app_settings.load_panel_names()
+    except Exception as e:
+        log.warning(f"Could not read the panel names: {e}")
+        id_names = {}
+    id_names_until = now + NAME_SECONDS if id_names else now
+    id_display_until = id_names_until + seconds
+
+def identify_name(side):
+    """The name to show on this side's panel right now while identifying, or None."""
+    if time.monotonic() < id_names_until:
+        return id_names.get(side) or None
+    return None
 
 # Still frames sent from the layout editor: {'left': grid, 'right': grid}, shown until preview_until
 preview_frames = {}
@@ -823,7 +842,9 @@ def app(args, base_apps, plugin_apps):
                 # Show app IDs for each quadrant or panel
                 draw_outline_border(grid, background_value)
                 # If app takes up entire panel, draw the panel app ID only
-                if left_owner_app:
+                if identify_name('left'):
+                    grid = name_grid(identify_name('left'), foreground_value)
+                elif left_owner_app:
                     draw_id(grid, left_owner_app['name'], foreground_value, args=left_owner_app.get('args', None))
                 else:
                     draw_ids(grid, left_args[0]['name'], left_args[1]['name'], foreground_value,
@@ -833,7 +854,9 @@ def app(args, base_apps, plugin_apps):
                 if len(drawing_queues) > 1:  # Right panel exists
                     grid = np.zeros((9,34), dtype = int)
                     draw_outline_border(grid, background_value)
-                    if right_owner_app:
+                    if identify_name('right'):
+                        grid = name_grid(identify_name('right'), foreground_value)
+                    elif right_owner_app:
                         draw_id(grid, right_owner_app['name'], foreground_value, args=right_owner_app.get('args', None))
                     else:
                         draw_ids(grid, right_args[0]['name'], right_args[1]['name'], foreground_value,
