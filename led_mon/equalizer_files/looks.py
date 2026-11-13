@@ -23,6 +23,18 @@ import numpy as np
 
 WIDTH = 9
 HEIGHT = 34
+# The calm idle version of each look (shown while nothing is heard): how tall its bars are
+# (a fraction of the panel) and how long one slow breath in and out takes
+IDLE_LEVEL = 0.14
+IDLE_BREATH_SEC = 5.0
+# The looks made of beats (tunnel, sparks, heartbeat, rabbit) get one slow beat this often
+IDLE_BEAT_SEC = 2.5
+# Looks that need a little more (or less) of the made-up sound to show a calm version of themselves
+IDLE_BOOST = {"bonfire": 4.5, "lava-lamp": 3.5, "pulse": 2.2, "sparkle": 0.5}
+# Seconds of silence before the idle version starts, and seconds sound must last to end it
+# (so a single click doesn't)
+IDLE_AFTER_SEC = 4.0
+IDLE_RESUME_SEC = 0.4
 MAX_LEVEL = 34
 SAMPLE_RATE = 48000
 # Samples analysed per frame (85 ms): enough to tell the lowest bass notes apart
@@ -337,6 +349,8 @@ class Visualizer:
         self.meter_peak_time = np.zeros(2)
         # State of the newer looks (fire, drops, rings, blobs, trace, jump)
         self.fx = {}
+        # True while drawing the calm idle version of the look (see idle_frame)
+        self.idle = False
 
     def is_silent(self):
         """True when the last frame heard (next to) nothing."""
@@ -345,6 +359,7 @@ class Visualizer:
     def frame(self, samples, dt=0.03):
         """The next picture: a 9 x 34 array of brightness from 0.0 to 1.0."""
         dt = max(0.001, float(dt))
+        self.idle = False
         self.clock += dt
         self.samples = samples
         chunk = mono_or_channel(samples, self.channel)
@@ -363,6 +378,42 @@ class Visualizer:
         if self.settings["flip"]:
             grid = grid[:, ::-1]
         return np.clip(grid, 0.0, 1.0)
+
+    def idle_frame(self, dt=0.03):
+        """The next picture of the look's calm idle version, shown while nothing is heard: the look
+        drawn from made-up, low, slowly drifting sound, with no beats except a slow resting rhythm
+        for the looks that are all about the beat."""
+        dt = max(0.001, float(dt))
+        self.idle = True
+        self.clock += dt
+        t = self.clock
+        # Low bars, a slow wave travelling across the bands, gently breathing in and out
+        bands = np.arange(self.n_bands, dtype=float)
+        breath = 0.75 + 0.25 * math.sin(2 * math.pi * t / IDLE_BREATH_SEC)
+        drift = 0.5 + 0.5 * np.sin(t * 1.1 - bands * 0.7)
+        levels = MAX_LEVEL * IDLE_LEVEL * IDLE_BOOST.get(self.style, 1.0) * breath * (0.45 + 0.55 * drift)
+        self.loudness = max(self.silence_sum + 1, int(levels.sum()))
+        self.shown = levels
+        self.peaks = np.maximum(levels, self.peaks - 0.5 * self.fall * dt)
+        # A slow, small sound wave for the waveform looks
+        n = 1024
+        phase = np.arange(n) / n * 2 * math.pi * 1.5 + t * 1.6
+        amp = 0.35 * breath
+        self.samples = np.stack([amp * np.sin(phase), amp * np.sin(phase + 0.8)], axis=1)
+        self.wave_scale = 1.0
+        chunk = mono_or_channel(self.samples, self.channel)
+        draw = getattr(self, "_draw_" + self.style.replace("-", "_"))
+        grid = draw(chunk, dt)
+        if self.settings["flip"]:
+            grid = grid[:, ::-1]
+        return np.clip(grid, 0.0, 1.0)
+
+    def _idle_tick(self, period):
+        """While idle: True once every period seconds (a slow resting rhythm instead of beats)."""
+        if self.clock - self.fx.get("idle-tick", -period) >= period:
+            self.fx["idle-tick"] = self.clock
+            return True
+        return False
 
     # Bar heights for the panel's 9 columns
     def _column_levels(self, values):
@@ -488,7 +539,7 @@ class Visualizer:
             loud = [db + self.meter_auto for db in loud]
         for i, db in enumerate(loud):
             value = max(0.0, min(1.0, (db - bottom) / (top - bottom))) * HEIGHT
-            if self.analyzer.microphone:
+            if self.analyzer.microphone or self.idle:
                 # A microphone is measured against the room's noise, like the bars
                 value = min(1.0, 1.4 * float(np.sqrt(np.mean((self.shown / MAX_LEVEL) ** 2)))) * HEIGHT
             if self.loudness <= self.silence_sum:
@@ -698,6 +749,8 @@ class Visualizer:
     def _beat(self, level=None):
         """True on the frame a beat starts: the bass (or the given level) jumps up above its recent average."""
         fx = self.fx
+        if self.idle:
+            return self._idle_tick(IDLE_BEAT_SEC)
         level = self._bass() if level is None else level
         rise = level - fx.get("beat-last", 0.0)
         beat = rise > 0.12 and level > fx.get("beat-average", 0.0) and level > 0.15
@@ -812,7 +865,7 @@ class Visualizer:
         if self.side == "left":
             hit = self._beat()
         else:
-            hit = level - fx.get("level", 0.0) > 0.08 and level > 0.1
+            hit = self._beat() if self.idle else (level - fx.get("level", 0.0) > 0.08 and level > 0.1)
             fx["level"] = level
         if hit and not queue:
             queue.extend(v * (0.5 + level) for v in self.HEARTBEAT)
@@ -856,6 +909,44 @@ class Visualizer:
                 if c == "1" and 0 <= top + dy < HEIGHT:
                     grid[1 + dx, top + dy] = 1.0
         return self._keyboard_side(grid)
+
+
+class MusicPanel:
+    """One panel in music mode: the look while sound is heard, and the look's calm idle version once
+    nothing has been heard for idle_after_sec, until sound comes back for IDLE_RESUME_SEC."""
+
+    def __init__(self, settings=None, side="left", idle_after_sec=IDLE_AFTER_SEC):
+        self.visualizer = Visualizer(settings, side)
+        # A second copy of the look draws the idle version, so the first keeps listening undisturbed
+        # and the music picks up where it left off
+        self.idle_visualizer = Visualizer(settings, side)
+        self.idle_after_sec = max(0.0, float(idle_after_sec))
+        self.quiet_for = 0.0
+        self.heard_for = 0.0
+        self.idle = False
+
+    def is_silent(self):
+        return self.visualizer.is_silent()
+
+    @property
+    def loudness(self):
+        return self.visualizer.loudness
+
+    def frame(self, samples, dt=0.03):
+        """The next picture (see Visualizer.frame), switching to and from the idle version."""
+        dt = max(0.001, float(dt))
+        grid = self.visualizer.frame(samples, dt)
+        if self.visualizer.is_silent():
+            self.heard_for = 0.0
+            self.quiet_for += dt
+            if self.quiet_for >= self.idle_after_sec:
+                self.idle = True
+        else:
+            self.heard_for += dt
+            if not self.idle or self.heard_for >= IDLE_RESUME_SEC:
+                self.idle = False
+                self.quiet_for = 0.0
+        return self.idle_visualizer.idle_frame(dt) if self.idle else grid
 
 
 def to_leds(grid, foreground_value):
