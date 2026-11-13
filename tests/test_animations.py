@@ -97,7 +97,19 @@ def test_bonfire_still_uses_the_same_fire_step():
     assert looks.spread_heat is an.spread_heat
 
 
+def _without_plugins(import_it):
+    """Import led_mon's drawing code without loading the plugins (they need the weather and audio libraries)."""
+    import sys
+    saved = sys.argv
+    sys.argv = [saved[0], "--disable-plugins"]
+    try:
+        return import_it()
+    finally:
+        sys.argv = saved
+
+
 def test_animation_app_draws_each_panel_on_its_own():
+    _without_plugins(lambda: __import__("led_mon.drawing"))
     from led_mon.rendering import make_base_app_functions, render_panel
     from unittest import mock
     fns = make_base_app_functions(*(mock.Mock() for _ in range(5)))
@@ -122,13 +134,7 @@ def test_layout_editor_offers_the_animation_app():
 
 
 def test_identify_shows_a_name_for_the_animation_app():
-    import sys
-    saved = sys.argv
-    sys.argv = [saved[0], "--disable-plugins"]
-    try:
-        from led_mon import drawing
-    finally:
-        sys.argv = saved
+    drawing = _without_plugins(lambda: __import__("led_mon.drawing", fromlist=["drawing"]))
     grid = np.zeros((9, 34), dtype=int)
     drawing.draw_id(grid, "animation", 100, {})
     assert grid.any()
