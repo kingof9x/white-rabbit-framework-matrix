@@ -12,6 +12,7 @@ from led_mon import now_playing
 from led_mon.monitors import HistoryMonitor, overall_cpu_ratio
 from led_mon import gpu as gpu_info
 from led_mon import fps as fps_info
+from led_mon.text_styles import TextApp
 
 # External Dependencies
 import numpy as np
@@ -117,8 +118,18 @@ def make_base_app_functions(cpu_monitor, memory_monitor, battery_monitor, disk_m
     def draw_disk_net(arg, grid, foreground_value, idx, **kwargs):
         draw_app(arg, grid, disk_monitor.get(), network_monitor.get(), foreground_value, idx)
 
+    # Overall CPU use for the Text app's {cpu}, read once a second and averaged over the last 3 seconds
+    text_cpu = HistoryMonitor(overall_cpu_ratio, size=3)
+    def text_cpu_ratio():
+        samples = [v for v in text_cpu.get() if v is not None]
+        return sum(samples) / len(samples) if samples else None
+    text_app = TextApp(text_cpu_ratio, battery_monitor.get)
+    def draw_text(arg, grid, foreground_value, idx, **kwargs):
+        draw_app(arg, grid, text_app, foreground_value, **kwargs)
+
     return {
         "cpu": draw_cpu,
+        "text": draw_text,
         "mem-bat": draw_mem_bat,
         "battery-sand": draw_sand_battery,
         "now-playing": draw_now_playing,

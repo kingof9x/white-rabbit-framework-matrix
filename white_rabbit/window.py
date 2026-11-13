@@ -178,10 +178,14 @@ class WhiteRabbitWindow:
         ttk.Label(self.bar, text="Controls act on:").pack(side="left")
         if not self.panels:
             ttk.Label(self.bar, text="no LED Matrix panels found", foreground="#a33").pack(side="left", padx=6)
+        self.panel_checks = {}
         for panel in self.panels:
             var = tk.BooleanVar(value=True)
-            ttk.Checkbutton(self.bar, text=panel.label, variable=var).pack(side="left", padx=6)
+            check = ttk.Checkbutton(self.bar, text=panel.label, variable=var)
+            check.pack(side="left", padx=6)
             self.panel_vars[panel.device] = var
+            self.panel_checks[panel.device] = check
+        ttk.Button(self.bar, text="Name panels...", command=self.name_panels).pack(side="left", padx=6)
         self.back_button = ttk.Button(self.bar, text="Back to system monitor", command=self.give_back_all)
         self.back_button.pack(side="right")
         self.bar_status = ttk.Label(self.bar, text="", foreground="#555555")
@@ -193,13 +197,58 @@ class WhiteRabbitWindow:
         if not self.monitor_running:
             text = "The system monitor isn't running"
         elif borrowed:
-            text = "Showing White Rabbit controls on: " + ", ".join(f"{p.side} panel" for p in borrowed)
+            text = "Showing White Rabbit controls on: " + ", ".join(p.called for p in borrowed)
         elif getattr(getattr(self, "music_tab", None), "music_on", False):
             text = "Panels are showing music mode"
         else:
             text = "Panels are showing the system monitor"
         self.bar_status.configure(text=text)
         self.back_button.state(["!disabled"] if borrowed else ["disabled"])
+
+    def name_panels(self):
+        """A small window to give the left and right panels names; Identify panels shows them."""
+        from led_mon import app_settings
+        names = app_settings.load_panel_names()
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Name panels")
+        dialog.transient(self.root)
+        dialog.resizable(False, False)
+        body = ttk.Frame(dialog, padding=14)
+        body.pack(fill="both", expand=True)
+        entries = {}
+        for row, side in enumerate(app_settings.PANEL_SIDES):
+            ttk.Label(body, text=f"{side.capitalize()} panel:").grid(row=row, column=0, sticky="w", pady=3)
+            entry = ttk.Entry(body, width=24)
+            entry.insert(0, names.get(side, ""))
+            entry.grid(row=row, column=1, sticky="w", padx=6, pady=3)
+            entries[side] = entry
+        ttk.Label(body, text=f"Identify panels (Panels tab or tray menu) shows the first "
+                             f"{app_settings.PANEL_NAME_LETTERS} letters on the panel itself. "
+                             "Leave a name empty to go back to plain left and right.",
+                  foreground="#555555", wraplength=300, justify="left"
+                  ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(8, 8))
+        buttons = ttk.Frame(body)
+        buttons.grid(row=3, column=0, columnspan=2, sticky="e")
+
+        def save():
+            saved = app_settings.clean_panel_names({side: e.get() for side, e in entries.items()})
+            app_settings.save_panel_names(saved)
+            for panel in self.panels:
+                panel.nickname = saved.get(panel.side, "")
+                check = self.panel_checks.get(panel.device)
+                if check is not None:
+                    check.configure(text=panel.label)
+            self.update_bar()
+            dialog.destroy()
+            if self.monitor_running:
+                from led_mon.editor import preview
+                self.in_background(preview.identify)
+
+        ttk.Button(buttons, text="Save and show", command=save).pack(side="right")
+        ttk.Button(buttons, text="Cancel", command=dialog.destroy).pack(side="right", padx=6)
+        dialog.bind("<Return>", lambda e: save())
+        dialog.bind("<Escape>", lambda e: dialog.destroy())
+        entries["left"].focus_set()
 
     def selected_panels(self):
         return [p for p in self.panels if self.panel_vars[p.device].get()]
@@ -265,7 +314,7 @@ class WhiteRabbitWindow:
                 try:
                     action(panel)
                 except Exception as e:
-                    problems.append(f"{panel.side} panel: {e}")
+                    problems.append(f"{panel.called}: {e}")
             return generations, problems
 
         def done(result):

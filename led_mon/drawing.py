@@ -380,6 +380,11 @@ direct_draw_funcs = {
         "fn": draw_fps_half,
         "border": lambda *x: None # Just the numbers
     },
+    "text": {
+        # The Text app draws itself (led_mon/text_styles.py)
+        "fn": lambda grid, text_app, fill_value, **kwargs: text_app.draw(grid, fill_value, **kwargs),
+        "border": lambda *x: None # Whole panel, no border
+    },
     "snap": {
         "fn": draw_snapshot,
         "border": lambda *x: None # No border

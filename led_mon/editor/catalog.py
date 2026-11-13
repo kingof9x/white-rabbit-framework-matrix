@@ -13,6 +13,7 @@ from led_mon.platform_utils import package_dir
 from led_mon.equalizer_files import looks
 from led_mon import sand
 from led_mon import now_playing
+from led_mon import text_styles
 
 log = logging.getLogger(__name__)
 
@@ -140,6 +141,14 @@ APPS = [
     AppInfo("fps-num", "FPS number", "Just the frames per second of a game, as numbers. Windows only, and needs a "
             "one-time setup (see the README); shows ? until then.", HALF, [
         GAME_SETTING,
+    ]),
+    AppInfo("text", "Text", "Your own words on the whole panel. Type {time}, {battery} or {cpu} to show the clock, "
+            "battery level or CPU use, kept up to date.", FULL, [
+        Setting("text", "Text", "text", text_styles.DEFAULT_TEXT,
+                help="For example: {time} {battery} {cpu}  or  Hello {time}"),
+        Setting("style", "Style", "choice", "ticker", text_styles.STYLES,
+                labels=tuple(text_styles.STYLE_LABELS[s] for s in text_styles.STYLES)),
+        Setting("fmt_24_hour", "24-hour clock", "bool", False, help="For {time}"),
     ]),
     AppInfo("snap", "Picture", "A still pattern from the snapshot files.", FULL, [
         Setting("file", "Picture", "snapshot", None),
