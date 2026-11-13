@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from led_mon.platform_utils import package_dir
 from led_mon.equalizer_files import looks
 from led_mon import sand
+from led_mon import now_playing
 
 log = logging.getLogger(__name__)
 
@@ -122,6 +123,16 @@ APPS = [
                 help="Quiet and loud songs both fill the panel"),
     ], fixed={"persistent-draw": True, "dispose-fn": "equalizer_dispose"},
        fixed_args={"external-filter": False, "border": False}),
+    AppInfo("now-playing", "Now playing", "The cover of whatever is playing (Spotify, a browser, the Media Player "
+            "app), with the song name scrolling along the top and a small visualizer underneath. Put it on both "
+            "panels: each panel shows half of the cover. Windows only.", FULL, [
+        Setting("title", "Scroll the song name along the top", "bool", True),
+        Setting("visualizer", "Small visualizer under the cover", "bool", True),
+        Setting("drift", "Let the cover drift slowly", "bool", True),
+        Setting("when_idle", "When nothing is playing", "choice", "skip", now_playing.WHEN_IDLE,
+                labels=tuple(now_playing.WHEN_IDLE_LABELS[k] for k in now_playing.WHEN_IDLE),
+                help="Skip goes straight on to the next page of the layout"),
+    ]),
     AppInfo("fps", "FPS counter", "Frames per second of a game on the top half, with a histogram below that "
             "scrolls left, one column per second, newest on the right. Windows only, and needs a one-time setup (see the README); shows ? until then.", FULL, [
         GAME_SETTING,
@@ -229,7 +240,7 @@ def finalize(entry, side):
     if info.fixed_args:
         entry.setdefault("args", {})
         entry["args"].update(copy.deepcopy(info.fixed_args))
-    if entry["name"] == "equalizer":
+    if entry["name"] in ("equalizer", "now-playing"):
         entry.setdefault("args", {})["side"] = side
     if entry["name"] == "snap":
         entry.setdefault("args", {})["panel"] = side

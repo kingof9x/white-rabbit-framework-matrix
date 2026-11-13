@@ -28,6 +28,7 @@ from led_mon import fps
 from led_mon import shortcuts
 from led_mon import app_settings
 from led_mon import effects
+from led_mon import now_playing
 
 # External Dependencies
 import numpy as np
@@ -212,6 +213,13 @@ def on_plug(kind, position, plugged_in, info):
         effects.manager.plug(position, plugged_in)
     if kind == "charger" and settings["text_charger"]:
         effects.manager.say("Charging" if plugged_in else "On battery")
+
+def on_song(song):
+    """A new song started playing: show its name on the text line, if the Effects tab says so."""
+    if effects.manager.settings["text_song"]:
+        effects.manager.say(f"Now playing: {song}")
+
+now_playing.watcher.on_song = on_song
 
 def learned_ports():
     return effects.manager.settings.get("learned_ports", {})
@@ -779,6 +787,9 @@ def app(args, base_apps, plugin_apps):
             shared_state.foreground_value = foreground_value
             effects.manager.foreground = max(0, min(255, foreground_value))
             low_battery.check(time.monotonic())
+            if effects.manager.settings["text_line"] and effects.manager.settings["text_song"]:
+                # Keep asking what is playing, so a new song can be shown on the text line
+                now_playing.watcher.want()
             
             # Clamp brightness values to the valid byte range
             background_value = max(0, min(255, background_value))
@@ -836,11 +847,24 @@ def app(args, base_apps, plugin_apps):
             # Keep quadrant schedules aligned even when one quadrant is suppressed by
             # a sibling panel-scope app; otherwise manual Alt+N can create lasting skew.
             now = time.monotonic()
+            # Now playing, set to skip, with nothing playing: both halves of its panel go on to the next page
+            skipping_quadrants = set()
+            for owner_quadrant in (left_owner_quadrant, right_owner_quadrant):
+                if owner_quadrant is None:
+                    continue
+                owner = quads[owner_quadrant][app_idx[owner_quadrant]]
+                if (owner['name'] == 'now-playing' and len(quads[owner_quadrant]) > 1
+                        and now - base_time_map[owner_quadrant][owner['name']] >= 2
+                        and now_playing.should_skip(owner.get('args'), now)):
+                    panel_side = 'left' if 'left' in owner_quadrant else 'right'
+                    skipping_quadrants.update(q for q in quads if panel_side in q)
             for quadrant, apps in quads.items():
                     app = apps[app_idx[quadrant]]
                     suppressed_for_rotation = quadrant in suppressed_quadrants_pre_rotation
                     can_force_next = next_key_combo_active
                     should_advance = (now - base_time_map[quadrant][app['name']] >= int(app_duration[(quadrant, app['name'])])) or can_force_next
+                    if quadrant in skipping_quadrants:
+                        should_advance = True
                     if should_advance and not freeze_app_switching:
                             if can_force_next:
                                 evdev_next_key_pressed = False

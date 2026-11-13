@@ -64,6 +64,13 @@ def fake_equalizer(arg, grid, foreground_value, idx, **kwargs):
     grid[:, :] = looks.to_leds(frame, foreground_value)
 
 
+def fake_now_playing(arg, grid, foreground_value, idx, side="left", **kwargs):
+    """What is playing, or a made-up song when nothing is, so the preview shows what the app looks like."""
+    from led_mon import now_playing
+    options = {k: kwargs[k] for k in ("title", "visualizer", "drift", "when_idle") if k in kwargs}
+    now_playing.draw_preview(grid, foreground_value, side, **options)
+
+
 class PreviewRenderer:
     """Draws a page of the layout the same way the monitor does, using this computer's live values."""
 
@@ -78,6 +85,7 @@ class PreviewRenderer:
             log.error(f"Could not load plugins for the preview: {e}")
         self.app_functions["equalizer"] = fake_equalizer
         self.app_functions["equalizer_dispose"] = lambda **kwargs: None
+        self.app_functions["now-playing"] = fake_now_playing
 
     def plugin_names(self):
         return list(self.app_functions.keys())

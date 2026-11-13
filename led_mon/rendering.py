@@ -8,6 +8,7 @@ import logging
 # Internal Dependencies
 from led_mon.drawing import draw_app, draw_app_border
 from led_mon import sand
+from led_mon import now_playing
 from led_mon.monitors import HistoryMonitor, overall_cpu_ratio
 from led_mon import gpu as gpu_info
 from led_mon import fps as fps_info
@@ -64,6 +65,11 @@ def make_base_app_functions(cpu_monitor, memory_monitor, battery_monitor, disk_m
         sand.draw_sand_battery(grid, battery_monitor.get(), foreground_value, idx,
                                key=current_panel, speed=sand_speed)
 
+    def draw_now_playing(arg, grid, foreground_value, idx, side=None, title=True, visualizer=True, drift=True,
+                         when_idle="skip", **kwargs):
+        now_playing.draw_now_playing(grid, foreground_value, side or current_panel, title=title,
+                                     visualizer=visualizer, drift=drift, when_idle=when_idle)
+
     def draw_mem_bat(arg, grid, foreground_value, idx, **kwargs):
         last_memory_values = memory_monitor.get()
         last_battery_values = battery_monitor.get()
@@ -115,6 +121,7 @@ def make_base_app_functions(cpu_monitor, memory_monitor, battery_monitor, disk_m
         "cpu": draw_cpu,
         "mem-bat": draw_mem_bat,
         "battery-sand": draw_sand_battery,
+        "now-playing": draw_now_playing,
         "disk": draw_disk,
         "net": draw_net,
         "snap": draw_snap,
