@@ -74,7 +74,7 @@ def flash(panel, path, status=lambda text: None, get_drives=uf2conv.get_drives, 
         firmware = f.read()
     drives = get_drives()
     if not drives:
-        status(f"Putting the {panel.side} panel into bootloader mode...")
+        status(f"Putting the {panel.called} into bootloader mode...")
         jump(panel)
         drives = wait_for_drives(get_drives=get_drives)
     if not drives:
@@ -86,6 +86,6 @@ def flash(panel, path, status=lambda text: None, get_drives=uf2conv.get_drives, 
         uf2conv.write_file(drive + "/NEW.UF2", firmware)
     # Let the panel restart before anything else happens, so flashing the next panel doesn't find
     # this one's drive still there and copy onto it again
-    status(f"Waiting for the {panel.side} panel to restart...")
+    status(f"Waiting for the {panel.called} to restart...")
     wait_for_drives_gone(get_drives=get_drives, sleep=sleep)
     return f"Flashed {len(drives)} panel{'s' if len(drives) > 1 else ''}. It restarts with the new firmware in a few seconds."

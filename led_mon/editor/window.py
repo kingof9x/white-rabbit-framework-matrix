@@ -16,6 +16,12 @@ from led_mon.editor.layout import Page, SIDES
 from led_mon.editor import preview
 from led_mon.brightness_popup import BrightnessControl
 
+# The "Turn off when..." checkboxes under the brightness slider (same settings as the tray menu's)
+POWER_CHECKBOXES = (
+    ("turn_off_with_lid", "Turn off when lid closes"),
+    ("turn_off_when_screen_unused", "Turn off when laptop screen\nisn't used (docked or\nsecond screen only)"),
+)
+
 log = logging.getLogger(__name__)
 
 CELL = 12          # pixels per LED in the panel preview
@@ -720,6 +726,7 @@ class LayoutEditor:
         self.root.after(100, self.poll_frames)
         self.root.after(200, self.check_monitor)
         self.load_brightness()
+        self.load_power_settings()
 
     # Files
     def config_paths(self):
@@ -771,6 +778,17 @@ class LayoutEditor:
         self.brightness = BrightnessControl(palette, state["follow_screen"], state["level"], self.on_brightness_changed,
                                             length=230)
         self.brightness.pack(anchor="w", fill="x", pady=(12, 0))
+        # When the panels turn off by themselves (Windows only): also straight away, no Apply needed
+        self.power_vars = {}
+        if platform_utils.IS_WINDOWS or os.environ.get("WHITE_RABBIT_SHOW_POWER_SETTINGS"):
+            saved = app_settings.load_settings()
+            power = ttk.Frame(palette)
+            power.pack(anchor="w", fill="x", pady=(10, 0))
+            for key, text in POWER_CHECKBOXES:
+                var = tk.BooleanVar(value=bool(saved.get(key, True)))
+                ttk.Checkbutton(power, text=text, variable=var,
+                                command=lambda k=key, v=var: self.on_power_setting_changed(k, v.get())).pack(anchor="w")
+                self.power_vars[key] = var
         # The "Read from" status line, while the Temperatures or Fans app's settings are showing
         self.sensor_status = None
         self.sensor_help = None
@@ -1079,6 +1097,20 @@ class LayoutEditor:
             self.call_soon(lambda: self.brightness.set_state(state["follow_screen"], state["level"]))
         threading.Thread(target=run, daemon=True).start()
 
+    def load_power_settings(self):
+        if not self.power_vars:
+            return
+
+        def run():
+            state = preview.power_settings()
+            self.call_soon(lambda: [var.set(state[key]) for key, var in self.power_vars.items() if key in state])
+        threading.Thread(target=run, daemon=True).start()
+
+    def on_power_setting_changed(self, key, enabled):
+        def run():
+            preview.set_power_setting(key, enabled)
+        threading.Thread(target=run, daemon=True).start()
+
     def on_brightness_changed(self, follow_screen, level):
         # The slider sends many changes while dragging; send the latest one a moment after it stops
         first = self.brightness_pending is None
@@ -1117,7 +1149,7 @@ class LayoutEditor:
                         else "The monitor isn't running.", "")
 
     def identify(self):
-        self.run_action(lambda: "The panels show their app names for a few seconds." if preview.identify()
+        self.run_action(lambda: "The panels show their names (if you gave them any) and app names for a few seconds." if preview.identify()
                         else "Identify needs the monitor to be running.", "")
 
     def run_action(self, action, busy_text):

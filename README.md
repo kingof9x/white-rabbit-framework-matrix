@@ -40,12 +40,20 @@ and comes back when you press *Stop* or *Back to system monitor*.
 - **Half-panel apps:** CPU cores, CPU graph, GPU graph, memory + battery,
   disk, network, disk + network, temperatures, fans, FPS number.
 - **Whole-panel apps:** clock, weather, audio visualizer, FPS counter for
-  games, picture, and animations (fire, plasma, DNA helix, snowfall,
-  chevrons, bouncing ball).
+  games, picture, text, and animations (fire, plasma, DNA helix,
+  snowfall, chevrons, bouncing ball).
+- **Text app:** type your own words, with `{time}`, `{battery}` and `{cpu}`
+  filled in live. Three styles: *ticker* (upright letters scrolling up),
+  *sideways* (reads along the panel with your head tilted right) and
+  *stacked* (two letters per row, words split by a dotted line).
 - Brightness follows the laptop screen, or set it yourself.
 - The panels turn off when you close the lid, when the screen turns off, or
   when the laptop goes to sleep, and come back when you open it. Turn this
   off with *Turn off when lid closes* in the tray menu.
+- The panels also turn off when the laptop's own screen isn't in use: docked
+  with the lid shut, or Windows set to *Second screen only* (`Win`+`P`). Turn
+  this off with *Turn off when laptop screen isn't used* in the tray menu or
+  under the brightness slider in the Panels tab.
 - When the panels turn off or back on (lid, screen, sleep, or *Stop animation*
   in the tray), they do it like an old TV: the picture squeezes into a line,
   then a dot that fades, and the reverse when they come back. Turn this off
@@ -144,6 +152,15 @@ thing, even with no panels connected.
   random-walk frost, digits of pi and e, and Lissajous curves. Each one sets
   the speed it looks best at when you start it.
 - **Random grey noise**, and a speed slider for all of them.
+- **Both panels** (under the preview): *Side by side* (the panels act as if
+  they touched), *Side by side, skip the keyboard* (the picture carries on
+  behind the keyboard so moving things line up across it; the gap is set in
+  LED columns, with a gap test to help), or *Mirror* (the left panel shows the
+  right one mirrored).
+
+**Name panels...** at the bottom of the window gives the left and right panels
+names. Identify panels (Panels tab or tray menu) then shows the first five
+letters of each name on the panel for two seconds before the app names.
 
 ![The Math tab](docs/screenshots/white-rabbit-math.png)
 
@@ -291,9 +308,10 @@ project is GPL-3.0 licensed, so no code was copied: the Math tab is written
 from scratch from the textbook definitions of each graph and simulation. The
 "More maths" effects are classic math demos, also written from scratch.
 
-The animations and the old-TV effect are ideas from Deo's
+The animations, the old-TV effect, and the mirror, keyboard gap and panel name
+ideas come from Deovandski's
 [Framework16 LED Matrix Manager](https://github.com/Deovandski/Deo-s-Framework16-LED-Matrix-Manager)
-(MIT). No code was copied: they are written from scratch.
+(MIT). Only the ideas were used; the code here is written separately.
 
 ## Project status
 

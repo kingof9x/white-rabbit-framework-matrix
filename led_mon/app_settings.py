@@ -21,13 +21,23 @@ DEFAULT_SETTINGS = {
     "libre_hardware_monitor_path": "",
     # Turn the panels off while the lid is closed, the screen is off or the PC is going to sleep
     "turn_off_with_lid": True,
+    # Turn the panels off while the laptop's own screen isn't in use: docked with the lid shut, or Windows set
+    # to "Second screen only" (Win+P)
+    "turn_off_when_screen_unused": True,
     # Music mode's audio visualizer: the look and input last picked in the Audio tab (see
     # led_mon/equalizer_files/looks.py for the keys)
     "music": {},
     # Where the Temperatures and Fans apps read from on Windows: auto, framework_control,
     # libre_hardware_monitor or framework_tool (see sensor_sources.py)
     "sensor_source": "auto",
+    # Names the user gave the panels, by side: {"left": "...", "right": "..."}. Identify panels shows
+    # them on the panels (the first PANEL_NAME_LETTERS letters fit).
+    "panel_names": {},
 }
+
+PANEL_SIDES = ("left", "right")
+PANEL_NAME_LETTERS = 5
+PANEL_NAME_MAX = 20
 
 
 def settings_path():
@@ -75,6 +85,27 @@ def save_music(music, path=None):
     from led_mon.equalizer_files import looks
     settings = load_settings(path)
     settings["music"] = looks.normalize(music)
+    return save_settings(settings, path)
+
+
+def clean_panel_names(names):
+    """{side: name} for the sides that have a name, trimmed."""
+    names = names if isinstance(names, dict) else {}
+    clean = {}
+    for side in PANEL_SIDES:
+        name = names.get(side)
+        if isinstance(name, str) and name.strip():
+            clean[side] = " ".join(name.split())[:PANEL_NAME_MAX]
+    return clean
+
+
+def load_panel_names(path=None):
+    return clean_panel_names(load_settings(path).get("panel_names"))
+
+
+def save_panel_names(names, path=None):
+    settings = load_settings(path)
+    settings["panel_names"] = clean_panel_names(names)
     return save_settings(settings, path)
 
 
