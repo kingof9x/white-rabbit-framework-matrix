@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 # Internal Dependencies
 from led_mon.platform_utils import package_dir
 from led_mon.equalizer_files import looks
+from led_mon import animations
 from led_mon import text_styles
 
 log = logging.getLogger(__name__)
@@ -121,6 +122,12 @@ APPS = [
     AppInfo("fps-num", "FPS number", "Just the frames per second of a game, as numbers. Windows only, and needs a "
             "one-time setup (see the README); shows ? until then.", HALF, [
         GAME_SETTING,
+    ]),
+    AppInfo("animation", "Animation", "A moving picture on the whole panel: fire, plasma, a DNA helix, snowfall, "
+            "chevrons or a bouncing ball.", FULL, [
+        Setting("look", "Look", "choice", "fire", animations.LOOK_KEYS,
+                labels=tuple(animations.LOOK_LABELS[k] for k in animations.LOOK_KEYS),
+                help=" ".join(f"{label}: {about}" for _, label, about, _ in animations.LOOKS)),
     ]),
     AppInfo("text", "Text", "Your own words on the whole panel. Type {time}, {battery} or {cpu} to show the clock, "
             "battery level or CPU use, kept up to date.", FULL, [
