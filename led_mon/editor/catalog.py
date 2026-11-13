@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 # Internal Dependencies
 from led_mon.platform_utils import package_dir
 from led_mon.equalizer_files import looks
+from led_mon import sand
 
 log = logging.getLogger(__name__)
 
@@ -55,13 +56,21 @@ GAME_SETTING = Setting("process", "Game to watch", "process", "",
                             "windows. Or pick a game from the list; games drawing frames right now are at the top.")
 
 APPS = [
-    AppInfo("cpu", "CPU cores", "Load on each CPU core, drawn as small spirals (or a bar per core when there are more than eight).", HALF),
+    AppInfo("cpu", "CPU cores", "Load on each CPU core, drawn as small spirals (or a bar per core when there are more than eight).", HALF, [
+        Setting("afterglow", "Afterglow", "bool", True,
+                help="A dim trail shows where each core's load just was, fading over a couple of seconds"),
+    ]),
     AppInfo("cpu-graph", "CPU graph", "Overall CPU use over the last 15 seconds. Each row is one second, newest at the top; a longer row is a busier CPU.", HALF),
     AppInfo("gpu-graph", "GPU graph", "Overall GPU use over the last 15 seconds, like the CPU graph.", HALF, [
         Setting("gpu", "GPU", "gpu", None, help="Which graphics card to show, when the computer has more than one"),
     ]),
     AppInfo("disk-net", "Disk + network", "Disk read and write bars on the upper part, network upload and download bars on the lower part.", HALF),
     AppInfo("mem-bat", "Memory + battery", "Memory use on top, battery level below (pulses when charging).", HALF),
+    AppInfo("battery-sand", "Battery (sand)", "The battery level as a pile of sand. Charging rains sand in from the "
+            "top; on battery the pile slowly drains away. Flashes when nearly empty.", HALF, [
+        Setting("sand_speed", "Sand speed", "choice", "normal", tuple(sand.SPEEDS),
+                labels=tuple(sand.SPEED_LABELS[k] for k in sand.SPEEDS)),
+    ]),
     AppInfo("disk", "Disk", "Disk read (left bar) and write (right bar) activity.", HALF),
     AppInfo("net", "Network", "Upload (left bar) and download (right bar) activity.", HALF),
     AppInfo("temp", "Temperatures", "Three temperatures as numbers, one under the other (the middle one dimmer). "

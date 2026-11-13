@@ -362,6 +362,10 @@ direct_draw_funcs = {
         "fn": draw_battery,
         "border": draw_1_x_2_vert_grid
     },
+    "battery-sand": {
+        "fn": lambda *x, **k: None, # Drawn by led_mon.sand
+        "border": draw_half_outline
+    },
     "fps": {
         "fn": draw_fps,
         "border": lambda *x: None # Whole panel, no border
