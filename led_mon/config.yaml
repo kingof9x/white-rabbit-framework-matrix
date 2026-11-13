@@ -39,11 +39,9 @@ quadrants:
       # level-gain: 1.35
       # noise-gate-level: 1
       # silence-level-sum-threshold: 2
-      # Silence behavior tuning (continuous center-origin star pulse)
-      # zero-frame-delay-sec: 4  # pulse-only silence display delay
+      # Seconds of silence before the panel shows the look's calm idle version (the smaller of the two)
+      # zero-frame-delay-sec: 4
       # silent-pulse-after-sec: 12
-      # silent-pulse-period-sec: 3.8
-      # silent-pulse-reveal-sec: 5
       # left|right
       side: left
       border: false  

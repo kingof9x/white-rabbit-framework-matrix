@@ -447,7 +447,7 @@ def test_microphone_music_comes_back_after_the_microphone_gave_nothing():
     # A few seconds with no sound at all from the microphone (muted, taken by another app, or a stalled
     # recording) used to drag the room's noise down to nothing. When the music came back, its level
     # set the bars' full height so high that the music then counted as silence for about a minute,
-    # and the panel showed the silence pulse instead of the music until music mode was turned off and on.
+    # and the panel showed the silence animation instead of the music until music mode was turned off and on.
     rng = np.random.default_rng(0)
     v = looks.Visualizer({"style": "bars", "input-mode": "microphone"}, "right")
     t = 0.0
@@ -467,7 +467,7 @@ def test_microphone_music_comes_back_after_the_microphone_gave_nothing():
         t += 0.03
         silent_run = silent_run + 1 if v.is_silent() else 0
         longest = max(longest, silent_run)
-    # Never silent for long enough to start the silence pulse (4 seconds)
+    # Never silent for long enough to switch to the idle look (4 seconds)
     assert longest * 0.03 < 2.0
 
 
@@ -493,3 +493,59 @@ def test_stalled_microphone_recording_is_noticed():
     playback = audio.Capture("playback")
     playback.current_id = "speakers"
     assert not playback.stalled(now=1000.0 + audio.MIC_STALL_SEC + 1)
+
+
+# The calm idle version of each look, shown in music mode while nothing is heard
+
+@pytest.mark.parametrize("style", looks.STYLE_KEYS)
+@pytest.mark.parametrize("span", [False, True])
+def test_every_look_has_a_calm_idle_version_that_moves(style, span):
+    for side in ("left", "right"):
+        v = looks.Visualizer({"style": style, "span-panels": span, "peak-dots": True, "shaded": True}, side, seed=1)
+        frames = [v.idle_frame(0.03) for _ in range(200)]  # 6 seconds
+        for grid in frames:
+            assert grid.shape == (9, 34) and grid.min() >= 0.0 and grid.max() <= 1.0
+        assert max(grid.max() for grid in frames) > 0, "the idle version should show something"
+        assert any(not np.array_equal(frames[0], grid) for grid in frames), "the idle version should move"
+
+
+@pytest.mark.parametrize("style", ["classic", "bars", "radial", "pulse", "bonfire"])
+def test_idle_version_is_calmer_than_music(style):
+    music = looks.Visualizer({"style": style}, "left", seed=1)
+    idle = looks.Visualizer({"style": style}, "left", seed=1)
+    lit_music = np.mean([(music.frame(looks.demo_samples(i * 0.03), 0.03) > 0.05).sum() for i in range(200)])
+    lit_idle = np.mean([(idle.idle_frame(0.03) > 0.05).sum() for _ in range(200)])
+    assert 0 < lit_idle < lit_music
+
+
+def test_music_panel_switches_to_idle_after_silence_and_back_when_sound_returns():
+    panel = looks.MusicPanel({"style": "bars"}, "left")
+    quiet = np.zeros((looks.FFT_SIZE, 2))
+    for i in range(60):
+        panel.frame(looks.demo_samples(i * 0.03), 0.03)
+    assert not panel.idle
+    # Quiet, but not yet for long enough: the look fades out as before
+    for _ in range(int((looks.IDLE_AFTER_SEC - 0.5) / 0.03)):
+        grid = panel.frame(quiet, 0.03)
+    assert not panel.idle and grid.max() <= 0.3
+    for _ in range(int(1.0 / 0.03)):
+        grid = panel.frame(quiet, 0.03)
+    assert panel.idle and grid.max() > 0, "after the wait it shows the look's idle version"
+    assert panel.is_silent()
+    # A single click of sound doesn't end it
+    panel.frame(looks.demo_samples(0.0), 0.03)
+    assert panel.idle
+    # Music that keeps playing does
+    for i in range(int((looks.IDLE_RESUME_SEC + 0.2) / 0.03)):
+        panel.frame(looks.demo_samples(i * 0.03), 0.03)
+    assert not panel.idle
+
+
+def test_music_mode_draws_the_idle_look_not_a_separate_silence_animation():
+    # Read the source: importing visualize loads the monitor's plugins, which other tests don't expect
+    import os
+    path = os.path.join(os.path.dirname(looks.__file__), "visualize.py")
+    with open(path, encoding="utf-8") as f:
+        source = f.read()
+    assert "looks.MusicPanel(" in source
+    assert "silence_pulse" not in source

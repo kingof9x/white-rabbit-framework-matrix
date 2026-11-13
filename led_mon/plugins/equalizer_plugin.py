@@ -56,10 +56,9 @@ def run_equalizer(_, grid, foreground_value, idx, **kwargs):
         return
 
     settings = visualizer_settings(kwargs)
-    silent_pulse_after_sec = min(parse_float_arg(kwargs, 'zero-frame-delay-sec', 4.0),
-                                 parse_float_arg(kwargs, 'silent-pulse-after-sec', 12.0))
-    silent_pulse_period_sec = parse_float_arg(kwargs, 'silent-pulse-period-sec', 3.8)
-    silent_pulse_reveal_sec = parse_float_arg(kwargs, 'silent-pulse-reveal-sec', 5.0)
+    # Seconds of silence before the panel shows the look's calm idle version
+    idle_after_sec = min(parse_float_arg(kwargs, 'zero-frame-delay-sec', 4.0),
+                         parse_float_arg(kwargs, 'silent-pulse-after-sec', 12.0))
 
     # device tuple => ('<location>', '<serial device>')
     devices: tuple[str, str] = discover_led_devices() or []
@@ -79,9 +78,7 @@ def run_equalizer(_, grid, foreground_value, idx, **kwargs):
                 settings=settings,
                 side=side,
                 device_name=device[1],
-                silent_pulse_after_sec=silent_pulse_after_sec,
-                silent_pulse_period_sec=silent_pulse_period_sec,
-                silent_pulse_reveal_sec=silent_pulse_reveal_sec,
+                idle_after_sec=idle_after_sec,
             )
             if ok is False:
                 equalizer_retry_after[side] = time.time() + EQUALIZER_RETRY_BACKOFF_SEC

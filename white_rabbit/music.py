@@ -341,7 +341,7 @@ class MusicTab(ttk.Frame):
         for side in ("left", "right"):
             visualizer = self.visualizers.get(side)
             if visualizer is None:
-                visualizer = self.visualizers[side] = looks.Visualizer(self.settings, side)
+                visualizer = self.visualizers[side] = looks.MusicPanel(self.settings, side)
             self.draw_panel(side, visualizer.frame(samples, min(dt, 0.5)))
         self.show_sound_check(samples, self.visualizers["left"].is_silent())
 
