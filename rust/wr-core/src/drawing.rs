@@ -139,11 +139,9 @@ pub fn draw_battery(grid: &mut Grid, ratio: f64, plugged: bool, fill_value: i32,
                 }
             }
         }
-        for x in 1..8 {
-            for yy in bat_top..bat_top + num_rows {
-                if grid.v[x][yy] < 0 {
-                    grid.v[x][yy] = -grid.v[x][yy];
-                }
+        for column in &mut grid.v[1..8] {
+            for v in &mut column[bat_top..bat_top + num_rows] {
+                *v = v.abs();
             }
         }
     }
