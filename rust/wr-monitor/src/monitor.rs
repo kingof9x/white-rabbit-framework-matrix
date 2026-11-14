@@ -1,6 +1,6 @@
 //! The main loop: ten times a second, pick each panel's apps, draw them and hand the frames to the
 //! panels' drawing threads. A port of `render_iteration` in `led_mon/led_system_monitor.py`, without
-//! music mode, the window's previews and the control channel yet.
+//! music mode yet.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -33,11 +33,30 @@ pub struct Shared {
     /// Show the apps' names until then.
     pub identify_until: Mutex<Option<Instant>>,
     pub settings: Mutex<Settings>,
+    /// The window gave panels back: send every panel its picture and scrolling again, since what the
+    /// drawing threads think is on the panels is out of date.
+    pub redraw: AtomicBool,
+    /// Still pictures from the window's layout editor for each side, until then.
+    pub preview: Mutex<Option<(Instant, [Option<Grid>; 2])>>,
 }
 
 impl Shared {
     pub fn identify(&self, seconds: f64) {
         *self.identify_until.lock().unwrap() = Some(Instant::now() + Duration::from_secs_f64(seconds));
+    }
+
+    pub fn show_preview(&self, frames: [Option<Grid>; 2], seconds: Duration) {
+        *self.preview.lock().unwrap() = Some((Instant::now() + seconds, frames));
+    }
+
+    pub fn clear_preview(&self) {
+        *self.preview.lock().unwrap() = None;
+    }
+
+    /// The preview picture for a side (0 left, 1 right), while there is one.
+    pub fn preview_frame(&self, side: usize) -> Option<Grid> {
+        let preview = self.preview.lock().unwrap();
+        preview.as_ref().filter(|(until, _)| Instant::now() < *until).and_then(|(_, frames)| frames[side].clone())
     }
 
     fn identifying(&self) -> bool {
@@ -104,6 +123,10 @@ pub struct Monitor {
     asleep: bool,
     /// Turn the panels' own scrolling back on after showing the names.
     latch: bool,
+    /// Send every panel its scrolling on the next frame (see Shared::redraw).
+    redraw: bool,
+    /// The side showed a preview on the last frame.
+    previewed: [bool; 2],
     last_check: Instant,
 }
 
@@ -130,6 +153,8 @@ impl Monitor {
             blanked: false,
             asleep: false,
             latch: false,
+            redraw: false,
+            previewed: [false; 2],
             last_check: Instant::now(),
         }
     }
@@ -160,6 +185,11 @@ impl Monitor {
             self.reload();
         }
         self.check_files();
+        if self.shared.redraw.swap(false, Ordering::SeqCst) {
+            self.blanked = false;
+            self.asleep = false;
+            self.redraw = true;
+        }
 
         let power_sleep = self.shared.power_sleep.load(Ordering::SeqCst);
         if self.shared.paused.load(Ordering::SeqCst) || power_sleep {
@@ -210,6 +240,12 @@ impl Monitor {
         }
 
         for (side, (q, apps)) in self.queues.iter().zip(&panels).enumerate() {
+            if let Some(grid) = self.shared.preview_frame(side) {
+                // The window's preview stays still: the panel's own scrolling goes off
+                q.put(Item::Frame(grid, Some(false)));
+                self.previewed[side] = true;
+                continue;
+            }
             let mut grid = Grid::new();
             let animate = render_panel(&mut grid, apps, self.readings.as_mut(), fg, bg);
             let mut do_animate = None;
@@ -219,9 +255,15 @@ impl Monitor {
             if self.latch && apps.animate() {
                 do_animate = Some(true);
             }
+            // Coming back from a preview or from the window holding the panel: say the scrolling
+            // again, which also makes the drawing thread send the next frame even if unchanged
+            if self.redraw || std::mem::take(&mut self.previewed[side]) {
+                do_animate = Some(animate);
+            }
             q.put(Item::Frame(grid, do_animate));
         }
         self.latch = false;
+        self.redraw = false;
         Duration::from_millis(100)
     }
 
@@ -325,6 +367,36 @@ mod tests {
         wr_core::drawing::draw_outline_border(&mut expected, 35);
         wr_core::drawing::draw_id(&mut expected, "time", 160);
         assert_eq!(*grid, expected);
+    }
+
+    #[test]
+    fn a_preview_shows_then_the_apps_come_back() {
+        let mut m = monitor();
+        let mut picture = Grid::new();
+        picture.set(4, 4, 200);
+        m.shared.show_preview([Some(picture.clone()), None], Duration::from_secs(30));
+        m.step();
+        assert_eq!(frames(&m.queues[0]), vec![Item::Frame(picture, Some(false))]);
+        assert!(matches!(frames(&m.queues[1])[..], [Item::Frame(_, _)]));
+        m.shared.clear_preview();
+        m.step();
+        // The clock doesn't scroll: scrolling off is said again, so the panel gets the clock at once
+        assert!(matches!(frames(&m.queues[0])[..], [Item::Frame(_, Some(false))]));
+        m.step();
+        assert!(matches!(frames(&m.queues[0])[..], [Item::Frame(_, None)]));
+    }
+
+    #[test]
+    fn giving_panels_back_redraws_them() {
+        let mut m = monitor();
+        m.step();
+        frames(&m.queues[0]);
+        frames(&m.queues[1]);
+        m.shared.redraw.store(true, Ordering::SeqCst);
+        m.step();
+        for q in &m.queues {
+            assert!(matches!(frames(q)[..], [Item::Frame(_, Some(_))]));
+        }
     }
 
     #[test]
