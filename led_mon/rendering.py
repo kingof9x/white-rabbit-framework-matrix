@@ -6,6 +6,7 @@ import time
 import logging
 
 # Internal Dependencies
+from led_mon import animations
 from led_mon.drawing import draw_app, draw_app_border
 from led_mon import sand
 from led_mon import now_playing
@@ -118,6 +119,17 @@ def make_base_app_functions(cpu_monitor, memory_monitor, battery_monitor, disk_m
     def draw_disk_net(arg, grid, foreground_value, idx, **kwargs):
         draw_app(arg, grid, disk_monitor.get(), network_monitor.get(), foreground_value, idx)
 
+    # One running animation per panel and look: {(panel, look): [animation, time of the last frame]}
+    running_animations = {}
+    def draw_animation(arg, grid, foreground_value, idx, look="fire", panel="left", **kwargs):
+        now = time.monotonic()
+        entry = running_animations.get((panel, look))
+        if entry is None:
+            entry = running_animations[(panel, look)] = [animations.make_look(look), now - animations.LOOK_STEP]
+        frame = entry[0].frame(now - entry[1])
+        entry[1] = now
+        grid[:, :] = animations.to_leds(frame, foreground_value)
+
     # Overall CPU use for the Text app's {cpu}, read once a second and averaged over the last 3 seconds
     text_cpu = HistoryMonitor(overall_cpu_ratio, size=3)
     def text_cpu_ratio():
@@ -141,8 +153,16 @@ def make_base_app_functions(cpu_monitor, memory_monitor, battery_monitor, disk_m
         "disk-net": draw_disk_net,
         "fps": draw_fps,
         "fps-num": draw_fps_num,
+        "animation": draw_animation,
         "none": lambda *x: x # noop
     }
+
+
+# Apps that are told which panel they are drawing on (so each panel runs its own animation)
+PANEL_AWARE_APPS = {"animation"}
+
+# Apps that move smoothly, so the monitor draws them more often than once every 0.1 seconds
+SMOOTH_APPS = {"animation"}
 
 
 def build_app_kwargs(app):
@@ -175,6 +195,8 @@ def render_panel(grid, panel_apps, app_functions, foreground_value, background_v
             idx = 16
             loc = 'bottom'
         kwargs = build_app_kwargs(arg)
+        if arg_name in PANEL_AWARE_APPS:
+            kwargs['panel'] = panel
         try:
             func = app_functions[arg_name]
             func(arg_name, grid, foreground_value, idx, **kwargs)

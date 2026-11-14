@@ -20,7 +20,6 @@ from led_mon.drawing import DrawingThread, LatestFrameQueue
 
 # Internal Dependencies
 from led_mon.shared_state import discover_led_devices
-from led_mon.patterns import id_patterns
 from led_mon.platform_utils import IS_WINDOWS
 from led_mon.commands import Commands, send_command
 from led_mon.serial_ports import open_port
@@ -59,11 +58,6 @@ class DeviceType(Enum):
 
 SOURCE_CHECK_INTERVAL_SEC = 1
 DEFAULT_ZERO_FRAME_NOTIFY_DELAY_SEC = 4.0
-DEFAULT_SILENT_PULSE_AFTER_SEC = 4.0
-DEFAULT_SILENT_PULSE_PERIOD_SEC = 3.8
-DEFAULT_SILENT_PULSE_REVEAL_SEC = 5.0
-# Sound must last this long to end the silence pulse, so a single click doesn't
-RESUME_HOLD_SEC = 0.4
 
 UPDATE_RATE = 0.03 # 33 fps
 
@@ -274,57 +268,19 @@ class Equalizer():
     def cleanup(self, sig=None, frame=None):
         self.stop()
 
-    def draw_inverted_silence_pulse(self, elapsed_sec, pulse_period_sec, reveal_sec):
-        pulse_period_sec = clamp_positive_float(pulse_period_sec, DEFAULT_SILENT_PULSE_PERIOD_SEC)
-        reveal_sec = clamp_positive_float(reveal_sec, DEFAULT_SILENT_PULSE_REVEAL_SEC)
-        base_foreground = max(1, int(shared_state.foreground_value))
-        phase = (elapsed_sec / pulse_period_sec) % 1.0
-        # Triangle wave avoids the visual "pause" at min/max that a sinusoid can create.
-        wave = 1.0 - abs((2.0 * phase) - 1.0)
-
-        x = np.arange(9, dtype=float)[:, None]
-        y = np.arange(34, dtype=float)[None, :]
-        center_x = 4.0
-        center_y = 16.5
-        norm_x = (x - center_x) / 4.0
-        norm_y = (y - center_y) / 16.5
-        radial = np.sqrt((norm_x ** 2) + (norm_y ** 2))
-        angle = np.arctan2(norm_y, norm_x)
-
-        # Warp radial distance into a star-like contour.
-        star_scale = 1.0 + (0.28 * np.cos(4.0 * angle))
-        star_radius = radial / np.clip(star_scale, 0.45, None)
-        pulse_radius = 0.22 + (1.20 * wave)
-        shell_width = 0.11
-        shell = np.exp(-((star_radius - pulse_radius) ** 2) / (2.0 * (shell_width ** 2)))
-        fill = np.clip((pulse_radius - star_radius) / max(pulse_radius, 1e-6), 0.0, 1.0)
-        shape = np.clip((0.50 * fill) + (0.50 * shell), 0.0, 1.0)
-
-        brightness = 0.30 + (0.70 * wave)
-        grid = np.rint(np.clip(base_foreground * shape * brightness, 0, 255)).astype(int)
-        grid = np.where(shape > 0.04, np.maximum(grid, 1), grid)
-
-        reveal = np.clip(elapsed_sec / reveal_sec, 0.0, 1.0)
-        paused_mask = (id_patterns['equalizer_paused'] > 0).astype(float)
-        grid = np.rint(grid * (1.0 - (paused_mask * reveal))).astype(int)
-        self.queue_frame(grid, False)
-
     def run(
         self,
         settings=None,
         side='left',
         device_name=None,
-        silent_pulse_after_sec=DEFAULT_SILENT_PULSE_AFTER_SEC,
-        silent_pulse_period_sec=DEFAULT_SILENT_PULSE_PERIOD_SEC,
-        silent_pulse_reveal_sec=DEFAULT_SILENT_PULSE_REVEAL_SEC,
+        idle_after_sec=looks.IDLE_AFTER_SEC,
     ):
-        """Draw the visualizer on this panel until stop(). settings: see looks.py."""
+        """Draw the visualizer on this panel until stop(). settings: see looks.py. After idle_after_sec of
+        silence the panel shows the look's calm idle version until sound comes back."""
         self.device_name = device_name
         settings = looks.normalize(settings)
-        silent_pulse_after_sec = clamp_positive_float(silent_pulse_after_sec, DEFAULT_SILENT_PULSE_AFTER_SEC)
-        silent_pulse_period_sec = clamp_positive_float(silent_pulse_period_sec, DEFAULT_SILENT_PULSE_PERIOD_SEC)
-        silent_pulse_reveal_sec = clamp_positive_float(silent_pulse_reveal_sec, DEFAULT_SILENT_PULSE_REVEAL_SEC)
-        visualizer = looks.Visualizer(settings, side)
+        idle_after_sec = clamp_positive_float(idle_after_sec, looks.IDLE_AFTER_SEC)
+        visualizer = looks.MusicPanel(settings, side, idle_after_sec)
         input_mode = settings['input-mode']
 
         # Windows has no PulseAudio/PipeWire monitor source to keep in sync; the capture follows the default output
@@ -340,10 +296,7 @@ class Equalizer():
         log.debug(f"Running the audio visualizer ({settings['style']}) on {device_name} ({side}) "
                   f"listening to {input_mode}")
 
-        last_sound = time.monotonic()
-        last_frame = last_sound
-        pulsing = False
-        resume_since = None
+        last_frame = time.monotonic()
         try:
             while not self.done:
                 now = time.monotonic()
@@ -354,26 +307,7 @@ class Equalizer():
                                 'loudness': visualizer.loudness, 'silent': visualizer.is_silent(),
                                 'input': input_mode}
                 if not shared_state.id_key_press_active:
-                    if visualizer.is_silent():
-                        resume_since = None
-                        if now - last_sound >= silent_pulse_after_sec:
-                            pulsing = True
-                    else:
-                        if pulsing:
-                            resume_since = resume_since or now
-                            if now - resume_since >= RESUME_HOLD_SEC:
-                                pulsing = False
-                                resume_since = None
-                        if not pulsing:
-                            last_sound = now
-                    if pulsing:
-                        self.draw_inverted_silence_pulse(
-                            elapsed_sec=now - last_sound,
-                            pulse_period_sec=silent_pulse_period_sec,
-                            reveal_sec=silent_pulse_reveal_sec,
-                        )
-                    else:
-                        self.queue_frame(looks.to_leds(grid, shared_state.foreground_value), False)
+                    self.queue_frame(looks.to_leds(grid, shared_state.foreground_value), False)
                 time.sleep(UPDATE_RATE)
         except KeyboardInterrupt:
             self.cleanup()

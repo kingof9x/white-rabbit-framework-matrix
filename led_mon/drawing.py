@@ -29,9 +29,9 @@ log = logging.getLogger(__name__)
 # Put this on a drawing queue to send the panel to sleep (LEDs off). Any later frame wakes it again.
 SLEEP_PANEL = "sleep"
 
-# Correct table orientation for visual orientation when drawn
-for i in range(lookup_table.shape[0]):
-    lookup_table[i] = lookup_table[i].T
+# Correct table orientation for visual orientation when drawn. A turned copy, so the table in patterns
+# stays as it is when this module is loaded a second time (some tests reload it).
+lookup_table = np.array([spiral.T for spiral in lookup_table])
 
 
 def spiral_index(fill_ratio):

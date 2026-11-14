@@ -43,7 +43,9 @@ and comes back when you press *Stop* or *Back to system monitor*.
   network, disk + network, temperatures, fans, FPS number.
 - **Whole-panel apps:** clock, weather, audio visualizer, now playing (the
   cover of whatever is playing, the song name scrolling along the top and a
-  small visualizer, across both panels), FPS counter for games, picture, text.
+  small visualizer, across both panels), FPS counter for games, picture,
+  text, and animations (fire, plasma, DNA helix, snowfall, chevrons,
+  bouncing ball).
 - **Text app:** type your own words, with `{time}`, `{battery}` and `{cpu}`
   filled in live. Three styles: *ticker* (upright letters scrolling up),
   *sideways* (reads along the panel with your head tilted right) and
@@ -56,6 +58,10 @@ and comes back when you press *Stop* or *Back to system monitor*.
   with the lid shut, or Windows set to *Second screen only* (`Win`+`P`). Turn
   this off with *Turn off when laptop screen isn't used* in the tray menu or
   under the brightness slider in the Panels tab.
+- When the panels turn off or back on (lid, screen, sleep, or *Stop animation*
+  in the tray), they do it like an old TV: the picture squeezes into a line,
+  then a dot that fades, and the reverse when they come back. Turn this off
+  with *Old-TV effect when turning off and on* in the tray menu.
 - Runs in the tray and starts with Windows. Keyboard shortcuts
   (`Ctrl`+`Alt`+`Shift` + `I` / `N` / `F` / `U` / `M`) show the app names, skip to
   the next app, freeze or unfreeze app switching, and turn music mode on or
@@ -333,7 +339,8 @@ project is GPL-3.0 licensed, so no code was copied: the Math tab is written
 from scratch from the textbook definitions of each graph and simulation. The
 "More maths" effects are classic math demos, also written from scratch.
 
-The mirror, keyboard gap and panel name ideas come from Deovandski's
+The animations, the old-TV effect, and the mirror, keyboard gap and panel name
+ideas come from Deovandski's
 [Framework16 LED Matrix Manager](https://github.com/Deovandski/Deo-s-Framework16-LED-Matrix-Manager)
 (MIT). Only the ideas were used; the code here is written separately.
 
