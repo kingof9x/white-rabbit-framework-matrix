@@ -118,6 +118,7 @@ impl Monitor {
     ) -> Monitor {
         let layout = source.load();
         *pins.lock().unwrap() = pins_of(&layout);
+        wr_core::apps::picture::set_drawings_folder(crate::paths::config_dir().join("drawings"));
         Monitor {
             shared,
             queues,

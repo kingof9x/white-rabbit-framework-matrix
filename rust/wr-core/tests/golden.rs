@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use wr_core::apps::picture::{draw_frame, Drawing};
 use wr_core::apps::text;
 use wr_core::drawing::*;
 use wr_core::patterns::ICONS;
@@ -142,6 +143,38 @@ fn monitor_cases() -> BTreeMap<String, Grid> {
         if let Ok(text) = std::fs::read_to_string(&path) {
             let rows: Vec<Vec<f64>> = serde_json::from_str(&text).unwrap();
             case(format!("snap-{panel}-{file}"), &|g| draw_snapshot(g, &rows, FOREGROUND));
+        }
+    }
+
+    // Drawings from the Draw tab, made the same way as DRAWINGS in golden_frames.py
+    let frames = |count: usize, offset: usize| {
+        let frames: Vec<Vec<Vec<f64>>> = (0..count)
+            .map(|k| {
+                (0..HEIGHT)
+                    .map(|y| {
+                        (0..WIDTH)
+                            .map(|x| {
+                                let v = ((x * 29 + y * 7 + k * 50 + offset) % 300) as f64 - 20.0;
+                                v + if x % 2 == 1 { 0.5 } else { 0.0 }
+                            })
+                            .collect()
+                    })
+                    .collect()
+            })
+            .collect();
+        serde_json::json!(frames)
+    };
+    let drawings = [
+        ("three-frames", serde_json::json!({"version": 1, "delay_ms": 150, "frames": frames(3, 0)})),
+        ("fast", serde_json::json!({"version": 1, "delay_ms": 5, "frames": frames(2, 77)})),
+        ("no-delay", serde_json::json!({"version": 1, "frames": frames(4, 11)})),
+        ("text-delay", serde_json::json!({"version": 1, "delay_ms": "250", "frames": frames(2, 5)})),
+        ("empty", serde_json::json!({"version": 1, "delay_ms": 100, "frames": []})),
+    ];
+    for (name, data) in &drawings {
+        let drawing = Drawing::from_json(data).unwrap();
+        for t in [0.0, 0.149, 0.15, 0.7, 12.34] {
+            case(format!("drawing-{name}-t{}", py(t)), &|g| draw_frame(g, drawing.frame_at(t), FOREGROUND));
         }
     }
 

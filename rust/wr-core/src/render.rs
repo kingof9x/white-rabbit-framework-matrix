@@ -72,6 +72,7 @@ pub fn render_panel(grid: &mut Grid, apps: &PanelApps, readings: &mut dyn Readin
                 }
             }
             "text" => crate::apps::text::draw_app(grid, app, readings, fg),
+            "snap" => crate::apps::picture::draw_app(grid, app, fg),
             _ => {}
         }
         animate = app.animate;
