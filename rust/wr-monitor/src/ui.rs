@@ -3,7 +3,7 @@
 //! that say the lid closed, the screen turned off or the PC is going to sleep.
 
 use std::ptr::{null, null_mut};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use windows_sys::core::GUID;
@@ -15,7 +15,9 @@ use windows_sys::Win32::System::Power::{RegisterPowerSettingNotification, POWERB
 use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
 use windows_sys::Win32::System::SystemServices::{GUID_CONSOLE_DISPLAY_STATE, GUID_LIDSWITCH_STATE_CHANGE};
 use windows_sys::Win32::System::Threading::CreateMutexW;
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+    RegisterHotKey, UnregisterHotKey, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT,
+};
 use windows_sys::Win32::UI::Shell::{
     ShellExecuteW, Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW,
 };
@@ -23,12 +25,15 @@ use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
 use wr_core::settings::{save_key, Settings};
 
+use crate::control::commands::UiRequest;
 use crate::monitor::Shared;
 use crate::paths;
 use wr_core::{info, warn};
 use wr_panel::winports::wide;
 
 const WM_TRAY: u32 = WM_APP + 1;
+/// A request from the control channel (see `request`); wparam says which.
+const WM_CONTROL: u32 = WM_APP + 2;
 const TRAY_ID: u32 = 1;
 
 // Menu item ids
@@ -294,6 +299,54 @@ fn power_event(event: &str, value: Option<u8>) {
     }
 }
 
+/// The hidden window, for the control channel's requests (0 until it exists).
+static WINDOW: AtomicUsize = AtomicUsize::new(0);
+
+/// Asks the tray window to do something only it can, from another thread (the control channel).
+pub fn request(what: UiRequest) {
+    let code = match what {
+        UiRequest::Shortcuts => 1,
+        UiRequest::Power => 2,
+        UiRequest::Quit => 3,
+    };
+    std::thread::spawn(move || {
+        if what == UiRequest::Quit {
+            // Quit after the window got its reply
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        let hwnd = WINDOW.load(Ordering::SeqCst);
+        if hwnd == 0 {
+            warn!("The tray isn't up yet; {what:?} from the window is lost");
+            return;
+        }
+        // SAFETY: posting to our own window; a closed window just refuses the message.
+        unsafe {
+            PostMessageW(hwnd as HWND, WM_CONTROL, code, 0);
+        }
+    });
+}
+
+/// Registers the keyboard shortcuts that are on in the settings, after dropping any registered before.
+unsafe fn register_hotkeys(hwnd: HWND, settings: &Settings) {
+    let mut registered = Vec::new();
+    for (i, letter) in HOTKEYS.iter().enumerate() {
+        UnregisterHotKey(hwnd, i as i32 + 1);
+        if !settings.shortcut_on(*letter) {
+            continue;
+        }
+        let key = letter.to_ascii_uppercase() as u32;
+        if RegisterHotKey(hwnd, i as i32 + 1, MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, key) != 0 {
+            registered.push(letter.to_ascii_uppercase().to_string());
+        } else {
+            warn!("Couldn't register Ctrl+Alt+Shift+{}; another program may be using it", letter.to_ascii_uppercase());
+        }
+    }
+    info!(
+        "Keyboard shortcuts: Ctrl+Alt+Shift + {}",
+        if registered.is_empty() { "none".into() } else { registered.join(", ") }
+    );
+}
+
 fn hotkey(letter: char) {
     let shared = &UI.get().unwrap().shared;
     match letter {
@@ -312,6 +365,16 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
             let event = (lparam & 0xFFFF) as u32;
             if event == WM_RBUTTONUP || event == WM_LBUTTONUP || event == WM_CONTEXTMENU {
                 show_menu(hwnd);
+            }
+            0
+        }
+        WM_CONTROL => {
+            let settings = ui.shared.settings.lock().unwrap().clone();
+            match wparam {
+                1 => register_hotkeys(hwnd, &settings),
+                2 => apply_power(settings.turn_off_with_lid),
+                3 => command(hwnd, ID_QUIT),
+                _ => {}
             }
             0
         }
@@ -404,25 +467,8 @@ pub fn run(shared: Arc<Shared>) {
         }
 
         let settings = shared.settings.lock().unwrap().clone();
-        let mut registered = Vec::new();
-        for (i, letter) in HOTKEYS.iter().enumerate() {
-            if !settings.shortcut_on(*letter) {
-                continue;
-            }
-            let key = letter.to_ascii_uppercase() as u32;
-            if RegisterHotKey(hwnd, i as i32 + 1, MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, key) != 0 {
-                registered.push(letter.to_ascii_uppercase().to_string());
-            } else {
-                warn!(
-                    "Couldn't register Ctrl+Alt+Shift+{}; another program may be using it",
-                    letter.to_ascii_uppercase()
-                );
-            }
-        }
-        info!(
-            "Keyboard shortcuts: Ctrl+Alt+Shift + {}",
-            if registered.is_empty() { "none".into() } else { registered.join(", ") }
-        );
+        register_hotkeys(hwnd, &settings);
+        WINDOW.store(hwnd as usize, Ordering::SeqCst);
 
         let mut msg: MSG = std::mem::zeroed();
         while GetMessageW(&mut msg, null_mut(), 0, 0) > 0 {

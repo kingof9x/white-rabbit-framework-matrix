@@ -14,7 +14,9 @@ icon. It aims to use far less memory and CPU than the Python monitor (about 66 M
 - `wr-monitor`: the Windows program, `WhiteRabbit-rust-test.exe` for now. Finds the panels, draws the
   layout's apps, has a tray menu, turns the panels off with the lid, and has the
   Ctrl+Alt+Shift+I / N / F / U shortcuts. It uses the same settings, layout file and single-instance lock
-  as the Python app, so only one of them runs at a time.
+  as the Python app, so only one of them runs at a time. It answers the White Rabbit window on the same
+  control channel as the Python monitor (`led_mon/control.py`), so the window can change settings,
+  show previews and drive the panels through it; music mode and the sensor source answer "ok" for now.
 
 So far it draws the cpu, cpu-graph, mem-bat and time apps; other apps stay dark until they are ported.
 

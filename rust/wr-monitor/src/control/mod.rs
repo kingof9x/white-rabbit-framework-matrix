@@ -7,6 +7,7 @@
 //! object back with "ok"; one request per connection.
 
 pub mod bridge;
+pub mod commands;
 pub mod wire;
 
 #[cfg(windows)]
