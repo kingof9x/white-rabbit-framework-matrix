@@ -6,10 +6,13 @@
 //! `multiprocessing.connection` (`wire.rs`). Then the window sends one JSON object and gets one JSON
 //! object back with "ok"; one request per connection.
 
+pub mod bridge;
 pub mod wire;
 
 #[cfg(windows)]
 pub mod pipe;
+#[cfg(windows)]
+pub mod winserial;
 
 use std::io;
 use std::path::PathBuf;
