@@ -7,6 +7,7 @@
 
 pub mod animations;
 pub mod drawing;
+pub mod effects;
 pub mod grid;
 pub mod layout;
 pub mod log;
