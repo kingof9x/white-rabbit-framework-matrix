@@ -12,6 +12,7 @@ import os
 import queue
 import logging
 import threading
+import time
 import tkinter as tk
 from tkinter import ttk
 
@@ -260,6 +261,7 @@ class WhiteRabbitWindow:
             key = "home"
         if self.page == key:
             return
+        started = time.perf_counter()
         if self.page is not None:
             self.pages[self.page].pack_forget()
         self.page = key
@@ -290,6 +292,9 @@ class WhiteRabbitWindow:
         show = getattr(self.pages[key], "page_shown", None)
         if callable(show):
             show()
+        # How long a page takes to appear, for finding slow ones in the log
+        self.root.update_idletasks()
+        log.info(f"Page {key} shown in {1000 * (time.perf_counter() - started):.0f} ms")
 
     def update_bar(self):
         borrowed = [p for p in self.panels if self.lender.is_borrowed(p)]
@@ -547,6 +552,12 @@ def run_window(args, start_tab=None, wait=False):
         wait_for_monitor(bridge.Link())
     platform_utils.enable_dpi_awareness()
     root = tk.Tk()
+    # Hidden until it is built, so an empty white window doesn't flash up first. See-through rather than
+    # withdrawn on Windows, so the title bar can be coloured before it shows
+    if platform_utils.IS_WINDOWS:
+        root.attributes("-alpha", 0.0)
+    else:
+        root.withdraw()
     if os.environ.get("WHITE_RABBIT_UI_SCALE"):
         # Screenshots away from Windows: draw as Windows would at this display scaling (1.5 = 150%)
         root.tk.call("tk", "scaling", float(os.environ["WHITE_RABBIT_UI_SCALE"]) * 96 / 72)
@@ -560,6 +571,12 @@ def run_window(args, start_tab=None, wait=False):
     except Exception:
         pass
     window = WhiteRabbitWindow(root, args, start_tab)
+    root.update_idletasks()
+    theme.current().title_bar(root)
+    if platform_utils.IS_WINDOWS:
+        root.attributes("-alpha", 1.0)
+    else:
+        root.deiconify()
     if os.environ.get("WHITE_RABBIT_SMOKE_TEST"):
         # CI: check that the window opens with all its tabs, then close
         def check_sensor_source():
