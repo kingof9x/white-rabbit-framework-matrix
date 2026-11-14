@@ -398,7 +398,10 @@ class Theme:
             top = (h - bh) // 2
             draw.rounded_rectangle([0, top * k, self.px(3) * k - 1, (top + bh) * k - 1], radius=self.px(2) * k,
                                    fill=bar)
-        return image.resize((w, h), Image.LANCZOS)
+        image = image.resize((w, h), Image.LANCZOS)
+        # On the window colour, with no see-through pixels: Tk on Windows draws a picture with soft edges
+        # by reading the screen back and mixing by hand, which is slow, and these are drawn many times
+        return Image.alpha_composite(Image.new("RGBA", (w, h), self.colors["bg"]), image)
 
     def nav_height(self):
         """Height of an item in the menu on the left: a line of text and its padding."""
