@@ -37,7 +37,7 @@ TITLE_SPEED = 12.0   # pixels per second
 COVER_TOP = 8
 
 WHEN_IDLE = ("skip", "last", "clock")
-WHEN_IDLE_LABELS = {"skip": "Skip to the next page", "last": "Keep the last cover", "clock": "Show the clock"}
+WHEN_IDLE_LABELS = {"skip": "Show my other apps", "last": "Keep the last cover", "clock": "Show the clock"}
 
 
 @dataclass
