@@ -1,7 +1,8 @@
 //! Runs every case from `scripts/golden_animations.py` with the Rust code (the panel animations, the
 //! old-TV effect and the sand battery, with the same seeds and the same clock) and compares the
 //! pictures with the ones Python saved in `tests/golden/animations.json`. Every pixel must match, and
-//! the frames saved exactly (float64 bits) must match bit for bit.
+//! the frames saved exactly (float64 bits) must match to within a few units in the last place: sin and
+//! cos from the Windows C library can differ from Linux's in the last bit or two.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -232,6 +233,23 @@ fn all_cases() -> (BTreeMap<String, Grid>, BTreeMap<String, Frame>) {
     (frames, exact)
 }
 
+/// How far apart (in units in the last place) an exact value may be from Python's.
+const MAX_ULPS: u64 = 8;
+
+/// True if every float64 in the two sets of rows (16 hex digits a value) is within `max` ulps.
+fn within_ulps(a: &[String], b: &[String], max: u64) -> bool {
+    a.len() == b.len()
+        && a.iter().zip(b).all(|(ra, rb)| {
+            ra.len() == rb.len()
+                && (0..ra.len()).step_by(16).all(|i| {
+                    let x = u64::from_str_radix(&ra[i..i + 16], 16).unwrap() as i64;
+                    let y = u64::from_str_radix(&rb[i..i + 16], 16).unwrap() as i64;
+                    // same sign: the bit patterns of nearby floats are nearby integers
+                    (x < 0) == (y < 0) && x.abs_diff(y) <= max
+                })
+        })
+}
+
 #[test]
 fn animations_tv_and_sand_match_python() {
     let golden = golden();
@@ -250,7 +268,7 @@ fn animations_tv_and_sand_match_python() {
                 None => problems.push(format!("{section}: not in animations.json: {name}")),
                 Some(want) => {
                     let want: Vec<String> = serde_json::from_value(want.clone()).expect("rows");
-                    if &want != rows {
+                    if &want != rows && !(section == "exact" && within_ulps(&want, rows, MAX_ULPS)) {
                         let first = (0..HEIGHT).find(|&y| want[y] != rows[y]).unwrap_or(0);
                         problems.push(format!(
                             "{section}: differs: {name} (row {first}: python {} rust {})",
