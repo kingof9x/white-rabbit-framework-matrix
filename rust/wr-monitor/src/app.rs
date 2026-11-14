@@ -5,18 +5,19 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use wr_core::ports::{discover, Pins};
 use wr_core::queue::FrameQueue;
 use wr_core::settings::Settings;
+use wr_panel::ports::{discover, Pins};
 
 use crate::monitor::{log_panics, pins_of, LayoutSource, Monitor, Shared};
-use crate::panel::{Claims, Panel, PortSystem};
 use crate::sensors::{ScreenBrightness, WindowsReadings};
-use crate::winports::WindowsPorts;
-use crate::{info, paths, ui, warn};
+use crate::{paths, ui};
+use wr_core::{info, warn};
+use wr_panel::panel::{Claims, Panel, PortSystem};
+use wr_panel::winports::WindowsPorts;
 
 pub fn run() -> i32 {
-    crate::log::init(paths::log_file());
+    wr_core::log::init(paths::log_file());
     log_panics();
     info!("White Rabbit Rust test build {} starting", env!("CARGO_PKG_VERSION"));
 

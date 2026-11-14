@@ -1,7 +1,7 @@
 //! The bytes sent to an LED Matrix panel (from Framework's inputmodule-rs `commands.md`), as the
 //! Python monitor sends them.
 
-use crate::grid::{Grid, HEIGHT, WIDTH};
+use wr_core::grid::{Grid, HEIGHT, WIDTH};
 
 pub const MAGIC: [u8; 2] = [0x32, 0xAC];
 pub const SLEEP: u8 = 0x03;
