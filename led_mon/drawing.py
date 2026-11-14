@@ -574,6 +574,39 @@ def _claimed_by_other(port_name, owner):
         return holder is not None and holder is not owner
 
 
+def swap_panels(a, b):
+    """Give drawing thread a's panel to b and b's to a, straight away (Swap left and right)."""
+    with _claim_guard:
+        a.serial_port, b.serial_port = b.serial_port, a.serial_port
+        a.port_location, b.port_location = b.port_location, a.port_location
+        for key, holder in list(_claimed_ports.items()):
+            if holder is a:
+                _claimed_ports[key] = b
+            elif holder is b:
+                _claimed_ports[key] = a
+    for thread in (a, b):
+        if thread.effect_side:
+            effects.manager.forget(thread.effect_side)
+            effects.manager.panel_present(thread.effect_side, thread.serial_port is not None)
+    log.info(f"Swapped the panels: left is now {a.port_name}, right is now {b.port_name}")
+
+
+def align_panels(threads, device_list=None):
+    """After the left/right settings changed: swap the left and right drawing threads' panels when
+    each is drawing on the panel the settings now give the other. True if they were swapped."""
+    from led_mon.shared_state import discover_led_devices
+    if len(threads) < 2 or threads[0].port_name is None or threads[1].port_name is None:
+        return False
+    found = discover_led_devices(device_list) or []
+    if len(found) < 2:
+        return False
+    want_left, want_right = found[0][1].lower(), found[1][1].lower()
+    if threads[0].port_name.lower() == want_right and threads[1].port_name.lower() == want_left:
+        swap_panels(threads[0], threads[1])
+        return True
+    return False
+
+
 def _find_panel_port(port_location, side_index, owner, device_list=None):
     """The port this drawing thread should draw on now, or None.
 

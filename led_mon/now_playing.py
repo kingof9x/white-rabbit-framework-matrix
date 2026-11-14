@@ -46,6 +46,8 @@ class Media:
     artist: str = ""
     playing: bool = False
     cover: object = None   # 18 x 18 floats from 0 to 1, or None
+    app: str = ""          # which app Windows says is playing, e.g. Spotify.exe
+    error: str = ""        # why nothing could be read, when it failed
 
     @property
     def song(self):
@@ -74,19 +76,56 @@ def cover_from_bytes(data):
 
 # ---- Windows media controls ----
 
+def _pick_session(sessions, current, is_playing):
+    """The session to show: the one Windows calls current if it is playing, otherwise any that is
+    playing (a paused browser tab can be "current" while Spotify plays), otherwise the current one."""
+    if current is not None and is_playing(current):
+        return current
+    for session in sessions:
+        if is_playing(session):
+            return session
+    return current if current is not None else (sessions[0] if sessions else None)
+
+
 async def _read_windows():
     from winrt.windows.media.control import (GlobalSystemMediaTransportControlsSessionManager as Manager,
                                              GlobalSystemMediaTransportControlsSessionPlaybackStatus as Status)
     manager = await Manager.request_async()
-    session = manager.get_current_session()
+
+    def is_playing(session):
+        try:
+            info = session.get_playback_info()
+            return info is not None and info.playback_status == Status.PLAYING
+        except Exception:
+            return False
+
+    try:
+        sessions = list(manager.get_sessions())
+    except Exception:
+        sessions = []
+    session = _pick_session(sessions, manager.get_current_session(), is_playing)
     if session is None:
         return Media()
     props = await session.try_get_media_properties_async()
-    info = session.get_playback_info()
-    media = Media(title=props.title or "", artist=props.artist or "",
-                  playing=info is not None and info.playback_status == Status.PLAYING)
+    media = Media(title=props.title or "", artist=props.artist or "", playing=is_playing(session),
+                  app=getattr(session, "source_app_user_model_id", "") or "")
     media.thumbnail = props.thumbnail
     return media
+
+
+def describe(reader=None):
+    """One line on what Windows says is playing, for --diagnose."""
+    reader = reader or (read_windows_media if platform_utils.IS_WINDOWS else None)
+    if reader is None:
+        return "only works on Windows"
+    try:
+        media = reader()
+    except Exception as e:
+        return f"could not ask Windows ({type(e).__name__}: {e})"
+    if not (media.title or media.artist or media.app):
+        return "Windows says nothing is playing"
+    state = "playing" if media.playing else "paused or stopped"
+    return f"{media.app or 'an app'} is {state}: {media.song or '(no song name)'}"
 
 
 async def _read_thumbnail(thumbnail):
@@ -130,6 +169,7 @@ class Watcher:
         self.thread = None
         self.polled = False
         self._cover_key = None
+        self._last_error = None
 
     def want(self, now=None):
         """Keep watching for a while longer; starts the watching thread if needed."""
@@ -154,9 +194,16 @@ class Watcher:
     def poll(self):
         try:
             media = self.reader()
+            if self._last_error is not None:
+                log.info("Now playing: reading what is playing works again")
+            self._last_error = None
         except Exception as e:
-            log.debug(f"Now playing: could not ask what is playing: {e}")
-            media = Media()
+            error = f"{type(e).__name__}: {e}"
+            # Once per kind of failure, where it shows in the log (debug lines don't)
+            if error != self._last_error:
+                log.warning(f"Now playing: could not ask Windows what is playing: {error}")
+            self._last_error = error
+            media = Media(error=error)
         key = (media.title, media.artist)
         if media.cover is None and getattr(media, "thumbnail", None) is not None:
             if key == self._cover_key:
@@ -169,6 +216,14 @@ class Watcher:
                     log.debug(f"Now playing: no cover: {e}")
                 self._cover_key = key
         song = media.song if media.playing else None
+        seen = (media.app, media.playing, media.song)
+        if not media.error and seen != getattr(self, "_last_seen", None):
+            self._last_seen = seen
+            if media.app or media.song:
+                state = "playing" if media.playing else "paused or stopped"
+                log.info(f"Now playing: {media.app or 'an app'} is {state}: {media.song or '(no song name)'}")
+            else:
+                log.info("Now playing: Windows says nothing is playing")
         with self.lock:
             self.media = media
             if media.cover is not None:

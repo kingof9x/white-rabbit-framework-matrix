@@ -266,3 +266,25 @@ def test_port_box_saves_usb_location_when_known():
     assert choices[current] == ("COM4", None)
     choices, current = build_port_choices([], port_setting="COM9")
     assert choices[current] == ("COM9", None)
+
+
+def test_swap_left_and_right_button_pins_the_other_panels(monkeypatch):
+    pytest.importorskip("tkinter")
+    try:
+        from led_mon.editor import window as W
+    except ImportError as e:
+        pytest.skip(f"full dependencies not installed: {e}")
+    from types import SimpleNamespace
+    from led_mon import shared_state
+    monkeypatch.setattr(shared_state, "discover_led_devices",
+                        lambda overrides=None, locations_pinned=None: [("1-4.2:x.0", "COM4"), ("1-4.4:x.0", "COM5")])
+    sent = []
+    monkeypatch.setattr(W.preview, "apply_config", lambda: sent.append("reload") or True)
+    monkeypatch.setattr(W.preview, "identify", lambda: sent.append("identify") or True)
+    statuses = []
+    fake = SimpleNamespace(layout=SimpleNamespace(settings={"left-port": "COM4"}), fill_ports=lambda: None,
+                           changed=lambda refresh_settings=True: None, save=lambda: True,
+                           set_status=statuses.append, run_action=lambda action, busy: statuses.append(action()))
+    W.LayoutEditor.swap_sides(fake)
+    assert fake.layout.settings == {"left-location": "1-4.4", "right-location": "1-4.2"}
+    assert sent == ["reload", "identify"] and statuses[-1].startswith("Swapped.")

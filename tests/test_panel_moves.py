@@ -130,3 +130,28 @@ def test_frames_reach_the_moved_panel(usb):
         t.input_queue.put(None)
         t.join(timeout=3)
     assert {left.serial_port, right.serial_port} == {None}  # closed cleanly at the end
+
+
+def test_swap_left_and_right_takes_effect_straight_away(usb):
+    usb["ports"] = [port("COM4", "1-4.2:x.0"), port("COM5", "1-4.4:x.0")]
+    left, right = threads(usb)
+    assert (left.port_name, right.port_name) == ("COM4", "COM5")
+    # The layout editor's Swap left and right pins each side to the other panel...
+    pins = shared_state.swapped_pins(shared_state.discover_led_devices())
+    assert pins == {"left-location": "1-4.4", "right-location": "1-4.2"}
+    shared_state.set_overrides_from_config(pins)
+    # ...and the monitor, reloading, hands each thread the other's panel
+    assert drawing.align_panels([left, right])
+    assert (left.port_name, right.port_name) == ("COM5", "COM4")
+    assert drawing._claimed_ports == {"com5": left, "com4": right}
+    # Already right: nothing more happens; a reconnect keeps the swapped sides
+    assert not drawing.align_panels([left, right])
+    unplug_and_reconnect(left, right)
+    assert (left.port_name, right.port_name) == ("COM5", "COM4")
+
+
+def test_swap_uses_port_names_without_locations():
+    assert shared_state.swapped_pins([(None, "COM4"), (None, "COM5")]) == {"left-port": "COM5", "right-port": "COM4"}
+    assert shared_state.swapped_pins([(None, "COM4")]) is None
+    assert shared_state.pins_from_settings({"left-location": "1-4.4", "right-port": "COM4"}) == (
+        {"right": "COM4"}, {"left": "1-4.4"})

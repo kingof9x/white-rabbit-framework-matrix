@@ -30,6 +30,26 @@ def location_sort_key(entry):
     # No location reported (can happen on Windows): fall back to the port name
     return (1, '', device)
 
+def swapped_pins(found):
+    """Settings that put the two panels found now ([(location, port), ...], left first) the other way
+    round: {'left-location': ..., 'right-location': ...}, or the port names when a location is missing.
+    None when there aren't two panels."""
+    if not found or len(found) < 2:
+        return None
+    (left_location, left_port), (right_location, right_port) = found[0], found[1]
+    if left_location and right_location:
+        return {"left-location": right_location.split(":")[0], "right-location": left_location.split(":")[0]}
+    return {"left-port": right_port, "right-port": left_port}
+
+
+def pins_from_settings(settings):
+    """(port overrides, location overrides) from a config dict, like set_overrides_from_config."""
+    settings = settings or {}
+    ports = {side: str(settings[f"{side}-port"]) for side in ("left", "right") if settings.get(f"{side}-port")}
+    locations = {side: str(settings[f"{side}-location"]) for side in ("left", "right") if settings.get(f"{side}-location")}
+    return ports, locations
+
+
 def set_overrides_from_config(config):
     """Read the optional left-port / right-port and left-location / right-location config keys."""
     global port_overrides, location_overrides
