@@ -53,6 +53,9 @@ class Game:
     """What every game has. update(dt, held) moves it on by dt seconds; held is the set of keys held down."""
     key = ""
     title = ""
+    # Follows the "Both panels" choice (side by side, keyboard gap or mirror). Ledris doesn't: its
+    # board is the left panel and the next piece is on the right.
+    spans = True
     controls = ""
 
     def __init__(self, width=2 * PANEL_WIDTH, rng=None):
@@ -140,6 +143,7 @@ class Ledris(Game):
     piece, the score and the level."""
     key = "ledris"
     title = "Ledris"
+    spans = False
     controls = "Left and right to move, up to turn, down to drop faster, space to drop at once."
 
     SHAPES = {
@@ -484,8 +488,13 @@ class GameSession:
     COUNT_IN = 1.5
     END_FLASH = 1.2
 
-    def __init__(self, game, best=0):
+    def __init__(self, game, best=0, to_panels=None, panel_width=None):
+        """to_panels turns the game's picture into what the panels show (white_rabbit/span.py),
+        panel_width columns wide. The count-in, pause bars and score screen are drawn on that, so
+        they sit on each panel the right way round."""
         self.game = game
+        self.to_panels = to_panels or (lambda grid: grid)
+        self.panel_width = panel_width or game.width
         self.best = best
         self.count_in = self.COUNT_IN
         self.paused = False
@@ -494,7 +503,8 @@ class GameSession:
 
     @property
     def width(self):
-        return self.game.width
+        """How wide the picture on the panels is (9 per panel)."""
+        return self.panel_width
 
     @property
     def finished(self):
@@ -536,7 +546,7 @@ class GameSession:
             for p in range(max(1, w // PANEL_WIDTH)):
                 draw_digits(grid, number, p * PANEL_WIDTH + 3, 14)
             return grid
-        grid = self.game.draw()
+        grid = self.to_panels(self.game.draw())
         if self.paused:
             grid = grid * 0.25
             for p in range(max(1, w // PANEL_WIDTH)):

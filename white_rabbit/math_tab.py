@@ -237,6 +237,17 @@ class MathTab(ttk.Frame):
         self.gap_test = ttk.Button(frame, text="Show the gap test", command=lambda: self.play(
             "Gap test: a dot going across both panels", span.gap_test_frames))
         self.gap_test.pack(anchor="w", pady=(4, 0))
+        # The Games tab can change the choice too
+        frame.bind("<Map>", lambda e: self.reload_span())
+        self.update_span_hint()
+
+    def reload_span(self):
+        saved = span.load()
+        if saved == self.span:
+            return
+        self.span = saved
+        self.span_mode.current([key for key, _ in span.MODES].index(saved["mode"]))
+        self.gap_var.set(str(saved["gap_columns"]))
         self.update_span_hint()
 
     def update_span_hint(self):

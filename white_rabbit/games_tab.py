@@ -17,7 +17,7 @@ from tkinter import ttk
 import numpy as np
 
 # Internal Dependencies
-from white_rabbit import games
+from white_rabbit import games, span
 from white_rabbit.math_tab import Preview, send_frames
 
 log = logging.getLogger(__name__)
@@ -70,11 +70,35 @@ class GamePlayer:
         self.preview.pack(anchor="center")
         self.help = ttk.Label(preview_parent, text="", wraplength=200, foreground=tab_hint(), justify="left")
         self.help.pack(anchor="w", pady=(6, 0))
+        layout_row = ttk.Frame(preview_parent)
+        layout_row.pack(anchor="w", pady=(8, 0))
+        ttk.Label(layout_row, text="Both panels:").pack(side="left")
+        self.layout = ttk.Combobox(layout_row, values=[label for _, label in span.MODES], state="readonly", width=28)
+        self.layout.pack(side="left", padx=4)
+        self.layout.bind("<<ComboboxSelected>>", lambda e: self.layout_changed())
+        self.layout.bind("<Map>", lambda e: self.show_layout())
+        ttk.Label(preview_parent, text="Ledris always plays side by side. The keyboard gap is set in the Math tab.",
+                  wraplength=260, foreground=tab_hint(), justify="left").pack(anchor="w", pady=(2, 0))
+        self.show_layout()
         for name in ("<KeyPress>", "<KeyRelease>"):
             self.preview.bind(name, self.on_key)
         self.preview.bind("<Button-1>", self.on_click)
         self.preview.bind("<FocusOut>", self.on_focus_out)
         self.preview.after(PREVIEW_MS, self.draw_preview)
+
+    # Both panels: shares the Math tab's setting
+    def show_layout(self):
+        keys = [key for key, _ in span.MODES]
+        self.layout.current(keys.index(span.load()["mode"]))
+
+    def layout_changed(self):
+        keys = [key for key, _ in span.MODES]
+        layout = span.load()
+        layout["mode"] = keys[max(0, self.layout.current())]
+        span.save(layout)
+        # A game that's running starts again with the new layout
+        if self.session is not None and self.session.game.spans and not self.session.game.over:
+            self.start(type(self.session.game))
 
     # Text
     def best_text(self):
@@ -159,7 +183,8 @@ class GamePlayer:
     def start(self, game_class):
         from inputmodule.gui.gui_threading import reset_thread, set_status
         panels = self.window.selected_panels()
-        width = games.PANEL_WIDTH * (len(panels) if panels else 2)
+        count = len(panels) if panels else 2
+        layout = span.load() if game_class.spans else {}
         self.run_id += 1
         run_id = self.run_id
         # Ends a clock, equalizer or Math tab animation, and any earlier game
@@ -168,7 +193,9 @@ class GamePlayer:
         self.events = queue.Queue()
         self.held.clear()
         self.want_paused = False
-        self.session = games.GameSession(game_class(width), best=self.scores.get(game_class.key, 0))
+        self.session = games.GameSession(
+            game_class(span.picture_width(count, layout)), best=self.scores.get(game_class.key, 0),
+            to_panels=lambda grid: span.to_panels(grid, count, layout), panel_width=games.PANEL_WIDTH * count)
         self.saved_score = None
         self.title.configure(text=game_class.title)
         where = " and ".join(p.called for p in panels)

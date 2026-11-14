@@ -98,3 +98,38 @@ def test_gap_test_dot_crosses_and_comes_back():
     frames = span.gap_test_frames(48)
     xs = [int(np.argmax(next(frames)[16])) for _ in range(100)]
     assert max(xs) >= 44 and min(xs[50:]) <= 1
+
+
+def session_for(game_class, layout, count=2):
+    from white_rabbit import games
+    layout = layout if game_class.spans else {}
+    return games.GameSession(game_class(span.picture_width(count, layout)),
+                             to_panels=lambda g: span.to_panels(g, count, layout), panel_width=9 * count)
+
+
+def test_games_follow_the_layout():
+    from white_rabbit import games
+    gap = {"mode": span.KEYBOARD_GAP, "gap_columns": 30}
+    s = session_for(games.Breakout, gap)
+    assert s.game.width == 48 and s.width == 18
+    assert s.frame().shape == (34, 18)          # the count-in, on 18 columns
+    s.update(5.0)
+    assert s.frame().shape == (34, 18)          # the game, with the gap left out
+    mirror = session_for(games.Snake, {"mode": span.MIRROR})
+    assert mirror.game.width == 9
+    mirror.update(5.0)
+    frame = mirror.frame()
+    assert np.array_equal(frame[:, :9], frame[:, 9:][:, ::-1])
+
+
+def test_count_in_digits_are_not_mirrored():
+    from white_rabbit import games
+    mirror = session_for(games.Snake, {"mode": span.MIRROR})
+    plain = session_for(games.Snake, {"mode": span.SIDE_BY_SIDE})
+    assert np.array_equal(mirror.frame(), plain.frame())
+
+
+def test_ledris_always_plays_side_by_side():
+    from white_rabbit import games
+    s = session_for(games.Ledris, {"mode": span.MIRROR})
+    assert s.game.width == 18 and s.frame().shape == (34, 18)

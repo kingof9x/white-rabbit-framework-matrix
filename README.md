@@ -181,7 +181,8 @@ thing, even with no panels connected.
   they touched), *Side by side, skip the keyboard* (the picture carries on
   behind the keyboard so moving things line up across it; the gap is set in
   LED columns, with a gap test to help), or *Mirror* (the left panel shows the
-  right one mirrored).
+  right one mirrored). The same choice is on the Games page for Snake,
+  Breakout and Rabbit run (Ledris always plays side by side).
 
 **Name panels...** at the bottom of the window gives the left and right panels
 names. Identify panels (Panels tab or tray menu) then shows the first five
