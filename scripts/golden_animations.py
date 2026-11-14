@@ -73,6 +73,21 @@ def encode_exact(frame):
             for y in range(HEIGHT)]
 
 
+def decode_exact(rows):
+    return np.array([[struct.unpack("<d", struct.pack("<Q", int(row[16 * x:16 * x + 16], 16)))[0]
+                      for row in rows] for x in range(WIDTH)])
+
+
+# Python's own check of the exact frames allows a difference in the last few bits: numpy uses its own
+# sin, cos and power on some computers (Windows, AVX-512), which can differ from the C library's there.
+# The LED frames must still match exactly, and the Rust test compares the exact frames bit for bit.
+EXACT_TOLERANCE = 1e-12
+
+
+def same_exact(now, rows):
+    return np.allclose(np.asarray(now, dtype=float), decode_exact(rows), rtol=0, atol=EXACT_TOLERANCE)
+
+
 # The inputs, made the same way in the Rust test ------------------------------------------------------
 
 def tv_picture():
@@ -219,11 +234,12 @@ def differences(frames, exact):
     with open(GOLDEN_FILE) as f:
         saved = json.load(f)
     problems = []
-    for section, now, enc in (("frames", frames, encode), ("exact", exact, encode_exact)):
+    same = {"frames": lambda now, rows: encode(now) == rows, "exact": same_exact}
+    for section, now in (("frames", frames), ("exact", exact)):
         old = saved[section]
         problems += [f"missing from animations.json: {n}" for n in sorted(set(now) - set(old))]
         problems += [f"no longer drawn: {n}" for n in sorted(set(old) - set(now))]
-        problems += [f"differs: {n}" for n in sorted(set(now) & set(old)) if enc(now[n]) != old[n]]
+        problems += [f"differs: {n}" for n in sorted(set(now) & set(old)) if not same[section](now[n], old[n])]
     return problems
 
 
