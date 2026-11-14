@@ -5,6 +5,7 @@
 //! Everything here mirrors the Python monitor in `led_mon/`, and draws exactly what it draws:
 //! `tests/golden.rs` compares the pictures with the ones Python saved in `tests/golden/`.
 
+pub mod animations;
 pub mod drawing;
 pub mod grid;
 pub mod layout;
@@ -18,6 +19,7 @@ pub mod pyrand;
 pub mod pyround;
 pub mod queue;
 pub mod render;
+pub mod sand;
 pub mod settings;
 
 pub use grid::{Grid, HEIGHT, WIDTH};

@@ -96,10 +96,10 @@ impl Random {
 
     /// `_randbelow(n)`: 0 <= result < n (n <= 2^32).
     pub fn randbelow(&mut self, n: usize) -> usize {
-        if n <= 1 {
-            // Python would call getrandbits(0) and return 0 without using the generator
+        if n == 0 {
             return 0;
         }
+        // Even n == 1 draws numbers (getrandbits(1) until it gives 0), like Python does
         let k = usize::BITS - n.leading_zeros();
         loop {
             let r = self.getrandbits(k) as usize;
@@ -139,5 +139,9 @@ mod tests {
         assert_eq!(r.getrandbits(5), 11);
         assert_eq!(Random::new(0).random(), 0.8444218515250481);
         assert_eq!(Random::new((1 << 40) + 5).random(), 0.5043802970418443);
+        // A choice from one item still uses up random numbers
+        let mut r = Random::new(1);
+        assert_eq!(r.choice(&[5]), 5);
+        assert_eq!(r.random(), 0.5692038748222122);
     }
 }
