@@ -7,6 +7,7 @@
 mod icon;
 mod monitor;
 mod paths;
+mod power;
 
 #[cfg(windows)]
 mod app;

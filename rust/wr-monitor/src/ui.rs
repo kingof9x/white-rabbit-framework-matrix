@@ -1,12 +1,21 @@
 //! The Windows side: one hidden window that owns the tray icon and its menu, the keyboard shortcuts
 //! (Ctrl+Alt+Shift + letter, registered with Windows so no keys are watched), and the power messages
 //! that say the lid closed, the screen turned off or the PC is going to sleep.
+//!
+//! Whether the laptop's own screen is in use is asked with QueryDisplayConfig: the built-in screen
+//! drops out of the active screens when Windows only uses an external one. That is checked when
+//! Windows says the screens changed (WM_DISPLAYCHANGE), after the lid opens or closes, and every few
+//! seconds as a safety net.
 
 use std::ptr::{null, null_mut};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, OnceLock};
 
 use windows_sys::core::GUID;
+use windows_sys::Win32::Devices::Display::{
+    GetDisplayConfigBufferSizes, QueryDisplayConfig, DISPLAYCONFIG_MODE_INFO, DISPLAYCONFIG_PATH_INFO, QDC_ALL_PATHS,
+    QDC_ONLY_ACTIVE_PATHS,
+};
 use windows_sys::Win32::Foundation::{
     GetLastError, ERROR_ALREADY_EXISTS, HANDLE, HWND, LPARAM, LRESULT, POINT, WPARAM,
 };
@@ -25,6 +34,7 @@ use wr_core::settings::{save_key, Settings};
 
 use crate::monitor::Shared;
 use crate::paths;
+use crate::power::{builtin_screen_unused, PowerEvent, PowerState};
 use wr_core::{info, warn};
 use wr_panel::winports::wide;
 
@@ -40,6 +50,7 @@ const ID_FOLDER: usize = 20;
 const ID_LOG: usize = 21;
 const ID_RELOAD: usize = 22;
 const ID_LID: usize = 30;
+const ID_SCREEN_UNUSED: usize = 31;
 const ID_QUIT: usize = 40;
 
 /// The shortcuts this monitor handles so far (music mode, M, comes with the music visualizer).
@@ -50,33 +61,12 @@ const PBT_APMRESUMESUSPEND: usize = 0x0007;
 const PBT_APMRESUMEAUTOMATIC: usize = 0x0012;
 const PBT_POWERSETTINGCHANGE: usize = 0x8013;
 
-/// What Windows last said about the lid, the screen and sleep (`PowerState` in power_events.py).
-#[derive(Default)]
-struct PowerState {
-    lid_closed: bool,
-    display_off: bool,
-    suspending: bool,
-}
-
-impl PowerState {
-    fn should_sleep(&self) -> bool {
-        self.lid_closed || self.display_off || self.suspending
-    }
-
-    fn describe(&self) -> String {
-        let reasons: Vec<&str> =
-            [("lid closed", self.lid_closed), ("screen off", self.display_off), ("going to sleep", self.suspending)]
-                .iter()
-                .filter(|(_, on)| *on)
-                .map(|(name, _)| *name)
-                .collect();
-        if reasons.is_empty() {
-            "lid open and screen on".into()
-        } else {
-            reasons.join(", ")
-        }
-    }
-}
+// Timers for the built-in screen check: the regular one, and one more shortly after a display or lid
+// change, as Windows can finish rearranging the screens later
+const TIMER_PERIODIC: usize = 1;
+const TIMER_RECHECK: usize = 2;
+const DISPLAY_CHECK_MS: u32 = 5000;
+const DISPLAY_RECHECK_MS: u32 = 1500;
 
 struct Ui {
     shared: Arc<Shared>,
@@ -187,7 +177,10 @@ fn show_menu(hwnd: HWND) {
     let shared = &ui.shared;
     let paused = shared.paused.load(Ordering::SeqCst);
     let frozen = shared.frozen.load(Ordering::SeqCst);
-    let lid = shared.settings.lock().unwrap().turn_off_with_lid;
+    let (lid, screen_unused) = {
+        let settings = shared.settings.lock().unwrap();
+        (settings.turn_off_with_lid, settings.turn_off_when_screen_unused)
+    };
     // SAFETY: the menu is created and destroyed here; strings live until the menu is shown.
     unsafe {
         let menu = CreatePopupMenu();
@@ -209,6 +202,11 @@ fn show_menu(hwnd: HWND) {
         add(MF_STRING, ID_RELOAD, "Reload config");
         add(MF_SEPARATOR, 0, "");
         add(MF_STRING | if lid { MF_CHECKED } else { 0 }, ID_LID, "Turn off when lid closes");
+        add(
+            MF_STRING | if screen_unused { MF_CHECKED } else { 0 },
+            ID_SCREEN_UNUSED,
+            "Turn off when laptop screen isn't used",
+        );
         add(MF_SEPARATOR, 0, "");
         add(MF_STRING, ID_QUIT, "Quit");
         let mut pt = POINT { x: 0, y: 0 };
@@ -253,7 +251,17 @@ fn command(hwnd: HWND, id: usize) {
             }
             shared.settings.lock().unwrap().turn_off_with_lid = enabled;
             info!("Turn off with lid {}", if enabled { "on" } else { "off" });
-            apply_power(enabled);
+            apply_power();
+        }
+        ID_SCREEN_UNUSED => {
+            let enabled = !shared.settings.lock().unwrap().turn_off_when_screen_unused;
+            let key = "turn_off_when_screen_unused";
+            if let Err(e) = save_key(&paths::settings_file(), key, serde_json::Value::Bool(enabled)) {
+                warn!("Couldn't save the laptop screen setting: {e}");
+            }
+            shared.settings.lock().unwrap().turn_off_when_screen_unused = enabled;
+            info!("Turn off when laptop screen isn't used {}", if enabled { "on" } else { "off" });
+            apply_power();
         }
         ID_QUIT => {
             shared.quit.store(true, Ordering::SeqCst);
@@ -266,31 +274,79 @@ fn command(hwnd: HWND, id: usize) {
     }
 }
 
-fn apply_power(turn_off_with_lid: bool) {
+/// Turns the panels off or back on from what Windows last said and the two settings.
+fn apply_power() {
     let ui = UI.get().unwrap();
-    let sleep = turn_off_with_lid && ui.power.lock().unwrap().should_sleep();
+    let (with_lid, when_screen_unused) = {
+        let settings = ui.shared.settings.lock().unwrap();
+        (settings.turn_off_with_lid, settings.turn_off_when_screen_unused)
+    };
+    let sleep = ui.power.lock().unwrap().wants_sleep(with_lid, when_screen_unused);
     ui.shared.power_sleep.store(sleep, Ordering::SeqCst);
 }
 
-fn power_event(event: &str, value: Option<u8>) {
+fn power_event(event: PowerEvent) {
     let ui = UI.get().unwrap();
-    let (before, after, text) = {
+    let (changed, text) = {
         let mut p = ui.power.lock().unwrap();
-        let before = p.should_sleep();
-        match event {
-            "suspend" => p.suspending = true,
-            "resume" => p.suspending = false,
-            "lid" => p.lid_closed = value == Some(0),
-            // Dimmed (2) still counts as on
-            "display" => p.display_off = value == Some(0),
-            _ => {}
-        }
-        (before, p.should_sleep(), p.describe())
+        (p.handle(event), p.describe())
     };
-    if before != after {
-        info!("Power: {text}, panels {}", if after { "off" } else { "on" });
-        let lid_setting = Settings::load(&paths::settings_file()).turn_off_with_lid;
-        apply_power(lid_setting);
+    if changed {
+        info!("Power: {text}");
+        // The window may have changed the settings since the last time they were read
+        *ui.shared.settings.lock().unwrap() = Settings::load(&paths::settings_file());
+        apply_power();
+    }
+}
+
+/// The output technology of each screen QueryDisplayConfig lists with these flags, or None on failure.
+fn display_outputs(flags: u32) -> Option<Vec<u32>> {
+    const ERROR_INSUFFICIENT_BUFFER: u32 = 122;
+    // The screens can change between the two calls
+    for _ in 0..3 {
+        let (mut paths, mut modes) = (0u32, 0u32);
+        // SAFETY: two counts written by Windows.
+        if unsafe { GetDisplayConfigBufferSizes(flags, &mut paths, &mut modes) } != 0 {
+            return None;
+        }
+        // SAFETY: plain C structs, valid when zeroed.
+        let mut path_array: Vec<DISPLAYCONFIG_PATH_INFO> = vec![unsafe { std::mem::zeroed() }; paths.max(1) as usize];
+        let mut mode_array: Vec<DISPLAYCONFIG_MODE_INFO> = vec![unsafe { std::mem::zeroed() }; modes.max(1) as usize];
+        // SAFETY: the arrays are as long as the counts say.
+        let result = unsafe {
+            QueryDisplayConfig(
+                flags,
+                &mut paths,
+                path_array.as_mut_ptr(),
+                &mut modes,
+                mode_array.as_mut_ptr(),
+                null_mut(),
+            )
+        };
+        if result == 0 {
+            return Some(path_array[..paths as usize].iter().map(|p| p.targetInfo.outputTechnology as u32).collect());
+        }
+        if result != ERROR_INSUFFICIENT_BUFFER {
+            return None;
+        }
+    }
+    None
+}
+
+/// Asks Windows whether the laptop's own screen is in use. "Can't tell" counts as in use.
+fn check_builtin_screen() {
+    let unused = match (display_outputs(QDC_ONLY_ACTIVE_PATHS), display_outputs(QDC_ALL_PATHS)) {
+        (Some(active), Some(all)) => builtin_screen_unused(&active, &all),
+        _ => false,
+    };
+    power_event(PowerEvent::BuiltinUnused(unused));
+}
+
+/// One more check of the built-in screen shortly, after a display or lid change.
+fn recheck_soon(hwnd: HWND) {
+    // SAFETY: a timer on our own window.
+    unsafe {
+        SetTimer(hwnd, TIMER_RECHECK, DISPLAY_RECHECK_MS, None);
     }
 }
 
@@ -328,18 +384,37 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                     let setting = &*(lparam as *const POWERBROADCAST_SETTING);
                     let value = (setting.DataLength >= 1).then(|| setting.Data[0]);
                     if same_guid(&setting.PowerSetting, &GUID_LIDSWITCH_STATE_CHANGE) {
-                        power_event("lid", value);
+                        power_event(PowerEvent::Lid(value));
+                        check_builtin_screen();
+                        recheck_soon(hwnd);
                     } else if same_guid(&setting.PowerSetting, &GUID_CONSOLE_DISPLAY_STATE) {
-                        power_event("display", value);
+                        power_event(PowerEvent::Display(value));
                     }
                 }
-                PBT_APMSUSPEND => power_event("suspend", None),
-                PBT_APMRESUMESUSPEND | PBT_APMRESUMEAUTOMATIC => power_event("resume", None),
+                PBT_APMSUSPEND => power_event(PowerEvent::Suspend),
+                PBT_APMRESUMESUSPEND | PBT_APMRESUMEAUTOMATIC => power_event(PowerEvent::Resume),
                 _ => {}
             }
             1
         }
+        WM_DISPLAYCHANGE => {
+            check_builtin_screen();
+            recheck_soon(hwnd);
+            0
+        }
+        WM_TIMER => {
+            if wparam == TIMER_RECHECK {
+                KillTimer(hwnd, TIMER_RECHECK);
+            }
+            check_builtin_screen();
+            // The window may have changed either setting in settings.json (the main loop reads it again
+            // every second), so apply them even when Windows said nothing new
+            apply_power();
+            0
+        }
         WM_DESTROY => {
+            KillTimer(hwnd, TIMER_PERIODIC);
+            KillTimer(hwnd, TIMER_RECHECK);
             let data = tray_data(hwnd);
             Shell_NotifyIconW(NIM_DELETE, &data);
             ui.shared.quit.store(true, Ordering::SeqCst);
@@ -366,7 +441,7 @@ pub fn run(shared: Arc<Shared>) {
         // SAFETY: plain call.
         unsafe { RegisterWindowMessageW(name.as_ptr()) }
     };
-    let _ = UI.set(Ui { shared: shared.clone(), power: Default::default(), taskbar_created });
+    let _ = UI.set(Ui { shared: shared.clone(), power: std::sync::Mutex::new(PowerState::default()), taskbar_created });
     let class = wide("WhiteRabbitRustMonitor");
     // SAFETY: standard window class and window creation; the window lives until Quit.
     unsafe {
@@ -402,6 +477,8 @@ pub fn run(shared: Arc<Shared>) {
                 warn!("Couldn't listen for the lid / screen turning off");
             }
         }
+        check_builtin_screen();
+        SetTimer(hwnd, TIMER_PERIODIC, DISPLAY_CHECK_MS, None);
 
         let settings = shared.settings.lock().unwrap().clone();
         let mut registered = Vec::new();
