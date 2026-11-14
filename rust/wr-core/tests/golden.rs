@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use wr_core::apps::text;
 use wr_core::drawing::*;
 use wr_core::patterns::ICONS;
 use wr_core::{Grid, HEIGHT, WIDTH};
@@ -142,6 +143,38 @@ fn monitor_cases() -> BTreeMap<String, Grid> {
             let rows: Vec<Vec<f64>> = serde_json::from_str(&text).unwrap();
             case(format!("snap-{panel}-{file}"), &|g| draw_snapshot(g, &rows, FOREGROUND));
         }
+    }
+
+    // The Text app
+    let texts = [
+        ("short", "Hi"),
+        ("time", "10:47 87% 12%"),
+        ("words", "Hello, world! 42"),
+        ("long", "The quick brown fox jumps over the lazy dog 0123456789"),
+        ("symbols", "a+b=c? (x/y)*2 #1 <3> _ ' \" \u{b0} ~ \u{df}"),
+        ("percent", "5% 100%"),
+        ("blank", "   "),
+    ];
+    for style in text::STYLES {
+        for (label, words) in texts {
+            for t in [0.0, 1.0, 3.3, 7.25, 40.0] {
+                case(format!("text-{style}-{label}-t{}", py(t)), &|g| text::draw_text(g, words, style, FOREGROUND, t));
+            }
+        }
+    }
+    for (label, cpu, battery, hour, fmt_24) in [
+        ("pm", Some(0.123), Some(0.876), 13, false),
+        ("24h", None, None, 9, true),
+        ("midnight", Some(1.0), Some(0.004), 0, false),
+    ] {
+        let values = text::TextValues {
+            time: text::time_text(hour, 5, fmt_24),
+            battery: text::percent_text(battery),
+            cpu: text::percent_text(cpu),
+        };
+        case(format!("text-values-{label}"), &|g| {
+            text::draw_with_values(g, "{time} {Battery} {CPU} {other}", "stacked", FOREGROUND, &values, 2.0)
+        });
     }
 
     let char_cases: [(&str, &[&str]); 7] = [

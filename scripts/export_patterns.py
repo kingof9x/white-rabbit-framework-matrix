@@ -1,5 +1,6 @@
-# Writes the monitor's pixel patterns (digits, symbols, weather icons, app names, the CPU spirals and the
-# battery's lightning bolt) from led_mon/patterns.py and the plugins into rust/wr-core/src/patterns_data.rs,
+# Writes the monitor's pixel patterns (digits, symbols, weather icons, app names, the CPU spirals, the
+# battery's lightning bolt and the fonts of the Text app and the panel names) from led_mon/patterns.py,
+# led_mon/text_styles.py, inputmodule/font.py and the plugins into rust/wr-core/src/patterns_data.rs,
 # so the Rust monitor draws with exactly the same pictures. Run it again after changing a pattern:
 #
 #   python scripts/export_patterns.py
@@ -8,7 +9,10 @@
 
 # Built In Dependencies
 import os
+import re
 import sys
+import json
+import inspect
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_FILE = os.path.join(ROOT, "rust", "wr-core", "src", "patterns_data.rs")
@@ -38,6 +42,11 @@ def load_tables():
         ids.update(equalizer_plugin.id_patterns)
     except Exception as e:  # pragma: no cover - only without those libraries
         raise SystemExit(f"Install requirements.txt first: {e}")
+    from led_mon import text_styles
+    from inputmodule import font
+    # Every letter of the panel names' 5 x 6 font, as 6 rows of 5 (convert_font gives them row by row)
+    letters = re.findall(r'^        "(.*?)": \[', inspect.getsource(font.convert_font), re.M)
+    font_5x6 = {ch: np.array(font.convert_font(ch)).reshape(6, 5) for ch in letters}
     return {
         "NUMERALS": p.numerals,
         "SYMBOLS": p.symbols,
@@ -48,6 +57,8 @@ def load_tables():
         "ID_PATTERNS": ids,
         "SPIRALS": {str(i): drawing.lookup_table[i] for i in range(drawing.lookup_table.shape[0])},
         "LIGHTNING_BOLT": {"top": p.lightning_bolt_top, "bottom": p.lightning_bolt_bot},
+        "TEXT_FONT": text_styles.FONT,
+        "NAME_FONT": font_5x6,
     }
 
 
@@ -69,8 +80,8 @@ def rust_source(tables):
             if not np.isin(values, (0.0, 1.0)).all():
                 raise ValueError(f"{table}[{key!r}] has values other than 0 and 1")
             bits = "".join("1" if v else "0" for v in values.astype(bool).ravel())
-            lines.append(f"    ({key!r:s}, Pattern {{ rows: {a.shape[0]}, cols: {a.shape[1]}, bits: \"{bits}\" }}),"
-                         .replace("'", '"'))
+            name = json.dumps(key, ensure_ascii=False)
+            lines.append(f"    ({name}, Pattern {{ rows: {a.shape[0]}, cols: {a.shape[1]}, bits: \"{bits}\" }}),")
         lines.append("];")
         lines.append("")
     return "\n".join(lines)

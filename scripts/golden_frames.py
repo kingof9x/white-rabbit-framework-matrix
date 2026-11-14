@@ -77,6 +77,12 @@ CPU_24 = [((i * 7) % 24) / 23 for i in range(24)]
 HISTORY = [0.9, 0.75, None, 0.6, 0.45, 0.3, 0.15, 0.05, 0.0, 1.0, 0.5, 0.33, 0.66, 0.2, 0.8, 0.1]
 FPS_HISTORY = [144.0, 140.5, 0.0, 120.0, 61.0, 59.9, 30.0, 75.0, 90.0]
 
+TEXTS = (("short", "Hi"), ("time", "10:47 87% 12%"), ("words", "Hello, world! 42"),
+         ("long", "The quick brown fox jumps over the lazy dog 0123456789"),
+         ("symbols", "a+b=c? (x/y)*2 #1 <3> _ ' \" \u00b0 ~ \u00df"), ("percent", "5% 100%"),
+         ("blank", "   "))
+TEXT_TIMES = (0.0, 1.0, 3.3, 7.25, 40.0)
+
 
 def monitor_cases():
     """{case name: 9 x 34 grid of LED values} for every monitor app's drawing, top and bottom half."""
@@ -152,6 +158,24 @@ def monitor_cases():
         if os.path.exists(os.path.join(ROOT, "led_mon", "snapshot_files", panel, file)):
             case(f"snap-{panel}-{file[:-5]}", lambda g, panel=panel, file=file: drawing.draw_app(
                 "snap", g, FOREGROUND, path="snapshot_files", panel=panel, file=file))
+
+    # The Text app: each style, still and scrolling, at fixed times
+    from led_mon import text_styles
+    for style in text_styles.STYLES:
+        for label, text in TEXTS:
+            for t in TEXT_TIMES:
+                case(f"text-{style}-{label}-t{t}", lambda g, text=text, style=style, t=t:
+                     text_styles.draw_text(g, text, style, FOREGROUND, t))
+    # Its live values filled in, from made-up readings
+    import datetime
+    for label, cpu, battery, hour, fmt_24 in (("pm", 0.123, (0.876, True), 13, False),
+                                              ("24h", None, None, 9, True),
+                                              ("midnight", 1.0, (0.004, False), 0, False)):
+        app = text_styles.TextApp(lambda cpu=cpu: cpu, lambda battery=battery: battery, clock=lambda: 2.0,
+                                  now=lambda hour=hour: datetime.datetime(2026, 1, 2, hour, 5))
+        case(f"text-values-{label}", lambda g, app=app, fmt_24=fmt_24: drawing.draw_app(
+            "text", g, app, FOREGROUND, text="{time} {Battery} {CPU} {other}", style="stacked",
+            fmt_24_hour=fmt_24))
 
     # Clock and weather characters (the time and weather plugins draw these lists)
     for name, chars in (("time-1234", ["1", "2", "horiz_colon", "3", "4"]),
