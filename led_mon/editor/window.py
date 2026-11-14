@@ -7,7 +7,7 @@ import queue
 import logging
 import threading
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, font as tkfont, messagebox
 
 # Internal Dependencies
 from led_mon import platform_utils, app_settings
@@ -760,8 +760,10 @@ class LayoutEditor:
         self.app_list = ttk.Treeview(palette, columns=("size",), show="tree headings", height=14, selectmode="browse")
         self.app_list.heading("#0", text="App")
         self.app_list.heading("size", text="Size")
-        self.app_list.column("#0", width=150)
-        self.app_list.column("size", width=95)
+        # Wide enough for the names at any text size
+        measure = tkfont.nametofont("TkDefaultFont").measure
+        self.app_list.column("#0", width=max(150, measure("Temperatures  ") + 40))
+        self.app_list.column("size", width=max(95, measure("Whole panel ") + 10))
         self.app_list.pack(fill="y", expand=True)
         self.app_list.bind("<<TreeviewSelect>>", self.on_app_selected)
         self.app_list.bind("<Double-1>", self.on_app_double_click)

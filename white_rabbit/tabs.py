@@ -22,6 +22,7 @@ from inputmodule.inputmodule.ledmatrix import (
 )
 from led_mon import shortcuts
 from white_rabbit import firmware
+from led_mon.theme import Slider
 
 HINT = "#555555"
 # Seconds the panels stay with this window after saving the startup animation, so it can play once
@@ -57,7 +58,7 @@ class StartupTab(ttk.Frame):
         self.window = window
         frame = section(self, "Startup animation")
         ttk.Label(frame, text="Saved on the panels themselves, so it works even when White Rabbit isn't running. "
-                  "Needs the White Rabbit firmware (see the Firmware tab). The last six, from Rabbit hole to "
+                  "Needs the White Rabbit firmware (Settings > Firmware). The last six, from Rabbit hole to "
                   "Campfire, need the newest version of it.", foreground=HINT,
                   wraplength=760, justify="left").pack(anchor="w", pady=(0, 6))
         self.mode = tk.IntVar(value=StartupMode.RandomAll)
@@ -112,7 +113,7 @@ class StartupTab(ttk.Frame):
         elif not info:
             self.status.configure(text="No LED Matrix panels found.")
         else:
-            self.status.configure(text="The panels need the White Rabbit firmware for this (Firmware tab).")
+            self.status.configure(text="The panels need the White Rabbit firmware for this (Settings > Firmware).")
         self.update_enabled()
 
     def save(self):
@@ -179,7 +180,7 @@ class PlayTab(ttk.Frame):
         ttk.Button(text_row, text="Show", command=lambda: self.run(lambda d: show_string(d, self.text.get().upper()))
                    ).pack(side="left", padx=4)
         ttk.Label(shapes, text="Fill:").grid(row=2, column=0, sticky="w")
-        self.fill = tk.Scale(shapes, from_=0, to=100, orient="horizontal", length=260, showvalue=True,
+        self.fill = Slider(shapes, from_=0, to=100, orient="horizontal", length=260, showvalue=True,
                              command=lambda v: self.run(lambda d: percentage(d, int(float(v)))))
         self.fill.grid(row=2, column=1, sticky="w", padx=4)
         ttk.Button(shapes, text="Scroll the picture", command=lambda: self.run(lambda d: animate(d, True))
@@ -235,8 +236,8 @@ class FirmwareTab(ttk.Frame):
         ttk.Button(installed, text="Check again", command=self.window_refresh).pack(anchor="w", pady=(6, 0))
 
         update = section(self, "Update firmware")
-        ttk.Label(update, text="Close other programs that use the LED panels first. The panels ticked at the "
-                  "bottom of the window are flashed, one after the other.", foreground=HINT,
+        ttk.Label(update, text="Close other programs that use the LED panels first. The panels ticked in the "
+                  "\"Controls act on\" list, bottom left, are flashed, one after the other.", foreground=HINT,
                   wraplength=760, justify="left").pack(anchor="w", pady=(0, 6))
         self.bundled = firmware.bundled_firmware()
         choices = [label for label, _ in self.bundled] + [self.CHOOSE_FILE]
@@ -303,7 +304,7 @@ class FirmwareTab(ttk.Frame):
         # as if the chosen file was ignored
         panels = self.window.selected_panels()
         if not panels:
-            messagebox.showinfo("Flash firmware", "Tick the panels to flash at the bottom of the window first.",
+            messagebox.showinfo("Flash firmware", "Tick the panels to flash under \"Controls act on\", bottom left, first.",
                                 parent=self)
             return
         path = self.firmware_path()

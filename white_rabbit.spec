@@ -53,6 +53,8 @@ os.makedirs('build', exist_ok=True)
 with open(os.path.join('build', 'VERSION'), 'w') as f:
     f.write(app_version + '\n')
 datas.append((os.path.join('build', 'VERSION'), 'white_rabbit'))
+# The Sun Valley theme's Tcl files and pictures (the window's look)
+datas += collect_data_files('sv_ttk')
 
 icon = None
 version_info = None

@@ -41,9 +41,11 @@ CREDITS = [
     ("inputmodule-rs by Framework", "https://github.com/FrameworkComputer/inputmodule-rs",
      "The LED Matrix firmware and the LED Matrix Control app: patterns, games and firmware updates."),
     ("Framework-LED-Matrix by mariobx", "https://github.com/mariobx/Framework-LED-Matrix",
-     "The ideas for the Math tab (written from scratch, no code copied)."),
+     "The ideas for the Math page (written from scratch, no code copied)."),
     ("Framework16 LED Matrix Manager by Deo", "https://github.com/Deovandski/Deo-s-Framework16-LED-Matrix-Manager",
      "The ideas for the animations, the old-TV effect, mirror mode, the keyboard gap and panel names (our own code)."),
+    ("Sun Valley theme by rdbende", "https://github.com/rdbende/Sun-Valley-ttk-theme",
+     "The Windows 11 look of this window's buttons, switches and boxes."),
 ]
 
 

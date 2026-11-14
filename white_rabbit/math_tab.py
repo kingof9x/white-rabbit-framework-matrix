@@ -20,6 +20,7 @@ import numpy as np
 from white_rabbit import math_sims as sims
 from white_rabbit import math_effects as effects
 from white_rabbit import span
+from led_mon.theme import Slider
 
 log = logging.getLogger(__name__)
 
@@ -171,7 +172,7 @@ class MathTab(ttk.Frame):
         ttk.Label(bottom, text="Speed:").pack(side="left")
         # Read by the animation thread, which mustn't touch tkinter itself
         self.fps_value = 8
-        self.fps = tk.Scale(bottom, from_=1, to=30, orient="horizontal", length=200, showvalue=True,
+        self.fps = Slider(bottom, from_=1, to=30, orient="horizontal", length=200, showvalue=True,
                             command=lambda v: setattr(self, "fps_value", int(float(v))))
         self.fps.set(self.fps_value)
         self.fps.pack(side="left", padx=4)
@@ -326,7 +327,7 @@ class MathTab(ttk.Frame):
         row.pack(fill="x")
         ttk.Button(row, text="Start", command=self.start_traffic).pack(side="left")
         ttk.Label(row, text="Roads:").pack(side="left", padx=(12, 0))
-        self.traffic_density = tk.Scale(row, from_=5, to=80, orient="horizontal", length=140, showvalue=True)
+        self.traffic_density = Slider(row, from_=5, to=80, orient="horizontal", length=140, showvalue=True)
         self.traffic_density.set(35)
         self.traffic_density.pack(side="left", padx=4)
         ttk.Label(row, text="% full").pack(side="left")
@@ -341,7 +342,7 @@ class MathTab(ttk.Frame):
         self.gas_start.current(0)
         self.gas_start.pack(side="left", padx=4)
         ttk.Label(frame, text="Amount:").pack(side="left", padx=(12, 0))
-        self.gas_density = tk.Scale(frame, from_=5, to=100, orient="horizontal", length=140, showvalue=True)
+        self.gas_density = Slider(frame, from_=5, to=100, orient="horizontal", length=140, showvalue=True)
         self.gas_density.set(30)
         self.gas_density.pack(side="left", padx=4)
 
