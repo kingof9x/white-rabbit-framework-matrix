@@ -10,12 +10,12 @@ use std::io::Write;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use wr_core::ports::{find_panel_port, Pins, PortInfo};
-use wr_core::protocol;
+use crate::ports::{find_panel_port, Pins, PortInfo};
+use crate::protocol;
 use wr_core::queue::{FrameQueue, Item};
 use wr_core::{Grid, HEIGHT, WIDTH};
 
-use crate::{info, warn};
+use wr_core::{info, warn};
 
 /// An unchanged frame is sent again after this long, so the panel never falls asleep.
 pub const RESEND_UNCHANGED: Duration = Duration::from_secs(5);
@@ -227,7 +227,7 @@ impl Panel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wr_core::protocol::{LED_MATRIX_PID, LED_MATRIX_VID};
+    use crate::protocol::{LED_MATRIX_PID, LED_MATRIX_VID};
 
     /// (port name, bytes) of every write.
     type Log = Arc<Mutex<Vec<(String, Vec<u8>)>>>;

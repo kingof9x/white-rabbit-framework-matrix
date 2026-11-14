@@ -5,9 +5,12 @@ icon. It aims to use far less memory and CPU than the Python monitor (about 66 M
 `led_mon/` stays: it is what runs on Linux, and it is the reference the Rust code is checked against.
 
 - `wr-core`: everything that isn't Windows-specific. The apps' drawing, the layout file and which app
-  shows when, finding the panels, the bytes sent to a panel. `tests/golden.rs` draws every case in
+  shows when, settings and the log file. `tests/golden.rs` draws every case in
   `scripts/golden_frames.py` and compares it with the pictures Python saved in `tests/golden/`;
   every pixel must match.
+- `wr-panel`: talking to the panels. The bytes of each command, finding which serial port is the left
+  or right panel, and each panel's drawing thread.
+- `wr-music`: the music visualizer (being written).
 - `wr-monitor`: the Windows program, `WhiteRabbit-rust-test.exe` for now. Finds the panels, draws the
   layout's apps, has a tray menu, turns the panels off with the lid, and has the
   Ctrl+Alt+Shift+I / N / F / U shortcuts. It uses the same settings, layout file and single-instance lock

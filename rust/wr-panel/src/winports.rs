@@ -13,8 +13,8 @@ use windows_sys::Win32::Foundation::{CloseHandle, GENERIC_READ, GENERIC_WRITE, H
 use windows_sys::Win32::Storage::FileSystem::{CreateFileW, WriteFile, OPEN_EXISTING};
 use windows_sys::Win32::System::Registry::{RegCloseKey, RegQueryValueExW, KEY_READ};
 
-use wr_core::ports::{location_from_paths, usb_ids, PortInfo};
-use wr_core::protocol::BAUD_RATE;
+use crate::ports::{location_from_paths, usb_ids, PortInfo};
+use crate::protocol::BAUD_RATE;
 
 use crate::panel::PortSystem;
 

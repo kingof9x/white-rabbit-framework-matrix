@@ -25,8 +25,8 @@ use wr_core::settings::{save_key, Settings};
 
 use crate::monitor::Shared;
 use crate::paths;
-use crate::winports::wide;
-use crate::{info, warn};
+use wr_core::{info, warn};
+use wr_panel::winports::wide;
 
 const WM_TRAY: u32 = WM_APP + 1;
 const TRAY_ID: u32 = 1;
