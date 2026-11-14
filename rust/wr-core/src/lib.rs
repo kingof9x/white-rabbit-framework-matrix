@@ -10,6 +10,7 @@ pub mod grid;
 pub mod layout;
 pub mod log;
 pub mod monitors;
+pub mod nprand;
 pub mod patterns;
 #[rustfmt::skip]
 mod patterns_data;

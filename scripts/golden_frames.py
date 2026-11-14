@@ -22,6 +22,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GOLDEN_DIR = os.path.join(ROOT, "tests", "golden")
 MONITOR_FILE = os.path.join(GOLDEN_DIR, "monitor_apps.json")
 MUSIC_FILE = os.path.join(GOLDEN_DIR, "music_looks.json")
+MUSIC_IDLE_FILE = os.path.join(GOLDEN_DIR, "music_idle.json")
 
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
@@ -245,6 +246,31 @@ def music_cases():
     return cases
 
 
+IDLE_FRAMES = 160          # frames played per idle case
+IDLE_QUIET = range(20, 140)  # the frames with no sound: after 4 s (80 frames) the calm idle version starts
+
+
+def music_idle_cases():
+    """{case name: grid} for music mode's switch to each look's calm idle version and back (looks.MusicPanel):
+    music, then silence long enough for the idle version, then music again; every 10th frame."""
+    from led_mon.equalizer_files import looks
+    cases = {}
+    silence = np.zeros((looks.FFT_SIZE, 2))
+    for style in looks.STYLE_KEYS:
+        for side in ("left", "right"):
+            panel = looks.MusicPanel({"style": style}, side, idle_after_sec=4.0)
+            panel.visualizer.rng = np.random.default_rng(1)
+            panel.idle_visualizer.rng = np.random.default_rng(1)
+            t = 1.0
+            for frame in range(1, IDLE_FRAMES + 1):
+                samples = silence if frame in IDLE_QUIET else looks.demo_samples(t)
+                grid = panel.frame(samples, MUSIC_DT)
+                t += MUSIC_DT
+                if frame % 10 == 0:
+                    cases[f"idle-{style}-{side}-f{frame:03d}"] = np.asarray(grid, dtype=float) * 255.0
+    return cases
+
+
 # Saving and checking --------------------------------------------------------------------------------
 
 def save(path, cases, description):
@@ -276,16 +302,21 @@ def main():
     parser = argparse.ArgumentParser(description="Write or check the golden frames in tests/golden/.")
     parser.add_argument("--check", action="store_true", help="only compare with the saved frames")
     args = parser.parse_args()
-    monitor, music = monitor_cases(), music_cases()
+    monitor, music, idle = monitor_cases(), music_cases(), music_idle_cases()
     if args.check:
-        problems = differences(MONITOR_FILE, monitor) + differences(MUSIC_FILE, music, tolerance=1)
+        problems = (differences(MONITOR_FILE, monitor) + differences(MUSIC_FILE, music, tolerance=1)
+                    + differences(MUSIC_IDLE_FILE, idle, tolerance=1))
         print("\n".join(problems) if problems else "All golden frames match.")
         return 1 if problems else 0
     save(MONITOR_FILE, monitor, "LED values (0-255) the monitor apps draw for fixed inputs. "
                                 "Made by scripts/golden_frames.py.")
     save(MUSIC_FILE, music, "Music look brightness (0.0-1.0, stored as round(value * 255)) for fixed made-up "
                             "music, and to_leds() values. Made by scripts/golden_frames.py.")
-    print(f"Saved {len(monitor)} monitor frames and {len(music)} music frames in {GOLDEN_DIR}")
+    save(MUSIC_IDLE_FILE, idle, "Music mode brightness (0.0-1.0, stored as round(value * 255)) while it switches "
+                                "to each look's calm idle version during silence and back. "
+                                "Made by scripts/golden_frames.py.")
+    print(f"Saved {len(monitor)} monitor frames, {len(music)} music frames and {len(idle)} idle frames "
+          f"in {GOLDEN_DIR}")
     return 0
 
 
