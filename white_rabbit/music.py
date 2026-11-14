@@ -133,7 +133,7 @@ class MusicTab(ttk.Frame):
         row = ttk.Frame(look)
         row.pack(fill="x")
         ttk.Label(row, text="Look:").pack(side="left")
-        self.style = ttk.Combobox(row, state="readonly", width=20,
+        self.style = ttk.Combobox(row, state="readonly", width=20, height=len(looks.STYLE_KEYS),
                                   values=[looks.STYLE_LABELS[k] for k in looks.STYLE_KEYS])
         self.style.pack(side="left", padx=4)
         self.style.bind("<<ComboboxSelected>>", lambda e: self.changed())

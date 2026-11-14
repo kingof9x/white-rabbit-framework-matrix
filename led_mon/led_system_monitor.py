@@ -17,7 +17,7 @@ from led_mon import platform_utils
 from led_mon.platform_utils import IS_WINDOWS, IS_LINUX
 # Load API keys before the plugins are imported (via drawing) and read them
 platform_utils.load_env_file()
-from led_mon.drawing import draw_outline_border, draw_ids, draw_id, DrawingThread, SLEEP_PANEL, LatestFrameQueue
+from led_mon.drawing import draw_outline_border, draw_ids, draw_id, DrawingThread, SLEEP_PANEL, LatestFrameQueue, align_panels
 from led_mon.monitors import CPUMonitor, MemoryMonitor, BatteryMonitor, DiskMonitor, NetworkMonitor, get_monitor_brightness
 from led_mon import shared_state
 from led_mon.shared_state import discover_led_devices
@@ -99,7 +99,9 @@ def request_identify(seconds=3.0):
     except Exception as e:
         log.warning(f"Could not read the panel names: {e}")
         id_names = {}
-    id_names_until = now + NAME_SECONDS if id_names else now
+    # Unnamed panels say which side the app thinks they are, so a mix-up shows
+    id_names = {"left": id_names.get("left") or "Left", "right": id_names.get("right") or "Right"}
+    id_names_until = now + NAME_SECONDS
     id_display_until = id_names_until + seconds
 
 def identify_name(side):
@@ -296,6 +298,11 @@ def handle_effects_request(message):
             effects.load()
             if last_plug.get('key') == key:
                 last_plug['position'], last_plug['how'] = position, 'learned'
+    elif action == 'forget_ports':
+        settings = effects.load()
+        settings["learned_ports"] = {}
+        effects.save(settings)
+        effects.load()
     return {'last_plug': dict(last_plug), 'panels': sorted(effects.manager.panels)}
 
 extra_control_handlers['effects'] = handle_effects_request
@@ -755,6 +762,11 @@ def app(args, base_apps, plugin_apps):
             return
         dispose_active_apps()
         apply_config(new_config)
+        try:
+            # Swap left and right (layout editor) changes which panel is which: follow it now
+            align_panels(drawing_threads)
+        except Exception as e:
+            log.error(f"Could not line the panels up with the new left/right settings: {e}")
         for quadrant_times in base_time_map.values():
             quadrant_times.clear()
         for quadrant in suppressed_panel_apps:

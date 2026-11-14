@@ -107,3 +107,39 @@ def test_preview_draws_a_made_up_song():
     grid = np.zeros((9, 34), dtype=int)
     np_mod.draw_preview(grid, 100, "left", now=1.0)
     assert grid.any()
+
+
+def test_a_playing_app_wins_over_a_paused_current_one():
+    paused, spotify, other = object(), object(), object()
+    playing = {spotify}
+    assert np_mod._pick_session([paused, spotify], paused, lambda s: s in playing) is spotify
+    assert np_mod._pick_session([paused, spotify], spotify, lambda s: s in playing) is spotify
+    assert np_mod._pick_session([paused, other], paused, lambda s: False) is paused
+    assert np_mod._pick_session([], None, lambda s: False) is None
+
+
+def test_failures_are_logged_once_and_described(caplog):
+    def broken():
+        raise OSError("no media controls")
+    w = np_mod.Watcher(reader=broken)
+    with caplog.at_level("INFO", logger="led_mon.now_playing"):
+        w.poll()
+        w.poll()
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1 and "no media controls" in warnings[0].getMessage()
+    media, _ = w.current()
+    assert not media.playing and "no media controls" in media.error
+    assert "could not ask Windows" in np_mod.describe(broken)
+    assert np_mod.describe(lambda: np_mod.Media()) == "Windows says nothing is playing"
+    song = np_mod.Media(title="Song", artist="Band", playing=True, app="Spotify.exe")
+    assert np_mod.describe(lambda: song) == "Spotify.exe is playing: Song - Band"
+
+
+def test_what_is_playing_goes_in_the_log(caplog):
+    song = np_mod.Media(title="Song", artist="Band", playing=True, app="Spotify.exe")
+    w = np_mod.Watcher(reader=lambda: song)
+    with caplog.at_level("INFO", logger="led_mon.now_playing"):
+        w.poll()
+        w.poll()
+    lines = [r.getMessage() for r in caplog.records if "Spotify" in r.getMessage()]
+    assert lines == ["Now playing: Spotify.exe is playing: Song - Band"]

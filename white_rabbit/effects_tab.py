@@ -47,6 +47,128 @@ def sample_frames():
     return {"left": left, "right": right}
 
 
+class PortTeacher:
+    """Walks through the six expansion card ports: plug something into each and White Rabbit remembers it.
+
+    Each USB port of the laptop is its own place to Windows (the same for every device plugged into it),
+    so one plug per port is enough. The monitor sees the plug and says where it was; this learns that."""
+
+    POLL_MS = 600
+
+    def __init__(self, tab):
+        self.tab = tab
+        self.step = 0
+        self.done = {}            # position: the port's key
+        self.waiting_since = time.time()
+        self.closed = False
+        self.dialog = tk.Toplevel(tab.winfo_toplevel())
+        self.dialog.title("Teach White Rabbit my ports")
+        self.dialog.transient(tab.winfo_toplevel())
+        self.dialog.resizable(False, False)
+        self.dialog.protocol("WM_DELETE_WINDOW", self.close)
+        body = ttk.Frame(self.dialog, padding=14)
+        body.pack(fill="both", expand=True)
+        ttk.Label(body, text="Use something small, like a USB stick, mouse or phone cable. For each port: unplug it "
+                  "from the last port, then plug it in here. Ports with a display or storage card can be skipped.",
+                  wraplength=380, justify="left").pack(anchor="w")
+        self.ask = ttk.Label(body, text="", font=("Segoe UI", 12, "bold"))
+        self.ask.pack(anchor="w", pady=(10, 2))
+        self.heard = ttk.Label(body, text="", foreground=HINT, wraplength=380, justify="left")
+        self.heard.pack(anchor="w")
+        grid = ttk.Frame(body)
+        grid.pack(anchor="w", pady=(10, 0))
+        self.marks = {}
+        for col, side in enumerate(effects.SIDES):
+            ttk.Label(grid, text=f"{side.capitalize()} side", font=("Segoe UI", 9, "bold")).grid(row=0, column=col, sticky="w", padx=(0, 30))
+            for row, spot in enumerate(effects.SPOTS):
+                mark = ttk.Label(grid, text=f"○  {spot}")
+                mark.grid(row=row + 1, column=col, sticky="w", padx=(0, 30))
+                self.marks[f"{side}-{spot}"] = mark
+        buttons = ttk.Frame(body)
+        buttons.pack(fill="x", pady=(12, 0))
+        ttk.Button(buttons, text="Done", command=self.close).pack(side="right")
+        self.skip_button = ttk.Button(buttons, text="Skip this port", command=self.skip)
+        self.skip_button.pack(side="right", padx=6)
+        ttk.Button(buttons, text="Forget all and start over", command=self.start_over).pack(side="left")
+        self.show_step()
+        self.dialog.after(self.POLL_MS, self.poll)
+
+    def show_step(self):
+        for position, mark in self.marks.items():
+            spot = position.split("-")[1]
+            if position in self.done:
+                mark.configure(text=f"✓  {spot}" if self.done[position] else f"–  {spot} (skipped)")
+            elif self.step < len(POSITIONS) and POSITIONS[self.step] == position:
+                mark.configure(text=f"▶  {spot}")
+            else:
+                mark.configure(text=f"○  {spot}")
+        if self.step >= len(POSITIONS):
+            learned = sum(1 for key in self.done.values() if key)
+            self.ask.configure(text="All done")
+            self.heard.configure(text=f"White Rabbit knows {learned} of your ports now. The ripple starts from them "
+                                      "from now on. You can run this again any time.")
+            self.skip_button.state(["disabled"])
+            return
+        position = POSITIONS[self.step]
+        self.ask.configure(text=f"Plug something into the {effects.position_label(position).lower()} port")
+        self.waiting_since = time.time()
+
+    def advance(self, key):
+        self.done[POSITIONS[self.step]] = key
+        self.step += 1
+        self.show_step()
+
+    def skip(self):
+        if self.step < len(POSITIONS):
+            self.heard.configure(text="")
+            self.advance(None)
+
+    def start_over(self):
+        self.tab.ask_monitor({"action": "forget_ports"}, done=lambda reply: None)
+        self.done = {}
+        self.step = 0
+        self.heard.configure(text="Forgot every port White Rabbit had learned.")
+        self.show_step()
+
+    def poll(self):
+        if self.closed:
+            return
+        self.tab.ask_monitor({"action": "status"}, done=self.got_reply)
+        self.dialog.after(self.POLL_MS, self.poll)
+
+    def got_reply(self, reply):
+        if self.closed:
+            return
+        if reply is None:
+            self.heard.configure(text="The monitor isn't running, so White Rabbit can't see plugs. Start it on the Home page.")
+            return
+        self.tab.got_reply(reply)
+        plug = reply.get("last_plug") or {}
+        if (self.step >= len(POSITIONS) or not plug.get("plugged_in") or plug.get("kind") == "charger"
+                or plug.get("time", 0) < self.waiting_since):
+            return
+        key = plug.get("key")
+        name = plug.get("name") or "Something"
+        if not key:
+            self.heard.configure(text=f"{name} was plugged in, but Windows didn't say where. Try something else.")
+            self.waiting_since = time.time()
+            return
+        same = next((p for p, k in self.done.items() if k == key), None)
+        if same is not None:
+            self.heard.configure(text=f"That is the same port as {effects.position_label(same).lower()}. "
+                                      "Unplug it and use the port shown.")
+            self.waiting_since = time.time()
+            return
+        position = POSITIONS[self.step]
+        self.tab.ask_monitor({"action": "learn", "key": key, "position": position})
+        self.heard.configure(text=f"Got it: {name}. That is the {effects.position_label(position).lower()} port.")
+        self.advance(key)
+
+    def close(self):
+        self.closed = True
+        self.dialog.destroy()
+
+
 class EffectsTab(ttk.Frame):
 
     def __init__(self, master, window):
@@ -161,6 +283,11 @@ class EffectsTab(ttk.Frame):
         self.fix_button.state(["disabled"])
         ttk.Label(frame, text="White Rabbit remembers the port you pick, for that device's port from then on.",
                   foreground=HINT).pack(anchor="w", pady=(2, 0))
+        teach = ttk.Frame(frame)
+        teach.pack(anchor="w", pady=(8, 0))
+        ttk.Button(teach, text="Teach White Rabbit my ports...", command=self.teach_ports).pack(side="left")
+        ttk.Label(teach, text="  Windows doesn't say which port is which, so plug something into each one once.",
+                  foreground=HINT).pack(side="left")
 
     def try_plug(self, plugged_in):
         position = POSITIONS[self.try_position.current()]
@@ -189,6 +316,9 @@ class EffectsTab(ttk.Frame):
         position = POSITIONS[self.fix_position.current()]
         self.ask_monitor({"action": "learn", "key": self.last_plug["key"], "position": position})
         self.status.configure(text=f"Remembered: {effects.position_label(position)}.")
+
+    def teach_ports(self):
+        PortTeacher(self)
 
     # Text line
     def build_text(self, parent):

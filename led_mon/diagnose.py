@@ -92,6 +92,11 @@ def report(config_file=None, device_list=None, find_apps=None, read_sensors=None
             lines.append(f"Windows Location (weather): {windows_location.describe()}")
         except Exception as e:
             lines.append(f"Windows Location (weather): could not be checked ({e})")
+        try:
+            from led_mon import now_playing
+            lines.append(f"Now playing (media controls): {now_playing.describe()}")
+        except Exception as e:
+            lines.append(f"Now playing (media controls): could not be checked ({e})")
     return lines
 
 

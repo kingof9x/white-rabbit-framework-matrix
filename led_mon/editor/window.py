@@ -814,6 +814,7 @@ class LayoutEditor:
         self.status = ttk.Label(bar, text="", foreground="#555555")
         self.status.pack(side="top", anchor="w", pady=(0, 6))
         ttk.Button(bar, text="Identify panels", command=self.identify).pack(side="left")
+        ttk.Button(bar, text="Swap left and right", command=self.swap_sides).pack(side="left", padx=(4, 0))
         ttk.Label(bar, text="  Send preview to").pack(side="left")
         self.send_target = tk.StringVar(value="Both panels")
         ttk.Combobox(bar, textvariable=self.send_target, values=("Both panels", "Left panel", "Right panel"),
@@ -1158,6 +1159,31 @@ class LayoutEditor:
     def identify(self):
         self.run_action(lambda: "The panels show their names (if you gave them any) and app names for a few seconds." if preview.identify()
                         else "Identify needs the monitor to be running.", "")
+
+    def swap_sides(self):
+        """The panels are the wrong way round: pin each side to the other panel, save and show it."""
+        from led_mon import shared_state
+        ports, locations = shared_state.pins_from_settings(self.layout.settings)
+        found = shared_state.discover_led_devices(overrides=ports, locations_pinned=locations) or []
+        pins = shared_state.swapped_pins(found)
+        if pins is None:
+            self.set_status("Swap left and right needs both panels connected.")
+            return
+        for side in ("left", "right"):
+            self.layout.settings.pop(f"{side}-port", None)
+            self.layout.settings.pop(f"{side}-location", None)
+        self.layout.settings.update(pins)
+        self.fill_ports()
+        self.changed(refresh_settings=False)
+        if not self.save():
+            return
+
+        def run():
+            if preview.apply_config():
+                preview.identify()
+                return "Swapped. Each panel shows its name for a few seconds so you can check."
+            return "Swapped and saved. Start the monitor to see it."
+        self.run_action(run, "Swapping...")
 
     def run_action(self, action, busy_text):
         if busy_text:

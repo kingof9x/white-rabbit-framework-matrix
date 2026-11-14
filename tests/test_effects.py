@@ -350,3 +350,54 @@ def test_slide_only_when_the_apps_change():
     assert mon.apps_key(clock) != mon.apps_key([{"name": "weather"}])
     hidden = [{"name": "time"}, {"name": "none", "display": False}]
     assert mon.apps_key(hidden) == mon.apps_key([{"name": "time"}])
+
+
+def test_port_teacher_learns_each_port_once():
+    tk = pytest.importorskip("tkinter")
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        pytest.skip("no desktop to open a window on")
+    import time as _time
+    from tkinter import ttk
+    from white_rabbit import effects_tab
+
+    class Tab(ttk.Frame):
+        def __init__(self, master):
+            super().__init__(master)
+            self.sent = []
+
+        def ask_monitor(self, message, done=None):
+            self.sent.append(message)
+
+        def got_reply(self, reply):
+            pass
+
+    try:
+        tab = Tab(root)
+        teacher = effects_tab.PortTeacher(tab)
+        first = effects_tab.POSITIONS[0]
+        assert "left back" in teacher.ask.cget("text")
+        # Something plugged in before the dialog asked doesn't count
+        teacher.got_reply({"last_plug": {"plugged_in": True, "key": "OLD", "name": "Stick", "time": 0}})
+        assert teacher.step == 0
+        now = _time.time() + 1
+        teacher.got_reply({"last_plug": {"plugged_in": True, "key": "A", "name": "Stick", "time": now}})
+        assert teacher.step == 1 and {"action": "learn", "key": "A", "position": first} in tab.sent
+        # The same port again for the next one is caught
+        teacher.got_reply({"last_plug": {"plugged_in": True, "key": "A", "name": "Stick", "time": now + 5}})
+        assert teacher.step == 1 and "same port" in teacher.heard.cget("text")
+        # The charger and devices without a place are not ports to learn
+        teacher.got_reply({"last_plug": {"plugged_in": True, "kind": "charger", "key": "charger", "time": now + 6}})
+        teacher.got_reply({"last_plug": {"plugged_in": True, "key": None, "name": "Thing", "time": now + 7}})
+        assert teacher.step == 1
+        for _ in range(5):
+            teacher.skip()
+        assert teacher.ask.cget("text") == "All done" and "1 of your ports" in teacher.heard.cget("text")
+        teacher.start_over()
+        assert teacher.step == 0 and {"action": "forget_ports"} in tab.sent
+        teacher.got_reply(None)
+        assert "isn't running" in teacher.heard.cget("text")
+        teacher.close()
+    finally:
+        root.destroy()
