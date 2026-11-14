@@ -19,6 +19,7 @@ import numpy as np
 from led_mon import app_settings, shortcuts
 from led_mon.equalizer_files import looks
 from white_rabbit.tabs import HINT, section
+from led_mon.theme import Slider
 
 log = logging.getLogger(__name__)
 
@@ -160,7 +161,7 @@ class MusicTab(ttk.Frame):
         self.fall.grid(row=0, column=1, sticky="w", padx=4)
         self.fall.bind("<<ComboboxSelected>>", lambda e: self.changed())
         ttk.Label(grid, text="Sensitivity:").grid(row=1, column=0, sticky="w", pady=(4, 0))
-        self.sensitivity = tk.Scale(grid, from_=1, to=10, orient="horizontal", length=200, showvalue=True,
+        self.sensitivity = Slider(grid, from_=1, to=10, orient="horizontal", length=200, showvalue=True,
                                     command=lambda v: self.changed())
         self.sensitivity.grid(row=1, column=1, sticky="w", padx=4)
         ttk.Label(grid, text="Turn it up if the bars hardly move, down if they're always full.",

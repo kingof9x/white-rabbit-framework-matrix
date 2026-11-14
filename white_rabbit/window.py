@@ -1,7 +1,9 @@
-# The White Rabbit window: the layout editor and the LED Matrix controls in one place.
+# The White Rabbit window: the layout editor and the LED Matrix controls in one place, laid out like the
+# Windows 11 Settings app and following the Windows look (see led_mon/theme.py).
 #
-# Tabs: Panels (layout editor), Startup animation, Games & patterns, Math, Draw, Audio, Effects, Firmware, Keyboard shortcuts, Info.
-# The bar at the bottom picks which panels the controls act on, and shows whether each panel is
+# Pages, picked in the menu on the left: Home, System monitor (the layout editor), Games & patterns, Music,
+# Math, Draw, Effects, Startup animation and Settings (which opens Firmware, Keyboard shortcuts and About).
+# The bottom of the menu picks which panels the controls act on, and shows whether the panels are
 # showing the system monitor or something from this window. Playing a game or showing a pattern
 # borrows the panel from the monitor; "Back to system monitor" returns it.
 
@@ -100,8 +102,30 @@ class Lender:
         return [p for p, _ in returning]
 
 
+# The menu on the left: (page key, icon, label). Firmware, Keyboard shortcuts and About open from Settings.
+NAV_PAGES = (
+    ("home", "home", "Home"),
+    ("monitor", "monitor", "System monitor"),
+    ("games", "games", "Games & patterns"),
+    ("music", "music", "Music"),
+    ("math", "math", "Math"),
+    ("draw", "draw", "Draw"),
+    ("effects", "effects", "Effects"),
+    ("startup", "startup", "Startup animation"),
+    ("settings", "settings", "Settings"),
+)
+SUB_PAGES = {"firmware": ("settings", "Firmware"), "shortcuts": ("settings", "Keyboard shortcuts"),
+             "about": ("settings", "About White Rabbit")}
+# --tab names (older names too) -> pages
+START_PAGES = {"panels": "monitor", "startup": "startup", "play": "games", "games": "games", "math": "math",
+               "draw": "draw", "effects": "effects", "audio": "music", "music": "music", "firmware": "firmware", "shortcuts": "shortcuts",
+               "info": "about", "about": "about", "settings": "settings", "home": "home"}
+
+
 class WhiteRabbitWindow:
     def __init__(self, root, args, start_tab=None):
+        from led_mon import theme as theme_mod
+        from white_rabbit import pages
         self.root = root
         self.args = args
         self.link = bridge.Link()
@@ -109,25 +133,45 @@ class WhiteRabbitWindow:
         self.lender = Lender(self.link)
         self.ui_calls = queue.Queue()
         self.monitor_running = False
+        self.module_info = {}
+        self.theme = theme_mod.current() or theme_mod.install(root)
+        px = self.theme.px
 
         root.title(window_title())
-        root.geometry("1340x760")
-        root.minsize(1000, 700)
+        width = min(px(1480), root.winfo_screenwidth() - px(40))
+        height = min(px(900), root.winfo_screenheight() - px(80))
+        root.geometry(f"{width}x{height}")
+        root.minsize(min(px(1180), width), min(px(700), height))
         root.protocol("WM_DELETE_WINDOW", self.on_close)
 
-        # The bar is packed first so it stays visible when a tab is taller than the window
-        self.bar = ttk.Frame(root, padding=(12, 6, 12, 10))
-        self.bar.pack(side="bottom", fill="x")
-        self.notebook = ttk.Notebook(root)
-        self.notebook.pack(fill="both", expand=True)
+        # The menu on the left, and the page on the right with its title above it
+        self.nav = ttk.Frame(root, padding=(px(8), px(10), px(8), px(10)), width=px(290))
+        self.nav.pack(side="left", fill="y")
+        self.nav.pack_propagate(False)
+        self.main = ttk.Frame(root, padding=(px(16), 0, px(24), px(12)))
+        self.main.pack(side="left", fill="both", expand=True)
+        self.header = ttk.Frame(self.main)
+        self.header.pack(fill="x", pady=(px(14), px(10)))
+        self.crumb = ttk.Label(self.header, style="Crumb.TLabel", cursor="hand2")
+        self.crumb_arrow = ttk.Label(self.header, style="Crumb.TLabel", text=" \u203a ")
+        self.page_title = ttk.Label(self.header, style="Title.TLabel")
+        self.page_title.pack(side="left")
+        self.crumb.bind("<Button-1>", lambda e: self.show_page(self.crumb_page))
+        self.crumb.bind("<Enter>", lambda e: self.crumb.state(["active"]))
+        self.crumb.bind("<Leave>", lambda e: self.crumb.state(["!active"]))
+        self.crumb_page = None
+        self.body = ttk.Frame(self.main)
+        self.body.pack(fill="both", expand=True)
 
         self.panels = panels_mod.find_panels(self.read_config())
         self.panel_vars = {}
-        self.build_bar()
+        self.build_nav()
 
+        self.pages = {}
+        self.page = None
         self.editor = None
-        self.panels_tab = ttk.Frame(self.notebook)
-        self.notebook.add(self.panels_tab, text="Panels")
+        self.panels_tab = ttk.Frame(self.body)
+        self.pages["monitor"] = self.panels_tab
         try:
             from led_mon.editor.window import LayoutEditor
             self.editor = LayoutEditor(root, args, container=self.panels_tab, on_dirty=self.on_layout_dirty)
@@ -135,32 +179,23 @@ class WhiteRabbitWindow:
             log.exception("The layout editor failed to start")
             ttk.Label(self.panels_tab, text=f"The layout editor couldn't start: {e}", padding=20).pack(anchor="w")
 
-        self.startup_tab = tabs.StartupTab(self.notebook, self)
-        self.notebook.add(self.startup_tab, text="Startup animation")
-        self.play_tab = tabs.PlayTab(self.notebook, self)
-        self.notebook.add(self.play_tab, text="Games & patterns")
-        self.math_tab = math_tab.MathTab(self.notebook, self)
-        self.notebook.add(self.math_tab, text="Math")
-        self.draw_tab = draw_tab.DrawTab(self.notebook, self)
-        self.notebook.add(self.draw_tab, text="Draw")
-        self.music_tab = music.MusicTab(self.notebook, self)
-        self.notebook.add(self.music_tab, text="Audio")
-        self.effects_tab = effects_tab.EffectsTab(self.notebook, self)
-        self.notebook.add(self.effects_tab, text="Effects")
-        self.firmware_tab = tabs.FirmwareTab(self.notebook, self)
-        self.notebook.add(self.firmware_tab, text="Firmware")
-        self.shortcuts_tab = tabs.ShortcutsTab(self.notebook, self)
-        self.notebook.add(self.shortcuts_tab, text="Keyboard shortcuts")
-        self.info_tab = info_tab.InfoTab(self.notebook, self)
-        self.notebook.add(self.info_tab, text="Info")
-        tab = {"startup": self.startup_tab, "play": self.play_tab, "math": self.math_tab, "draw": self.draw_tab, "audio": self.music_tab, "music": self.music_tab, "effects": self.effects_tab,
-               "firmware": self.firmware_tab, "shortcuts": self.shortcuts_tab,
-               "info": self.info_tab}.get(start_tab)
-        if tab is not None:
-            self.notebook.select(tab)
-        # The Audio tab listens to the sound only while it is showing
-        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
-        self.root.after(300, self.on_tab_changed)
+        self.startup_tab = tabs.StartupTab(self.body, self)
+        self.play_tab = tabs.PlayTab(self.body, self)
+        self.math_tab = math_tab.MathTab(self.body, self)
+        self.draw_tab = draw_tab.DrawTab(self.body, self)
+        self.music_tab = music.MusicTab(self.body, self)
+        self.effects_tab = effects_tab.EffectsTab(self.body, self)
+        self.firmware_tab = tabs.FirmwareTab(self.body, self)
+        self.shortcuts_tab = tabs.ShortcutsTab(self.body, self)
+        self.info_tab = info_tab.InfoTab(self.body, self)
+        self.home_page = pages.HomePage(self.body, self)
+        self.settings_page = pages.SettingsPage(self.body, self)
+        self.pages.update(home=self.home_page, games=self.play_tab, music=self.music_tab, math=self.math_tab, draw=self.draw_tab, effects=self.effects_tab,
+                          startup=self.startup_tab, settings=self.settings_page, firmware=self.firmware_tab,
+                          shortcuts=self.shortcuts_tab, about=self.info_tab)
+        self.theme.refresh_tree(root)
+        self.theme.title_bar(root)
+        self.show_page(START_PAGES.get(start_tab, "home"))
 
         self.root.after(100, self.poll_ui_calls)
         self.root.after(200, self.check_monitor)
@@ -175,24 +210,86 @@ class WhiteRabbitWindow:
             log.warning(f"Could not read the layout for the panel order: {e}")
             return None
 
-    # Bottom bar
-    def build_bar(self):
-        ttk.Label(self.bar, text="Controls act on:").pack(side="left")
+    # The menu on the left
+    def build_nav(self):
+        theme, px = self.theme, self.theme.px
+        top = ttk.Frame(self.nav)
+        top.pack(fill="x", padx=px(8), pady=(px(4), px(14)))
+        try:
+            from PIL import ImageTk
+            from led_mon.tray import make_icon_image
+            self.logo = ImageTk.PhotoImage(make_icon_image(px(20)), master=self.root)
+            ttk.Label(top, image=self.logo).pack(side="left", padx=(0, px(10)))
+        except Exception as e:
+            log.debug(f"No logo: {e}")
+        ttk.Label(top, text=window_title(), style="NavHint.TLabel").pack(side="left")
+
+        self.nav_items = {}
+        for key, icon, label in NAV_PAGES:
+            item = ttk.Label(self.nav, text="  " + label, image=theme.icon(icon, 16), style="Nav.TLabel",
+                             takefocus=1, cursor="hand2")
+            item.pack(fill="x", pady=px(1))
+            item.bind("<Button-1>", lambda e, key=key: self.show_page(key))
+            item.bind("<Return>", lambda e, key=key: self.show_page(key))
+            item.bind("<space>", lambda e, key=key: self.show_page(key))
+            item.bind("<Enter>", lambda e, item=item: item.state(["active"]))
+            item.bind("<Leave>", lambda e, item=item: item.state(["!active"]))
+            self.nav_items[key] = item
+
+        # Which panels the controls act on, at the bottom of the menu
+        self.bar = ttk.Frame(self.nav, padding=(px(10), 0, px(6), 0))
+        self.bar.pack(side="bottom", fill="x")
+        ttk.Label(self.bar, text="Controls act on", style="Section.TLabel").pack(anchor="w", pady=(0, px(4)))
         if not self.panels:
-            ttk.Label(self.bar, text="no LED Matrix panels found", foreground="#a33").pack(side="left", padx=6)
+            ttk.Label(self.bar, text="No LED Matrix panels found", foreground="#a33").pack(anchor="w")
         self.panel_checks = {}
         for panel in self.panels:
             var = tk.BooleanVar(value=True)
             check = ttk.Checkbutton(self.bar, text=panel.label, variable=var)
-            check.pack(side="left", padx=6)
+            check.pack(anchor="w", pady=px(1))
             self.panel_vars[panel.device] = var
             self.panel_checks[panel.device] = check
-        ttk.Button(self.bar, text="Name panels...", command=self.name_panels).pack(side="left", padx=6)
+        self.bar_status = ttk.Label(self.bar, text="", style="NavHint.TLabel", wraplength=px(250), justify="left")
+        self.bar_status.pack(anchor="w", fill="x", pady=(px(8), px(6)))
         self.back_button = ttk.Button(self.bar, text="Back to system monitor", command=self.give_back_all)
-        self.back_button.pack(side="right")
-        self.bar_status = ttk.Label(self.bar, text="", foreground="#555555")
-        self.bar_status.pack(side="right", padx=10)
+        self.back_button.pack(anchor="w", fill="x")
         self.update_bar()
+
+    def show_page(self, key):
+        if key not in self.pages:
+            key = "home"
+        if self.page == key:
+            return
+        if self.page is not None:
+            self.pages[self.page].pack_forget()
+        self.page = key
+        self.pages[key].pack(fill="both", expand=True)
+        parent, title = SUB_PAGES.get(key, (None, None))
+        nav_key = parent or key
+        for name, item in self.nav_items.items():
+            item.state(["selected"] if name == nav_key else ["!selected"])
+        title = title or dict((k, label) for k, _, label in NAV_PAGES)[key]
+        if parent:
+            self.crumb_page = parent
+            self.crumb.configure(text=dict((k, label) for k, _, label in NAV_PAGES)[parent])
+            self.crumb.pack(side="left", before=self.page_title)
+            self.crumb_arrow.pack(side="left", before=self.page_title)
+        else:
+            self.crumb.pack_forget()
+            self.crumb_arrow.pack_forget()
+        self.page_title.configure(text=title)
+        # The Music page listens to the sound only while it is showing
+        try:
+            self.music_tab.set_visible(key == "music")
+        except Exception as e:
+            log.error(f"Could not start the Music page's preview: {e}")
+        try:
+            self.effects_tab.set_visible(key == "effects")
+        except Exception as e:
+            log.error(f"Could not start the Effects page's preview: {e}")
+        show = getattr(self.pages[key], "page_shown", None)
+        if callable(show):
+            show()
 
     def update_bar(self):
         borrowed = [p for p in self.panels if self.lender.is_borrowed(p)]
@@ -206,6 +303,9 @@ class WhiteRabbitWindow:
             text = "Panels are showing the system monitor"
         self.bar_status.configure(text=text)
         self.back_button.state(["!disabled"] if borrowed else ["disabled"])
+        home = getattr(self, "home_page", None)
+        if home is not None:
+            home.update_panels()
 
     def name_panels(self):
         """A small window to give the left and right panels names; Identify panels shows them."""
@@ -224,7 +324,7 @@ class WhiteRabbitWindow:
             entry.insert(0, names.get(side, ""))
             entry.grid(row=row, column=1, sticky="w", padx=6, pady=3)
             entries[side] = entry
-        ttk.Label(body, text=f"Identify panels (Panels tab or tray menu) shows the first "
+        ttk.Label(body, text=f"Identify panels (on the Home page or in the tray menu) shows the first "
                              f"{app_settings.PANEL_NAME_LETTERS} letters on the panel itself. "
                              "Leave a name empty to go back to plain left and right.",
                   foreground="#555555", wraplength=300, justify="left"
@@ -302,10 +402,10 @@ class WhiteRabbitWindow:
         status = status or (lambda text: None)
         panels = self.selected_panels() if panels is None else panels
         if not panels:
-            status("Tick a panel at the bottom of the window first.")
+            status('Tick a panel under "Controls act on", bottom left, first.')
             return False
         if one_panel and len(panels) != 1:
-            status("Tick exactly one panel at the bottom of the window for this.")
+            status('Tick exactly one panel under "Controls act on", bottom left, for this.')
             return False
 
         def work():
@@ -354,21 +454,11 @@ class WhiteRabbitWindow:
             self.module_info = info
             self.startup_tab.show_modules(info)
             self.firmware_tab.show_modules(info)
-        self.module_info = {}
+            self.home_page.update_panels()
         self.in_background(work, done)
 
-    def on_tab_changed(self, event=None):
-        try:
-            self.music_tab.set_visible(self.notebook.select() == str(self.music_tab))
-        except Exception as e:
-            log.error(f"Could not start the Audio tab's preview: {e}")
-        try:
-            self.effects_tab.set_visible(self.notebook.select() == str(self.effects_tab))
-        except Exception as e:
-            log.error(f"Could not start the Effects tab's preview: {e}")
-
     def on_layout_dirty(self, dirty):
-        self.notebook.tab(self.panels_tab, text="Panels *" if dirty else "Panels")
+        self.nav_items["monitor"].configure(text="  System monitor *" if dirty else "  System monitor")
 
     def on_close(self):
         if self.editor is not None and not self.editor.close():
@@ -457,6 +547,11 @@ def run_window(args, start_tab=None, wait=False):
         wait_for_monitor(bridge.Link())
     platform_utils.enable_dpi_awareness()
     root = tk.Tk()
+    if os.environ.get("WHITE_RABBIT_UI_SCALE"):
+        # Screenshots away from Windows: draw as Windows would at this display scaling (1.5 = 150%)
+        root.tk.call("tk", "scaling", float(os.environ["WHITE_RABBIT_UI_SCALE"]) * 96 / 72)
+    from led_mon import theme
+    theme.install(root)
     try:
         from led_mon.tray import make_icon_image
         from PIL import ImageTk
@@ -520,6 +615,24 @@ def run_window(args, start_tab=None, wait=False):
                 log.error("Smoke test failed: the Info tab has no version")
         root.after(5000, check_info_tab)
 
+        def check_look():
+            # Each page opens, and the look can be changed to each choice and back
+            from led_mon import theme
+            look = theme.current()
+            try:
+                for key in window.pages:
+                    window.show_page(key)
+                window.show_page("home")
+                saved = look.choice
+                for choice in theme.CHOICES:
+                    look.set_choice(choice)
+                    root.update_idletasks()
+                    log.info(f"Smoke test: look {choice} shows as {look.mode}, accent {look.accent}")
+                look.set_choice(saved)
+            except Exception as e:
+                log.exception(f"Smoke test failed: changing the look: {e}")
+        root.after(5500, check_look)
+
         def check_draw_tab():
             # Import a GIF on the Draw tab, save it, and check the Picture app offers it
             try:
@@ -531,7 +644,7 @@ def run_window(args, start_tab=None, wait=False):
                 path = os.path.join(tempfile.mkdtemp(), "smoke.gif")
                 frames[0].save(path, save_all=True, append_images=frames[1:], duration=120, loop=0)
                 tab = window.draw_tab
-                window.notebook.select(tab)
+                window.show_page("draw")
                 tab.import_from(path)
                 tab.name_entry.delete(0, "end")
                 tab.name_entry.insert(0, "Smoke test")
@@ -545,7 +658,7 @@ def run_window(args, start_tab=None, wait=False):
                 drawings.delete("Smoke test")
             except Exception as e:
                 log.error(f"Smoke test failed: the Draw tab: {e}")
-        root.after(5500, check_draw_tab)
+        root.after(4000, check_draw_tab)
 
         def finish():
             if window.editor is not None:

@@ -142,7 +142,7 @@ class FrameworkToolThermal:
                 self._needs_admin = True
                 self.error = "needs White Rabbit to run as admin"
                 self._warn_once("framework_tool needs admin rights, so it won't be run again until White Rabbit "
-                                "restarts; choose another source for temperatures and fans on the Panels tab")
+                                "restarts; choose another source for temperatures and fans on the System monitor page")
             else:
                 self.error = f"failed ({e})"
                 self._warn_once(f"framework_tool --thermal failed; temperature and fan apps will be empty: {e}")

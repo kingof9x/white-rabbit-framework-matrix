@@ -16,6 +16,7 @@ from led_mon import effects, drawing
 from white_rabbit.tabs import HINT, section
 from white_rabbit.math_tab import ScrollFrame
 from white_rabbit.music import led_color, DOT, STEP, PANEL_GAP, MARGIN
+from led_mon.theme import Slider
 
 log = logging.getLogger(__name__)
 
@@ -215,7 +216,7 @@ class EffectsTab(ttk.Frame):
         row = ttk.Frame(frame)
         row.pack(anchor="w", pady=(6, 0))
         ttk.Label(row, text="Scroll speed:").pack(side="left")
-        self.speed = tk.Scale(row, from_=1, to=10, orient="horizontal", length=200, showvalue=True)
+        self.speed = Slider(row, from_=1, to=10, orient="horizontal", length=200, showvalue=True)
         self.speed.set(self.settings["text_speed"])
         self.speed.configure(command=lambda v: self.changed())
         self.speed.pack(side="left", padx=6)
@@ -246,7 +247,7 @@ class EffectsTab(ttk.Frame):
         frame = section(parent, "Dimming")
         self.flag(frame, "full_shades", "Keep every shade when the panels are dim")
         ttk.Label(frame, text="Dark pictures stop losing detail at low brightness. Needs White Rabbit firmware "
-                  "with dimming (update it on the Firmware tab); older firmware ignores this.",
+                  "with dimming (update it in Settings > Firmware); older firmware ignores this.",
                   foreground=HINT, wraplength=640, justify="left").pack(anchor="w", pady=(2, 0))
 
     # Preview

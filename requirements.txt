@@ -28,5 +28,7 @@ winrt-Windows.Media.Control; sys_platform == "win32"
 winrt-Windows.Storage.Streams; sys_platform == "win32"
 # LED Matrix controls (inputmodule): images, the Snake and Ledris games
 pillow >= 10.0.0
+# The window's Windows 11 look
+sv-ttk == 2.6.1
 pygame == 2.6.1
 get-key == 1.60.0

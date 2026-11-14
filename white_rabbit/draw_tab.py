@@ -16,6 +16,7 @@ import numpy as np
 
 # Internal Dependencies
 from led_mon import drawings, platform_utils
+from led_mon.theme import Slider
 
 log = logging.getLogger(__name__)
 
@@ -132,7 +133,7 @@ class DrawTab(ttk.Frame):
             self.swatches.create_rectangle(x + 4, 4, x + 30, 30, fill=led_colour(value), width=0, tags=(f"s{value}",))
             self.swatches.tag_bind(f"s{value}", "<Button-1>", lambda e, v=value: self.set_shade(v))
         self.swatch_ring = self.swatches.create_rectangle(0, 0, 0, 0, outline="#4ea1ff", width=2)
-        self.shade_scale = tk.Scale(shades, from_=1, to=255, orient="horizontal", length=200, showvalue=True,
+        self.shade_scale = Slider(shades, from_=1, to=255, orient="horizontal", length=200, showvalue=True,
                                     variable=self.shade, command=lambda v: self.show_swatch())
         self.shade_scale.pack(anchor="w", pady=(4, 0))
         self.show_swatch()
@@ -215,7 +216,7 @@ class DrawTab(ttk.Frame):
         ttk.Checkbutton(box, text="Show on the ticked panels while I draw", variable=self.live,
                         command=self.live_changed).pack(anchor="w")
         ttk.Label(box, text="To keep a drawing on a panel, save it, then put the Picture app on the panel "
-                  "in the Panels tab and pick the drawing there.",
+                  "on the System monitor page and pick the drawing there.",
                   foreground=HINT, wraplength=330, justify="left").pack(anchor="w", pady=(6, 0))
 
     def build_saved(self, parent):
@@ -542,7 +543,7 @@ class DrawTab(ttk.Frame):
         self.saved_state = self.state_key()
         self.refresh_saved(select=name)
         self.redraw()
-        self.show(f"Saved {name}. The Picture app on the Panels tab can show it now.")
+        self.show(f"Saved {name}. The Picture app on the System monitor page can show it now.")
 
     def ok_to_lose_changes(self):
         if self.state_key() == self.saved_state:
@@ -609,7 +610,7 @@ class DrawTab(ttk.Frame):
     def live_changed(self):
         if self.live.get():
             if not self.window.selected_panels():
-                self.show("Tick a panel at the bottom of the window first.")
+                self.show('Tick a panel under "Controls act on", bottom left, first.')
                 self.live.set(False)
                 return
             self.push_soon()

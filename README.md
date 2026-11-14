@@ -359,6 +359,10 @@ current were inspired by patate's (slowpaste)
 [pixeled](https://github.com/slowpaste/pixeled). They are written from scratch
 for White Rabbit; no code was copied.
 
+The window's look is the [Sun Valley ttk theme](https://github.com/rdbende/Sun-Valley-ttk-theme)
+by rdbende (MIT, see [LICENSES/sv-ttk-LICENSE.txt](LICENSES/sv-ttk-LICENSE.txt)), coloured with
+your Windows accent colour.
+
 Most of the Math tab's graphs and simulations come from mariobx's
 [Framework-LED-Matrix](https://github.com/mariobx/Framework-LED-Matrix). That
 project is GPL-3.0 licensed, so no code was copied: the Math tab is written
