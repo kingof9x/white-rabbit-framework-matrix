@@ -141,6 +141,16 @@ class Ripple:
         self.age = 0.0
         self.carry = 0.0
         self.active = True
+        self.last = None
+
+    def advance_to(self, now):
+        """Advance to the time now. Panels sharing a ripple each call this; it only moves once."""
+        if self.last is None:
+            self.last = now
+            return
+        dt, self.last = now - self.last, max(self.last, now)
+        if dt > 0:
+            self.advance(dt)
 
     def advance(self, dt):
         if not self.active:
@@ -343,6 +353,16 @@ class TextLine:
             return self.current is not None or bool(self.queue)
 
 
+# Columns of keyboard between the two panels, for a ripple running from one panel to the other
+GAP = 4
+
+
+def panel_columns(order, side):
+    """Where a panel's 9 columns are in the picture spanning all panels (with the keyboard between)."""
+    start = order.index(side) * (WIDTH + GAP)
+    return start, start + WIDTH
+
+
 class SidePlayer:
     """The effects on one panel."""
     SLIDE_SECONDS = 0.45
@@ -350,7 +370,7 @@ class SidePlayer:
     RISE_SECONDS = 0.25
 
     def __init__(self):
-        self.ripples = []        # [(Ripple, flipped)]
+        self.ripples = []        # [(Ripple, flipped)] (unused: ripples span the panels, see Effects.ripples)
         self.drain = None        # (Drain, flipped)
         self.phase = None        # None, 'drain', 'empty', 'rise'
         self.phase_since = 0.0
@@ -373,6 +393,8 @@ class Effects:
         self.panels = set()      # sides with a panel drawing now
         self.owner = {}          # side: the drawing thread that drew there last
         self.foreground = 160
+        # Ripples across all panels at once: [(Ripple over the wide picture, panel order)]
+        self.ripples = []
 
     # Settings and panels
     def configure(self, settings):
@@ -407,27 +429,30 @@ class Effects:
         row = self.settings["port_rows"].get(spot, HEIGHT // 2) if spot else HEIGHT // 2
         with self.lock:
             panel, at_left = self._panel_for(side)
+            if plugged_in:
+                # One ripple across all the panels, starting at the port's edge and running on to the
+                # other panel. A port we can't place ripples out from between the panels.
+                order = [s for s in SIDES if s in self.panels] or ["left"]
+                wide = len(order) * WIDTH + (len(order) - 1) * GAP
+                if panel is None:
+                    jack_x, jack_y = wide / 2, HEIGHT / 2
+                else:
+                    jack_x, jack_y = (0.0 if at_left else float(wide)), row + 0.5
+                    player = self.players[panel]
+                    if player.phase in ("drain", "empty"):
+                        self._start_rise(player)
+                self.ripples.append((Ripple(jack_x, jack_y, width=wide), order))
+                self.ripples = self.ripples[-3:]
+                return
             if panel is None:
-                # Unknown port: a ripple from the middle of every panel
-                if plugged_in:
-                    for p in (self.panels or {"left"}):
-                        self.players[p].ripples.append((Ripple(WIDTH / 2, HEIGHT / 2), False))
                 return
             player = self.players[panel]
-            if plugged_in:
-                if player.phase in ("drain", "empty"):
-                    self._start_rise(player)
-                # Computed on a flipped copy for a port on the left, so the ripple starts at the left edge
-                player.ripples.append((Ripple(WIDTH, row + 0.5), at_left))
-                player.ripples = player.ripples[-3:]
-            else:
-                base = player.last_base
-                if base is None:
-                    return
-                frame = base[:, ::-1] if at_left else base
-                player.ripples = []
-                player.drain = (Drain(frame, row + 0.5), at_left)
-                player.phase, player.phase_since = "drain", time.monotonic()
+            base = player.last_base
+            if base is None:
+                return
+            frame = base[:, ::-1] if at_left else base
+            player.drain = (Drain(frame, row + 0.5), at_left)
+            player.phase, player.phase_since = "drain", time.monotonic()
 
     def say(self, text):
         if self.settings["text_line"]:
@@ -447,10 +472,14 @@ class Effects:
         player.phase, player.phase_since = "rise", time.monotonic()
 
     # Drawing
+    def _ripples_on(self, side):
+        return [r for r in self.ripples if side in r[1] and r[0].active]
+
     def active(self, side):
         with self.lock:
             player = self.players.get(side)
-            return (player is not None and player.active()) or self.text.active()
+            return ((player is not None and (player.active() or self._ripples_on(side)))
+                    or self.text.active())
 
     def interval(self, side):
         """How long a drawing thread may wait for a new frame before redrawing the effect itself;
@@ -476,7 +505,7 @@ class Effects:
                 player.last_base = base
             dt = 0.0 if player.last_time is None else min(now - player.last_time, 0.1)
             player.last_time = now
-            if not player.active() and not self.text.active():
+            if not player.active() and not self._ripples_on(side) and not self.text.active():
                 return grid
             out = base.copy()
 
@@ -517,17 +546,22 @@ class Effects:
                 if k >= 1:
                     player.phase = None
 
-            if player.phase in (None, "rise") and player.ripples:
-                kept = []
-                for ripple, flipped in player.ripples:
-                    ripple.advance(dt)
-                    if flipped:
-                        out = ripple.apply(out[:, ::-1])[:, ::-1]
-                    else:
-                        out = ripple.apply(out)
-                    if ripple.active:
-                        kept.append((ripple, flipped))
-                player.ripples = kept
+            ripples = self._ripples_on(side)
+            if player.phase in (None, "rise") and ripples:
+                for ripple, order in ripples:
+                    ripple.advance_to(now)
+                    # This panel's part of the picture across all panels: the water can carry a bit
+                    # of the other panel's picture over, and the wave runs on from one to the other
+                    wide = np.zeros((HEIGHT, ripple.width))
+                    for other in order:
+                        a, b = panel_columns(order, other)
+                        if other == side:
+                            wide[:, a:b] = out
+                        elif self.players[other].last_base is not None:
+                            wide[:, a:b] = self.players[other].last_base
+                    a, b = panel_columns(order, side)
+                    out = ripple.apply(wide)[:, a:b]
+                self.ripples = [r for r in self.ripples if r[0].active]
 
             if self.settings["text_line"]:
                 order = [s for s in SIDES if s in self.panels] or [side]

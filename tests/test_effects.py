@@ -50,39 +50,59 @@ def test_nothing_changes_without_an_effect():
     assert m.interval("left") is None
 
 
-def test_ripple_moves_the_picture_then_puts_it_back():
+def _play(m, sides, g, seconds=4):
+    """Draw the panels until the ripples end; returns {side: [frames]}."""
+    frames = {side: [] for side in sides}
+    deadline = time.monotonic() + seconds
+    while m.ripples and time.monotonic() < deadline:
+        for side in sides:
+            frames[side].append(m.apply(side, g, new_frame=False))
+        time.sleep(1 / 60)
+    return frames
+
+
+def _first_moved(frames, g):
+    """Index of the first frame that differs from g, and the columns that moved in it."""
+    for i, out in enumerate(frames):
+        if not np.array_equal(out, g):
+            return i, np.nonzero((out != g).any(axis=1))[0]
+    return None, None
+
+
+def test_ripple_runs_on_to_the_other_panel_then_puts_both_back():
     m = effects.Effects()
     m.panel_present("left")
     m.panel_present("right")
     g = frame()
+    m.apply("left", g)
     m.apply("right", g)
     m.plug("right-middle", True)
     assert m.interval("right") == effects.FRAME_SECONDS
-    assert m.interval("left") is None          # only the panel by the port
-    moved = False
-    deadline = time.monotonic() + 4
-    while m.players["right"].ripples and time.monotonic() < deadline:
-        out = m.apply("right", g, new_frame=False)
-        moved = moved or not np.array_equal(out, g)
-        time.sleep(1 / 60)
-    assert moved
-    assert not m.players["right"].ripples
-    assert np.array_equal(m.apply("right", g), g)
+    assert m.interval("left") == effects.FRAME_SECONDS       # the ripple carries across
+    frames = _play(m, ("left", "right"), g)
+    right_at, _ = _first_moved(frames["right"], g)
+    left_at, _ = _first_moved(frames["left"], g)
+    assert right_at is not None and left_at is not None
+    assert right_at < left_at                                 # it reaches the far panel later
+    assert not m.ripples
+    assert np.array_equal(m.apply("right", g), g) and np.array_equal(m.apply("left", g), g)
 
 
 def test_ripple_starts_at_the_ports_edge():
-    # A port on the left starts the ripple at the left panel's left edge: the left columns move first
-    m = effects.Effects()
-    m.panel_present("left")
-    m.panel_present("right")
-    ripple, flipped = None, None
-    m.apply("left", frame())
-    m.plug("left-back", True)
-    ripple, flipped = m.players["left"].ripples[0]
-    assert flipped is True
-    m.plug("right-front", True)
-    ripple, flipped = m.players["right"].ripples[0]
-    assert flipped is False
+    for position, panel, edge in (("left-back", "left", 0), ("right-front", "right", 8)):
+        m = effects.Effects()
+        m.panel_present("left")
+        m.panel_present("right")
+        g = frame()
+        m.apply("left", g)
+        m.apply("right", g)
+        m.plug(position, True)
+        ripple, order = m.ripples[0]
+        assert order == ["left", "right"]
+        frames = _play(m, (panel,), g, seconds=1)
+        _, cols = _first_moved(frames[panel], g)
+        # The first columns to move are at the port's edge (the grid is 9 columns x 34 rows)
+        assert abs(int(np.median(cols)) - edge) <= 3, (position, cols)
     # Back is near the top rows, front near the bottom
     assert np.argmax(ripple.splash.max(axis=1)) // ripple.S > 20
 
@@ -92,15 +112,27 @@ def test_one_panel_gets_both_sides():
     m.panel_present("left")
     m.apply("left", frame())
     m.plug("right-back", True)
-    assert m.players["left"].ripples
+    assert m.ripples and m.ripples[0][1] == ["left"]
+    assert m.interval("left") == effects.FRAME_SECONDS
 
 
-def test_unknown_port_ripples_from_the_middle_of_every_panel():
+def test_unknown_port_ripples_out_from_between_the_panels():
     m = effects.Effects()
     m.panel_present("left")
     m.panel_present("right")
     m.plug(None, True)
-    assert m.players["left"].ripples and m.players["right"].ripples
+    ripple, order = m.ripples[0]
+    assert order == ["left", "right"]
+    assert abs(np.argmax(ripple.splash.max(axis=0)) / ripple.S - ripple.width / 2) < 1.5
+    assert m.interval("left") and m.interval("right")
+
+
+def test_two_panels_drawing_one_ripple_dont_speed_it_up():
+    r = effects.Ripple(0, 17, width=22)
+    r.advance_to(10.0)
+    r.advance_to(10.5)
+    r.advance_to(10.5)   # the other panel, same moment
+    assert abs(r.age - 0.1) < 1e-9   # one step, capped at 0.1 s
 
 
 def test_drain_empties_the_panel_then_it_comes_back():
@@ -126,7 +158,7 @@ def test_turned_off_plays_nothing():
     m.configure({"plug_animation": False})
     m.panel_present("left")
     m.plug("left-back", True)
-    assert not m.players["left"].ripples
+    assert not m.ripples
 
 
 def test_slide_brings_the_new_app_up_from_the_bottom():
@@ -308,3 +340,13 @@ def test_monitor_plays_the_wanted_kinds(monkeypatch):
     mon.on_plug("charger", "right-back", True, {"name": "Charger"})
     assert played == [("right-back", True)] and said == ["Charging"]
     mon.effects.manager.configure({})
+
+
+def test_slide_only_when_the_apps_change():
+    pytest.importorskip("requests")  # The monitor loads the weather plugin
+    from led_mon import led_system_monitor as mon
+    clock = [{"name": "time", "args": {"fmt_24_hour": True}}]
+    assert mon.apps_key(clock) == mon.apps_key([dict(clock[0])])
+    assert mon.apps_key(clock) != mon.apps_key([{"name": "weather"}])
+    hidden = [{"name": "time"}, {"name": "none", "display": False}]
+    assert mon.apps_key(hidden) == mon.apps_key([{"name": "time"}])
