@@ -268,6 +268,13 @@ def on_song(song):
 
 now_playing.watcher.on_song = on_song
 
+# What each panel showed last, so the slide only plays when the apps really change
+shown_apps = {}
+
+def apps_key(panel_apps):
+    """The apps a panel shows, comparable from one frame to the next."""
+    return repr([(a.get('name'), a.get('args')) for a in panel_apps if a.get('display', True)])
+
 def learned_ports():
     return effects.manager.settings.get("learned_ports", {})
 
@@ -1081,9 +1088,11 @@ def app(args, base_apps, plugin_apps):
                 if idx_changed[draw_queue]:
                     do_animate = animate
                     idx_changed[draw_queue] = False
-                    if not animate and not persistent_draw:
-                        # Slide the new app in over the old one (Effects tab)
+                    if not animate and not persistent_draw and shown_apps.get(panel) != apps_key(_args):
+                        # Slide the new app in over the old one (Effects tab). Not when the same app
+                        # comes round again (a quadrant with one app still "changes" each time it's due)
                         effects.manager.start_slide(panel)
+                shown_apps[panel] = apps_key(_args)
                         
                 # Restart animation if it was stopped for ID display
                 if latch_key_combo:
