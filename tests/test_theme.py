@@ -86,6 +86,11 @@ def test_window_follows_each_choice(tmp_path, monkeypatch):
         slider.pack()
         slider.set(7)
         assert slider.get() == 7
+        shared = tk.IntVar(value=200)
+        tied = theme.Slider(root, from_=1, to=255, variable=shared)
+        assert tied.get() == 200 and tied.value.cget("text") == "200"
+        shared.set(30)
+        assert tied.value.cget("text") == "30"
         root.update()
         style = ttk.Style(root)
         assert look.mode == "light" and style.lookup(".", "background") == "#f3f3f3"

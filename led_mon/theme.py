@@ -651,20 +651,28 @@ class Slider(ttk.Frame):
     Takes the same main options as tk.Scale (from_, to, length, command) so it can stand in for one;
     command(value) runs when the user moves it to a new number."""
 
-    def __init__(self, master, from_=0, to=100, length=200, command=None, **ignored):
+    def __init__(self, master, from_=0, to=100, length=200, command=None, variable=None, **ignored):
         super().__init__(master)
         self.command = command
-        self.var = tk.DoubleVar(value=from_)
-        self.shown = round(from_)
+        self.var = variable if variable is not None else tk.DoubleVar(value=from_)
+        self.shown = round(float(self.var.get()))
         scale = current().px(1) if current() else 1
         self.scale = ttk.Scale(self, from_=from_, to=to, orient="horizontal", length=round(length * scale),
                                variable=self.var, command=self._moved)
         self.scale.pack(side="left")
         self.value = ttk.Label(self, text=str(self.shown), width=len(str(round(to))) + 1, anchor="e")
         self.value.pack(side="left", padx=(4, 0))
+        # The value shown follows the variable, also when other code changes it
+        self.var.trace_add("write", lambda *_: self._follow())
+
+    def _follow(self):
+        try:
+            self.value.configure(text=str(round(float(self.var.get()))))
+        except (tk.TclError, ValueError):
+            pass
 
     def _moved(self, _=None):
-        value = round(self.var.get())
+        value = round(float(self.var.get()))
         if value != self.shown:
             self.shown = value
             self.value.configure(text=str(value))
@@ -680,7 +688,7 @@ class Slider(ttk.Frame):
     config = configure
 
     def get(self):
-        return round(self.var.get())
+        return round(float(self.var.get()))
 
     def set(self, value):
         self.var.set(value)
