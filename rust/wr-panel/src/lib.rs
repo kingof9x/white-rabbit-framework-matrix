@@ -5,6 +5,7 @@
 
 pub mod dimming;
 pub mod hub;
+pub mod overlay;
 pub mod panel;
 pub mod ports;
 pub mod protocol;
