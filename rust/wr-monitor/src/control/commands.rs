@@ -119,9 +119,6 @@ impl Commands {
                 changed = true;
             }
         }
-        if message.contains_key(SCREEN_UNUSED_SETTING) {
-            info!("TODO: the Rust monitor doesn't turn the panels off when the laptop screen isn't used yet");
-        }
         let settings = self.reload_settings();
         if changed {
             (self.ui)(UiRequest::Power);

@@ -9,6 +9,7 @@ mod icon;
 mod monitor;
 mod music;
 mod paths;
+mod power;
 
 #[cfg(windows)]
 mod app;

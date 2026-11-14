@@ -5,6 +5,7 @@
 //! Everything here mirrors the Python monitor in `led_mon/`, and draws exactly what it draws:
 //! `tests/golden.rs` compares the pictures with the ones Python saved in `tests/golden/`.
 
+pub mod apps;
 pub mod drawing;
 pub mod grid;
 pub mod layout;

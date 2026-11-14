@@ -4,6 +4,9 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use wr_core::apps::panel_names::name_grid;
+use wr_core::apps::picture::{draw_frame, Drawing};
+use wr_core::apps::text;
 use wr_core::drawing::*;
 use wr_core::patterns::ICONS;
 use wr_core::{Grid, HEIGHT, WIDTH};
@@ -142,6 +145,75 @@ fn monitor_cases() -> BTreeMap<String, Grid> {
             let rows: Vec<Vec<f64>> = serde_json::from_str(&text).unwrap();
             case(format!("snap-{panel}-{file}"), &|g| draw_snapshot(g, &rows, FOREGROUND));
         }
+    }
+
+    // Drawings from the Draw tab, made the same way as DRAWINGS in golden_frames.py
+    let frames = |count: usize, offset: usize| {
+        let frames: Vec<Vec<Vec<f64>>> = (0..count)
+            .map(|k| {
+                (0..HEIGHT)
+                    .map(|y| {
+                        (0..WIDTH)
+                            .map(|x| {
+                                let v = ((x * 29 + y * 7 + k * 50 + offset) % 300) as f64 - 20.0;
+                                v + if x % 2 == 1 { 0.5 } else { 0.0 }
+                            })
+                            .collect()
+                    })
+                    .collect()
+            })
+            .collect();
+        serde_json::json!(frames)
+    };
+    let drawings = [
+        ("three-frames", serde_json::json!({"version": 1, "delay_ms": 150, "frames": frames(3, 0)})),
+        ("fast", serde_json::json!({"version": 1, "delay_ms": 5, "frames": frames(2, 77)})),
+        ("no-delay", serde_json::json!({"version": 1, "frames": frames(4, 11)})),
+        ("text-delay", serde_json::json!({"version": 1, "delay_ms": "250", "frames": frames(2, 5)})),
+        ("empty", serde_json::json!({"version": 1, "delay_ms": 100, "frames": []})),
+    ];
+    for (name, data) in &drawings {
+        let drawing = Drawing::from_json(data).unwrap();
+        for t in [0.0, 0.149, 0.15, 0.7, 12.34] {
+            case(format!("drawing-{name}-t{}", py(t)), &|g| draw_frame(g, drawing.frame_at(t), FOREGROUND));
+        }
+    }
+
+    // The Text app
+    let texts = [
+        ("short", "Hi"),
+        ("time", "10:47 87% 12%"),
+        ("words", "Hello, world! 42"),
+        ("long", "The quick brown fox jumps over the lazy dog 0123456789"),
+        ("symbols", "a+b=c? (x/y)*2 #1 <3> _ ' \" \u{b0} ~ \u{df}"),
+        ("percent", "5% 100%"),
+        ("blank", "   "),
+    ];
+    for style in text::STYLES {
+        for (label, words) in texts {
+            for t in [0.0, 1.0, 3.3, 7.25, 40.0] {
+                case(format!("text-{style}-{label}-t{}", py(t)), &|g| text::draw_text(g, words, style, FOREGROUND, t));
+            }
+        }
+    }
+    for (label, cpu, battery, hour, fmt_24) in [
+        ("pm", Some(0.123), Some(0.876), 13, false),
+        ("24h", None, None, 9, true),
+        ("midnight", Some(1.0), Some(0.004), 0, false),
+    ] {
+        let values = text::TextValues {
+            time: text::time_text(hour, 5, fmt_24),
+            battery: text::percent_text(battery),
+            cpu: text::percent_text(cpu),
+        };
+        case(format!("text-values-{label}"), &|g| {
+            text::draw_with_values(g, "{time} {Battery} {CPU} {other}", "stacked", FOREGROUND, &values, 2.0)
+        });
+    }
+
+    // Panel names
+    for name in ["Left", "Right", "Desk", "abcdefgh", "a b", "\u{e4}\u{f6}\u{fc}!", "?\u{e9}#", "", "10:47"] {
+        case(format!("name-{name}"), &|g| *g = name_grid(name, FOREGROUND));
     }
 
     let char_cases: [(&str, &[&str]); 7] = [
