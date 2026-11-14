@@ -10,9 +10,11 @@ pub mod grid;
 pub mod layout;
 pub mod log;
 pub mod monitors;
+pub mod nprand;
 pub mod patterns;
 #[rustfmt::skip]
 mod patterns_data;
+pub mod pyrand;
 pub mod pyround;
 pub mod queue;
 pub mod render;
