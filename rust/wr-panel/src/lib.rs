@@ -1,7 +1,10 @@
 //! Talking to the LED panels: the bytes of each command (`protocol`), finding which serial port is the
-//! left or the right panel (`ports`), and a panel's drawing thread that sends it frames and finds it
-//! again when it moves (`panel`). `winports` lists and opens the serial ports on Windows.
+//! left or the right panel (`ports`), sharing the open ports with the White Rabbit window (`hub`),
+//! dimming by LED current (`dimming`), and the panels' drawing threads that send them frames and find
+//! them again when they move (`panel`). `winports` lists and opens the serial ports on Windows.
 
+pub mod dimming;
+pub mod hub;
 pub mod panel;
 pub mod ports;
 pub mod protocol;

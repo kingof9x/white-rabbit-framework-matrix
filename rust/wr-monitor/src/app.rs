@@ -13,7 +13,8 @@ use crate::monitor::{log_panics, pins_of, LayoutSource, Monitor, Shared};
 use crate::sensors::{ScreenBrightness, WindowsReadings};
 use crate::{paths, ui};
 use wr_core::{info, warn};
-use wr_panel::panel::{Claims, Panel, PortSystem};
+use wr_panel::hub::PortSystem;
+use wr_panel::panel::{Panel, Panels};
 use wr_panel::winports::WindowsPorts;
 
 pub fn run() -> i32 {
@@ -58,11 +59,11 @@ pub fn run() -> i32 {
     *shared.settings.lock().unwrap() = Settings::load(&paths::settings_file());
 
     let pins: Arc<Mutex<Pins>> = Arc::new(Mutex::new(pins_of(&layout)));
-    let claims = Arc::new(Claims::default());
+    let panels = Panels::new(ports.clone(), pins.clone());
     let queues = [Arc::new(FrameQueue::new()), Arc::new(FrameQueue::new())];
     let mut drawing = Vec::new();
     for (side, queue) in queues.iter().enumerate() {
-        let panel = Panel::new(side, ports.clone(), claims.clone(), pins.clone());
+        let panel = Panel::new(side, panels.clone());
         let queue = queue.clone();
         drawing.push(
             std::thread::Builder::new()
