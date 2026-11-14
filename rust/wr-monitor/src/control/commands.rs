@@ -149,6 +149,37 @@ impl Commands {
         Ok(Map::new())
     }
 
+    /// "music": action on | off | toggle | reload | status. Music mode takes back the panels lent to
+    /// the window. The reply says what music mode hears, for the window's Audio tab.
+    fn music(&self, message: &Map<String, Value>) -> Map<String, Value> {
+        let on = match message.get("action").and_then(Value::as_str).unwrap_or("status") {
+            "on" => Some(true),
+            "off" => Some(false),
+            "toggle" => Some(!self.shared.music_mode.load(Ordering::SeqCst)),
+            "reload" => {
+                self.shared.music_restart.store(true, Ordering::SeqCst);
+                None
+            }
+            _ => None,
+        };
+        if let Some(on) = on {
+            if on {
+                let released = self.bridge.release(None);
+                if !released.is_empty() {
+                    info!("Music mode took back the panels lent to the window: {}", released.join(", "));
+                    self.shared.redraw.store(true, Ordering::SeqCst);
+                }
+            }
+            self.shared.set_music_mode(on);
+        }
+        let mut reply = object(json!({"music_mode": self.shared.music_mode.load(Ordering::SeqCst)}));
+        let hearing = self.shared.hearing.lock().unwrap().clone();
+        if hearing.as_object().is_some_and(|h| !h.is_empty()) {
+            reply.insert("hearing".into(), hearing);
+        }
+        reply
+    }
+
     fn release(&self, message: &Map<String, Value>) -> Reply {
         let released = self.bridge.release(message.get("ports"));
         if !released.is_empty() {
@@ -183,10 +214,7 @@ impl Handler for Commands {
                 self.shared.identify(3.0);
                 Ok(Map::new())
             }
-            "music" => {
-                info!("TODO: music mode isn't in the Rust monitor yet (music {:?})", message.get("action"));
-                Ok(object(json!({"music_mode": false})))
-            }
+            "music" => Ok(self.music(message)),
             "shortcuts" => self.shortcuts(),
             "power" => self.power(message),
             "sensor_source" => {
@@ -285,6 +313,8 @@ mod tests {
         assert_eq!(*asked.lock().unwrap(), vec![UiRequest::Quit]);
         assert_eq!(ask(&c, json!({"cmd": "nope"}))["ok"], json!(false));
         assert_eq!(ask(&c, json!({"cmd": "music", "action": "status"})), json!({"ok": true, "music_mode": false}));
+        assert_eq!(ask(&c, json!({"cmd": "music", "action": "toggle"})), json!({"ok": true, "music_mode": true}));
+        assert_eq!(ask(&c, json!({"cmd": "music", "action": "off"})), json!({"ok": true, "music_mode": false}));
         let _ = std::fs::remove_dir_all(dir);
     }
 }

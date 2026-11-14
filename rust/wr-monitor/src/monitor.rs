@@ -1,6 +1,5 @@
 //! The main loop: ten times a second, pick each panel's apps, draw them and hand the frames to the
-//! panels' drawing threads. A port of `render_iteration` in `led_mon/led_system_monitor.py`, without
-//! music mode yet.
+//! panels' drawing threads. A port of `render_iteration` in `led_mon/led_system_monitor.py`.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -13,6 +12,8 @@ use wr_core::render::{brightness_values, render_ids, render_panel, Readings};
 use wr_core::settings::Settings;
 use wr_core::Grid;
 use wr_panel::ports::Pins;
+
+use crate::music::Music;
 
 use wr_core::{error, info, warn};
 
@@ -38,9 +39,20 @@ pub struct Shared {
     pub redraw: AtomicBool,
     /// Still pictures from the window's layout editor for each side, until then.
     pub preview: Mutex<Option<(Instant, [Option<Grid>; 2])>>,
+    /// Music mode: every panel shows the audio visualizer.
+    pub music_mode: AtomicBool,
+    /// The Audio tab changed the look: start the visualizers again with it.
+    pub music_restart: AtomicBool,
+    /// What the visualizers hear ({side: {device, problem, loudness, silent, input}}).
+    pub hearing: Mutex<serde_json::Value>,
 }
 
 impl Shared {
+    pub fn set_music_mode(&self, on: bool) {
+        self.music_mode.store(on, Ordering::SeqCst);
+        info!("Music mode {}", if on { "on" } else { "off" });
+    }
+
     pub fn identify(&self, seconds: f64) {
         *self.identify_until.lock().unwrap() = Some(Instant::now() + Duration::from_secs_f64(seconds));
     }
@@ -125,6 +137,9 @@ pub struct Monitor {
     latch: bool,
     /// Send every panel its scrolling on the next frame (see Shared::redraw).
     redraw: bool,
+    music: Music,
+    /// Music mode's look, read from settings.json when it starts.
+    music_settings: Option<wr_music::Settings>,
     /// The side showed a preview on the last frame.
     previewed: [bool; 2],
     last_check: Instant,
@@ -154,6 +169,8 @@ impl Monitor {
             asleep: false,
             latch: false,
             redraw: false,
+            music: Music::default(),
+            music_settings: None,
             previewed: [false; 2],
             last_check: Instant::now(),
         }
@@ -206,6 +223,7 @@ impl Monitor {
                 }
                 self.asleep = true;
             }
+            self.music.stop_all();
             self.latch = true;
             return Duration::from_millis(250);
         }
@@ -228,6 +246,8 @@ impl Monitor {
             self.shared.next_app.store(false, Ordering::SeqCst);
         }
         let panels = [self.rotation.panel(false), self.rotation.panel(true)];
+        self.music.foreground.store(fg, Ordering::SeqCst);
+        self.run_music(&panels);
 
         if self.shared.identifying() {
             for (q, apps) in self.queues.iter().zip(&panels) {
@@ -244,6 +264,10 @@ impl Monitor {
                 // The window's preview stays still: the panel's own scrolling goes off
                 q.put(Item::Frame(grid, Some(false)));
                 self.previewed[side] = true;
+                continue;
+            }
+            if self.music.running(side) {
+                // The visualizer draws this panel by itself
                 continue;
             }
             let mut grid = Grid::new();
@@ -267,6 +291,43 @@ impl Monitor {
         Duration::from_millis(100)
     }
 
+    /// Music mode puts the audio visualizer on every panel; otherwise a panel showing the
+    /// "equalizer" app gets one with that app's settings. Panels that no longer want one go back to
+    /// their apps.
+    fn run_music(&mut self, panels: &[wr_core::layout::PanelApps; 2]) {
+        if self.shared.music_restart.swap(false, Ordering::SeqCst) {
+            self.music_settings = None;
+            self.music.stop_all();
+        }
+        let mut wanted: [Option<wr_music::Settings>; 2] = [None, None];
+        if self.shared.music_mode.load(Ordering::SeqCst) {
+            let settings = self.music_settings.get_or_insert_with(load_music_settings).clone();
+            wanted = [Some(settings.clone()), Some(settings)];
+        } else {
+            self.music_settings = None;
+            for (side, apps) in panels.iter().enumerate() {
+                if let Some(app) = apps.apps().into_iter().find(|a| a.name == "equalizer") {
+                    let args = serde_json::to_value(&app.args).unwrap_or_default();
+                    wanted[side] = Some(wr_music::from_json(&args));
+                }
+            }
+        }
+        let held = self.shared.identifying() || (0..2).any(|s| self.shared.preview_frame(s).is_some());
+        self.music.held.store(held, Ordering::SeqCst);
+        for (side, want) in wanted.iter().enumerate() {
+            match want {
+                Some(settings) => self.music.ensure(side, settings, &self.queues[side]),
+                None if self.music.running(side) => {
+                    self.music.stop(side);
+                    // Say the scrolling again and send the apps' picture even if it looks unchanged
+                    self.redraw = true;
+                }
+                None => {}
+            }
+        }
+        *self.shared.hearing.lock().unwrap() = self.music.hearing();
+    }
+
     pub fn run(mut self) {
         while !self.shared.quit.load(Ordering::SeqCst) {
             let wait = self.step();
@@ -278,6 +339,13 @@ impl Monitor {
             q.put(Item::Stop);
         }
     }
+}
+
+/// Music mode's look and sound input from settings.json (Python's `app_settings.load_music`).
+fn load_music_settings() -> wr_music::Settings {
+    let text = std::fs::read_to_string(crate::paths::settings_file()).unwrap_or_default();
+    let json: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
+    wr_music::from_json(&json["music"])
 }
 
 /// Logs a panic in a thread before it ends, so a crash leaves a trace in the log.
