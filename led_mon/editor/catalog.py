@@ -137,7 +137,7 @@ APPS = [
                 labels=tuple(text_styles.STYLE_LABELS[s] for s in text_styles.STYLES)),
         Setting("fmt_24_hour", "24-hour clock", "bool", False, help="For {time}"),
     ]),
-    AppInfo("snap", "Picture", "A still pattern from the snapshot files.", FULL, [
+    AppInfo("snap", "Picture", "One of your drawings from the Draw tab (animated ones play), or a built-in pattern.", FULL, [
         Setting("file", "Picture", "snapshot", None),
         Setting("animate", "Scroll", "bool", False, target=APP, help="Scroll the picture up the panel"),
     ], fixed_args={"path": "snapshot_files"}),
@@ -174,6 +174,13 @@ def snapshot_files(side):
         except OSError:
             pass
     return sorted(names)
+
+
+def snapshot_options(side):
+    """Choices for the Picture app: (value, label), your drawings first, then the built-in patterns."""
+    from led_mon import drawings
+    mine = [(drawings.setting_value(n), f"My drawing: {n}") for n in drawings.list_names()]
+    return mine + [(f, f"Built-in: {f[:-5]}") for f in snapshot_files(side)]
 
 
 # Shown in the GPU picker for "no gpu arg"
@@ -213,8 +220,8 @@ def new_app(name, side):
         if s.target == GLOBAL:
             continue
         if s.kind == "snapshot":
-            files = snapshot_files(side)
-            value = files[0] if files else None
+            options = snapshot_options(side)
+            value = options[0][0] if options else None
         else:
             value = copy.deepcopy(s.default)
         if value in (None, "", []) and s.kind in ("text", "process", "list", "snapshot", "gpu", "sensor", "microphone"):

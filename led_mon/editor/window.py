@@ -601,11 +601,16 @@ class SettingsPane(ttk.Frame):
                             command=lambda: self._set(entry, setting, var.get())).pack(anchor="w")
         elif setting.kind in ("choice", "snapshot"):
             ttk.Label(row, text=setting.label).pack(anchor="w")
-            options = catalog.snapshot_files(side) if setting.kind == "snapshot" else list(setting.options)
-            if setting.labels and len(setting.labels) == len(options):
-                labels = [str(l) for l in setting.labels]
+            if setting.kind == "snapshot":
+                pairs = catalog.snapshot_options(side)
+                options = [v for v, _ in pairs]
+                labels = [l for _, l in pairs]
             else:
-                labels = [str(o) for o in options]
+                options = list(setting.options)
+                if setting.labels and len(setting.labels) == len(options):
+                    labels = [str(l) for l in setting.labels]
+                else:
+                    labels = [str(o) for o in options]
             shown = labels[options.index(value)] if value in options else (str(value) if value is not None else "")
             var = tk.StringVar(value=shown)
             box = ttk.Combobox(row, textvariable=var, values=labels, state="readonly", width=28)

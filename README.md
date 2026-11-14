@@ -40,7 +40,8 @@ and comes back when you press *Stop* or *Back to system monitor*.
 - **Half-panel apps:** CPU cores, CPU graph, GPU graph, memory + battery,
   disk, network, disk + network, temperatures, fans, FPS number.
 - **Whole-panel apps:** clock, weather, audio visualizer, FPS counter for
-  games, picture, text, and animations (fire, plasma, DNA helix,
+  games, picture (your drawings from the Draw tab, or built-in patterns), text,
+  and animations (fire, plasma, DNA helix,
   snowfall, chevrons, bouncing ball).
 - **Text app:** type your own words, with `{time}`, `{battery}` and `{cpu}`
   filled in live. Three styles: *ticker* (upright letters scrolling up),
@@ -163,6 +164,32 @@ names. Identify panels (Panels tab or tray menu) then shows the first five
 letters of each name on the panel for two seconds before the app names.
 
 ![The Math tab](docs/screenshots/white-rabbit-math.png)
+
+### Draw tab
+
+Draw your own pictures for a panel, one LED at a time, in shades of grey.
+
+- **Brush**: pen, eraser or fill (paint bucket), 1 x 1, 2 x 2 or 3 x 3 LEDs,
+  six ready shades or any brightness on the slider. The left mouse button
+  draws; the right button rubs out. Undo and redo with Ctrl+Z and Ctrl+Y.
+- **Whole frame**: clear, fill, swap dark and light, mirror, upside down, and
+  move the picture up, down, left or right.
+- **Frames**: add or copy frames to make an animation, set how long each
+  frame shows, and press Play to watch it in the window.
+- **Import a PNG or GIF**: the picture is shrunk to 9 x 34 LEDs and turned
+  grey (the whole picture, filling the panel, or stretched). A GIF keeps all
+  its frames and its speed.
+- **My drawings**: save, open and delete drawings. They are small files in
+  `%APPDATA%\WhiteRabbit\drawings`.
+- **Show on the ticked panels while I draw** shows the drawing on the panels
+  as you work.
+
+To keep a drawing on a panel, put the **Picture** app on it in the Panels tab
+and pick *My drawing: (name)*. Animated drawings play there too. The monitor
+draws about 10 frames a second, so frames shorter than 100 ms play a little
+slower on the panels than in the window.
+
+![The Draw tab](docs/screenshots/white-rabbit-draw.png)
 
 ### Firmware tab
 
@@ -308,8 +335,8 @@ project is GPL-3.0 licensed, so no code was copied: the Math tab is written
 from scratch from the textbook definitions of each graph and simulation. The
 "More maths" effects are classic math demos, also written from scratch.
 
-The animations, the old-TV effect, and the mirror, keyboard gap and panel name
-ideas come from Deovandski's
+The animations, the old-TV effect, the Draw tab, and the mirror, keyboard gap
+and panel name ideas come from Deovandski's
 [Framework16 LED Matrix Manager](https://github.com/Deovandski/Deo-s-Framework16-LED-Matrix-Manager)
 (MIT). Only the ideas were used; the code here is written separately.
 

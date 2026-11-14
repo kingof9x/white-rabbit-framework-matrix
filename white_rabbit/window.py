@@ -1,6 +1,6 @@
 # The White Rabbit window: the layout editor and the LED Matrix controls in one place.
 #
-# Tabs: Panels (layout editor), Startup animation, Games & patterns, Math, Audio, Firmware, Keyboard shortcuts, Info.
+# Tabs: Panels (layout editor), Startup animation, Games & patterns, Math, Draw, Audio, Firmware, Keyboard shortcuts, Info.
 # The bar at the bottom picks which panels the controls act on, and shows whether each panel is
 # showing the system monitor or something from this window. Playing a game or showing a pattern
 # borrows the panel from the monitor; "Back to system monitor" returns it.
@@ -15,7 +15,7 @@ from tkinter import ttk
 
 # Internal Dependencies
 from led_mon import platform_utils
-from white_rabbit import bridge, info_tab, math_tab, music, panels as panels_mod, tabs
+from white_rabbit import bridge, draw_tab, info_tab, math_tab, music, panels as panels_mod, tabs
 
 log = logging.getLogger(__name__)
 
@@ -141,6 +141,8 @@ class WhiteRabbitWindow:
         self.notebook.add(self.play_tab, text="Games & patterns")
         self.math_tab = math_tab.MathTab(self.notebook, self)
         self.notebook.add(self.math_tab, text="Math")
+        self.draw_tab = draw_tab.DrawTab(self.notebook, self)
+        self.notebook.add(self.draw_tab, text="Draw")
         self.music_tab = music.MusicTab(self.notebook, self)
         self.notebook.add(self.music_tab, text="Audio")
         self.firmware_tab = tabs.FirmwareTab(self.notebook, self)
@@ -149,7 +151,7 @@ class WhiteRabbitWindow:
         self.notebook.add(self.shortcuts_tab, text="Keyboard shortcuts")
         self.info_tab = info_tab.InfoTab(self.notebook, self)
         self.notebook.add(self.info_tab, text="Info")
-        tab = {"startup": self.startup_tab, "play": self.play_tab, "math": self.math_tab, "audio": self.music_tab, "music": self.music_tab,
+        tab = {"startup": self.startup_tab, "play": self.play_tab, "math": self.math_tab, "draw": self.draw_tab, "audio": self.music_tab, "music": self.music_tab,
                "firmware": self.firmware_tab, "shortcuts": self.shortcuts_tab,
                "info": self.info_tab}.get(start_tab)
         if tab is not None:
@@ -511,6 +513,33 @@ def run_window(args, start_tab=None, wait=False):
             else:
                 log.error("Smoke test failed: the Info tab has no version")
         root.after(5000, check_info_tab)
+
+        def check_draw_tab():
+            # Import a GIF on the Draw tab, save it, and check the Picture app offers it
+            try:
+                import tempfile
+                from PIL import Image
+                from led_mon import drawings
+                from led_mon.editor import catalog
+                frames = [Image.new("L", (18, 68), 60 * (i + 1)) for i in range(3)]
+                path = os.path.join(tempfile.mkdtemp(), "smoke.gif")
+                frames[0].save(path, save_all=True, append_images=frames[1:], duration=120, loop=0)
+                tab = window.draw_tab
+                window.notebook.select(tab)
+                tab.import_from(path)
+                tab.name_entry.delete(0, "end")
+                tab.name_entry.insert(0, "Smoke test")
+                tab.save()
+                saved = drawings.load("Smoke test")
+                offered = [v for v, _ in catalog.snapshot_options("left")]
+                if len(saved.frames) != 3 or drawings.setting_value("Smoke test") not in offered:
+                    log.error(f"Smoke test failed: the Draw tab saved {len(saved.frames)} frames; Picture offers {offered}")
+                else:
+                    log.info(f"Smoke test: Draw tab imported and saved a 3-frame GIF in {drawings.folder()}")
+                drawings.delete("Smoke test")
+            except Exception as e:
+                log.error(f"Smoke test failed: the Draw tab: {e}")
+        root.after(5500, check_draw_tab)
 
         def finish():
             if window.editor is not None:
