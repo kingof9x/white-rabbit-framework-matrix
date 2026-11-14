@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 # Internal Dependencies
 from led_mon.platform_utils import package_dir
 from led_mon.equalizer_files import looks
+from led_mon import sand
+from led_mon import now_playing
 from led_mon import animations
 from led_mon import text_styles
 
@@ -57,13 +59,21 @@ GAME_SETTING = Setting("process", "Game to watch", "process", "",
                             "windows. Or pick a game from the list; games drawing frames right now are at the top.")
 
 APPS = [
-    AppInfo("cpu", "CPU cores", "Load on each CPU core, drawn as small spirals (or a bar per core when there are more than eight).", HALF),
+    AppInfo("cpu", "CPU cores", "Load on each CPU core, drawn as small spirals (or a bar per core when there are more than eight).", HALF, [
+        Setting("afterglow", "Afterglow", "bool", True,
+                help="A dim trail shows where each core's load just was, fading over a couple of seconds"),
+    ]),
     AppInfo("cpu-graph", "CPU graph", "Overall CPU use over the last 15 seconds. Each row is one second, newest at the top; a longer row is a busier CPU.", HALF),
     AppInfo("gpu-graph", "GPU graph", "Overall GPU use over the last 15 seconds, like the CPU graph.", HALF, [
         Setting("gpu", "GPU", "gpu", None, help="Which graphics card to show, when the computer has more than one"),
     ]),
     AppInfo("disk-net", "Disk + network", "Disk read and write bars on the upper part, network upload and download bars on the lower part.", HALF),
     AppInfo("mem-bat", "Memory + battery", "Memory use on top, battery level below (pulses when charging).", HALF),
+    AppInfo("battery-sand", "Battery (sand)", "The battery level as a pile of sand. Charging rains sand in from the "
+            "top; on battery the pile slowly drains away. Flashes when nearly empty.", HALF, [
+        Setting("sand_speed", "Sand speed", "choice", "normal", tuple(sand.SPEEDS),
+                labels=tuple(sand.SPEED_LABELS[k] for k in sand.SPEEDS)),
+    ]),
     AppInfo("disk", "Disk", "Disk read (left bar) and write (right bar) activity.", HALF),
     AppInfo("net", "Network", "Upload (left bar) and download (right bar) activity.", HALF),
     AppInfo("temp", "Temperatures", "Three temperatures as numbers, one under the other (the middle one dimmer). "
@@ -115,6 +125,16 @@ APPS = [
                 help="Quiet and loud songs both fill the panel"),
     ], fixed={"persistent-draw": True, "dispose-fn": "equalizer_dispose"},
        fixed_args={"external-filter": False, "border": False}),
+    AppInfo("now-playing", "Now playing", "The cover of whatever is playing (Spotify, a browser, the Media Player "
+            "app), with the song name scrolling along the top and a small visualizer underneath. Put it on both "
+            "panels: each panel shows half of the cover. Windows only.", FULL, [
+        Setting("title", "Scroll the song name along the top", "bool", True),
+        Setting("visualizer", "Small visualizer under the cover", "bool", True),
+        Setting("drift", "Let the cover drift slowly", "bool", True),
+        Setting("when_idle", "When nothing is playing", "choice", "skip", now_playing.WHEN_IDLE,
+                labels=tuple(now_playing.WHEN_IDLE_LABELS[k] for k in now_playing.WHEN_IDLE),
+                help="Skip goes straight on to the next page of the layout"),
+    ]),
     AppInfo("fps", "FPS counter", "Frames per second of a game on the top half, with a histogram below that "
             "scrolls left, one column per second, newest on the right. Windows only, and needs a one-time setup (see the README); shows ? until then.", FULL, [
         GAME_SETTING,
@@ -243,7 +263,7 @@ def finalize(entry, side):
     if info.fixed_args:
         entry.setdefault("args", {})
         entry["args"].update(copy.deepcopy(info.fixed_args))
-    if entry["name"] == "equalizer":
+    if entry["name"] in ("equalizer", "now-playing"):
         entry.setdefault("args", {})["side"] = side
     if entry["name"] == "snap":
         entry.setdefault("args", {})["panel"] = side

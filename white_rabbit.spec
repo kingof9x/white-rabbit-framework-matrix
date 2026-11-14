@@ -35,6 +35,8 @@ hiddenimports = [
     'led_mon.tray', 'led_mon.brightness_popup', 'led_mon.app_settings', 'led_mon.external_apps', 'led_mon.startup',
     # Imported only with --diagnose
     'led_mon.diagnose',
+    # New apps and effects
+    'led_mon.effects', 'led_mon.plug_events', 'led_mon.sand', 'led_mon.now_playing',
     # The White Rabbit window and the LED Matrix controls
     'white_rabbit', 'white_rabbit.main', 'white_rabbit.window', 'white_rabbit.tabs', 'white_rabbit.bridge',
     'white_rabbit.panels', 'white_rabbit.firmware', 'white_rabbit.music', 'white_rabbit.info_tab', 'inputmodule', 'inputmodule.gui', 'inputmodule.gui.ledmatrix',
@@ -64,7 +66,9 @@ if IS_WINDOWS:
     # Windows Location for the weather app (WinRT). winrt-runtime's own PyInstaller hook adds each
     # namespace's _table.pywinrt data file; these are named because the app imports them lazily.
     hiddenimports += ['winrt.windows.devices.geolocation', 'winrt.windows.foundation', 'winrt.windows.foundation.collections',
-                      'winrt.system', 'winrt.runtime']
+                      'winrt.system', 'winrt.runtime',
+                      # What is playing, for the Now playing app
+                      'winrt.windows.media.control', 'winrt.windows.storage.streams']
     # soundcard reads its C header at runtime; zoneinfo needs the tzdata database on Windows
     datas += collect_data_files('soundcard') + collect_data_files('tzdata')
     # Build the exe icon from the same drawing as the tray icon

@@ -28,6 +28,8 @@ from led_mon import control
 from led_mon import fps
 from led_mon import shortcuts
 from led_mon import app_settings
+from led_mon import effects
+from led_mon import now_playing
 from led_mon.panel_names import name_grid
 
 # External Dependencies
@@ -243,6 +245,82 @@ def handle_power_request(message):
         set_turn_off_when_screen_unused(message[SCREEN_UNUSED_SETTING])
     return {LID_SETTING: is_turn_off_with_lid(), SCREEN_UNUSED_SETTING: is_turn_off_when_screen_unused()}
 
+# Plugging things in and out: a ripple from the port, and a drain through it (effects.py, plug_events.py)
+plug_watcher = None
+# The last thing plugged in or out, for the Effects tab: {'kind', 'position', 'plugged_in', 'name', 'key', 'how', 'time'}
+last_plug = {}
+
+def on_plug(kind, position, plugged_in, info):
+    settings = effects.manager.settings
+    last_plug.clear()
+    last_plug.update(dict(info or {}, kind=kind, position=position, plugged_in=plugged_in, time=time.time()))
+    wanted = {"charger": settings["plug_charger"], "headphones": settings["plug_headphones"],
+              "usb": settings["plug_usb"]}.get(kind, True)
+    if wanted:
+        effects.manager.plug(position, plugged_in)
+    if kind == "charger" and settings["text_charger"]:
+        effects.manager.say("Charging" if plugged_in else "On battery")
+
+def on_song(song):
+    """A new song started playing: show its name on the text line, if the Effects tab says so."""
+    if effects.manager.settings["text_song"]:
+        effects.manager.say(f"Now playing: {song}")
+
+now_playing.watcher.on_song = on_song
+
+def learned_ports():
+    return effects.manager.settings.get("learned_ports", {})
+
+def handle_effects_request(message):
+    """The Effects tab: reload the settings, try an effect, show a message or correct a port."""
+    action = message.get('action')
+    if action == 'reload':
+        effects.load()
+    elif action == 'try':
+        effects.manager.plug(message.get('position'), message.get('event') != 'out')
+    elif action == 'say':
+        effects.manager.text.say(message.get('text', ''))
+    elif action == 'learn':
+        key, position = message.get('key'), message.get('position')
+        if key and effects.parse_position(position)[0]:
+            settings = effects.load()
+            settings["learned_ports"] = dict(settings["learned_ports"], **{key: position})
+            effects.save(settings)
+            effects.load()
+            if last_plug.get('key') == key:
+                last_plug['position'], last_plug['how'] = position, 'learned'
+    return {'last_plug': dict(last_plug), 'panels': sorted(effects.manager.panels)}
+
+extra_control_handlers['effects'] = handle_effects_request
+
+class LowBatteryNotice:
+    """Says so on the text line once when the battery drops to 20% (again after charging)."""
+    LEVEL = 20
+
+    def __init__(self):
+        self.said = False
+        self.next_check = 0.0
+
+    def check(self, now):
+        if now < self.next_check:
+            return
+        self.next_check = now + 30.0
+        try:
+            import psutil
+            battery = psutil.sensors_battery()
+        except Exception:
+            battery = None
+        if battery is None:
+            return
+        if battery.power_plugged or battery.percent > self.LEVEL + 2:
+            self.said = False
+        elif battery.percent <= self.LEVEL and not self.said:
+            self.said = True
+            if effects.manager.settings["text_battery"]:
+                effects.manager.say(f"Battery {int(battery.percent)}%")
+
+low_battery = LowBatteryNotice()
+
 def set_tv_effect(enabled):
     """Tray checkbox: the old-TV effect when the panels turn off and back on."""
     settings = app_settings.load_settings()
@@ -395,6 +473,11 @@ def app(args, base_apps, plugin_apps):
     ### Parse config file to enable control of apps by quadrant and by time slice ##
     ################################################################################
     config = get_config(args)
+    # Ripples, sliding and the text line (Effects tab)
+    try:
+        effects.load()
+    except Exception as e:
+        log.error(f"Could not read the effects settings: {e}")
     # Track index of active app, for cycling through apps in a quadrant by time slice
     app_idx = defaultdict(int)
     # Each app optionally specifes how long it stays active before cycling to the next one
@@ -781,6 +864,11 @@ def app(args, base_apps, plugin_apps):
             background_value = int(screen_brightness * (max_background_brightness - min_background_brightness) + min_background_brightness)
             foreground_value = int(screen_brightness * (max_foreground_brightness - min_foreground_brightness) + min_foreground_brightness)
             shared_state.foreground_value = foreground_value
+            effects.manager.foreground = max(0, min(255, foreground_value))
+            low_battery.check(time.monotonic())
+            if effects.manager.settings["text_line"] and effects.manager.settings["text_song"]:
+                # Keep asking what is playing, so a new song can be shown on the text line
+                now_playing.watcher.want()
             
             # Clamp brightness values to the valid byte range
             background_value = max(0, min(255, background_value))
@@ -838,11 +926,24 @@ def app(args, base_apps, plugin_apps):
             # Keep quadrant schedules aligned even when one quadrant is suppressed by
             # a sibling panel-scope app; otherwise manual Alt+N can create lasting skew.
             now = time.monotonic()
+            # Now playing, set to skip, with nothing playing: both halves of its panel go on to the next page
+            skipping_quadrants = set()
+            for owner_quadrant in (left_owner_quadrant, right_owner_quadrant):
+                if owner_quadrant is None:
+                    continue
+                owner = quads[owner_quadrant][app_idx[owner_quadrant]]
+                if (owner['name'] == 'now-playing' and len(quads[owner_quadrant]) > 1
+                        and now - base_time_map[owner_quadrant][owner['name']] >= 2
+                        and now_playing.should_skip(owner.get('args'), now)):
+                    panel_side = 'left' if 'left' in owner_quadrant else 'right'
+                    skipping_quadrants.update(q for q in quads if panel_side in q)
             for quadrant, apps in quads.items():
                     app = apps[app_idx[quadrant]]
                     suppressed_for_rotation = quadrant in suppressed_quadrants_pre_rotation
                     can_force_next = next_key_combo_active
                     should_advance = (now - base_time_map[quadrant][app['name']] >= int(app_duration[(quadrant, app['name'])])) or can_force_next
+                    if quadrant in skipping_quadrants:
+                        should_advance = True
                     if should_advance and not freeze_app_switching:
                             if can_force_next:
                                 evdev_next_key_pressed = False
@@ -980,6 +1081,9 @@ def app(args, base_apps, plugin_apps):
                 if idx_changed[draw_queue]:
                     do_animate = animate
                     idx_changed[draw_queue] = False
+                    if not animate and not persistent_draw:
+                        # Slide the new app in over the old one (Effects tab)
+                        effects.manager.start_slide(panel)
                         
                 # Restart animation if it was stopped for ID display
                 if latch_key_combo:
@@ -1047,6 +1151,11 @@ def app(args, base_apps, plugin_apps):
         from led_mon import power_events
         power_watcher = power_events.PowerWatcher(on_power_change)
         power_watcher.start()
+        # Windows: ripples when something is plugged in
+        global plug_watcher
+        from led_mon import plug_events
+        plug_watcher = plug_events.PlugWatcher(on_plug, learned=learned_ports)
+        plug_watcher.start()
         start_hotkeys()
         # Prefer pynput if available; fall back silently if it fails to start (common on Wayland)
         if PYNPUT_AVAILABLE and not args.no_key_listener:

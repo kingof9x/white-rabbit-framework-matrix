@@ -140,14 +140,17 @@ class MusicTab(ttk.Frame):
         self.style_text.pack(anchor="w", pady=(2, 6))
 
         self.flags = {}
+        self.flag_buttons = {}
         for key, text in (("span-panels", "One spectrum across both panels: 18 bars, bass on the left panel"),
                           ("peak-dots", "Peak dots: a dot above each bar that falls slowly"),
                           ("shaded", "Shaded: brighter towards the tips"),
                           ("flip", "Upside down"),
                           ("auto-sensitivity", "Adjust the sensitivity automatically")):
             var = tk.BooleanVar(value=self.settings[key])
-            ttk.Checkbutton(look, text=text, variable=var, command=self.changed).pack(anchor="w")
+            button = ttk.Checkbutton(look, text=text, variable=var, command=self.changed)
+            button.pack(anchor="w")
             self.flags[key] = var
+            self.flag_buttons[key] = button
 
         grid = ttk.Frame(look)
         grid.pack(fill="x", pady=(6, 0))
@@ -214,6 +217,12 @@ class MusicTab(ttk.Frame):
     def update_enabled(self):
         mic = self.input_mode.get() == "microphone"
         self.microphone.configure(state="readonly" if mic else "disabled")
+        # Peak dots and shading only change looks that have bars
+        style = self.settings.get("style")
+        for key in ("peak-dots", "shaded"):
+            button = getattr(self, "flag_buttons", {}).get(key)
+            if button is not None:
+                button.configure(state="disabled" if style in looks.NO_BAR_OPTIONS else "normal")
 
     def changed(self):
         if getattr(self, "_setting_scale", False):

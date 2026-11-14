@@ -1,0 +1,40 @@
+[package]
+name = "wr-monitor"
+version = "0.0.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "White Rabbit's panel monitor and tray icon, in Rust (test build)"
+
+[[bin]]
+name = "WhiteRabbit-rust-test"
+path = "src/main.rs"
+
+[dependencies]
+wr-core = { path = "../wr-core" }
+serde_json = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+chrono-tz = "0.10"
+
+[target.'cfg(windows)'.dependencies]
+sysinfo = { version = "0.37", default-features = false, features = ["system"] }
+wmi = "0.17"
+serde = { version = "1", features = ["derive"] }
+windows-sys = { version = "0.60", features = [
+    "Win32_Foundation",
+    "Win32_Devices_Communication",
+    "Win32_Devices_DeviceAndDriverInstallation",
+    "Win32_Graphics_Gdi",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Power",
+    "Win32_System_Registry",
+    "Win32_System_SystemInformation",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+    "Win32_System_IO",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
