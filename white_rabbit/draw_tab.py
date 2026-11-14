@@ -250,7 +250,7 @@ class DrawTab(ttk.Frame):
 
     def is_showing(self):
         try:
-            return self.window.notebook.select() == str(self)
+            return self.window.page == "draw"
         except Exception:
             return False
 
