@@ -3,7 +3,7 @@
 #   WhiteRabbit.exe                 start the monitor with its tray icon and open the window
 #                                   (only opens the window if the monitor is already running)
 #   WhiteRabbit.exe --background    just the monitor and tray icon (used when Windows starts)
-#   WhiteRabbit.exe --window        just the window; --tab startup|play|math|music|effects|music|firmware|shortcuts|info picks the tab
+#   WhiteRabbit.exe --window        just the window; --tab startup|play|math|draw|music|effects|firmware|shortcuts|info picks the tab
 #   WhiteRabbit.exe --edit-layout   the window on the Panels tab
 #   --diagnose, --list-apps, --no-tray, --config-file ... work as in led_mon
 
