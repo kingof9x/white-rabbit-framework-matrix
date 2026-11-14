@@ -180,14 +180,14 @@ def get_default_device(dev_type: DeviceType):
     
 class Equalizer():
     
-    def __init__(self, device_location):
+    def __init__(self, device_location, side=None):
         self.done = False
         self.device_name = None
         self.last_known_sink = None
         # What it hears, for the Audio tab: {'device', 'problem', 'loudness', 'silent'}
         self.hearing = {}
         self.queue = LatestFrameQueue()
-        self.drawing_thread = DrawingThread(device_location, self.queue)
+        self.drawing_thread = DrawingThread(device_location, self.queue, effect_side=side)
         self.drawing_thread.start()
         
     def stop(self):

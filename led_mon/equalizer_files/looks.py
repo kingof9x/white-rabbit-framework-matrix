@@ -75,11 +75,16 @@ STYLES = [
     ("heartbeat", "Heartbeat", "A heart monitor line running down the panel. "
                                "The left panel beats with the bass, the right panel with the treble."),
     ("dancing-rabbit", "Dancing rabbit", "The White Rabbit jumps on the beat, over a small spectrum at the bottom."),
+    ("water", "Water, glow and sparks", "The bass pushes ripples through water, the middle notes add a glow that "
+                                        "rises and spreads, and the treble throws sparks. "
+                                        "The left panel is a mirror image of the right one."),
 ]
 STYLE_KEYS = [key for key, _, _ in STYLES]
 STYLE_LABELS = {key: label for key, label, _ in STYLES}
 STYLE_DESCRIPTIONS = {key: text for key, _, text in STYLES}
 # Looks that show bars, where peak dots and shading mean something
+# Looks that have no bars, so peak dots and shading don't change them
+NO_BAR_OPTIONS = ("water",)
 BAR_STYLES = ("classic", "bars", "centre", "dots", "waterfall", "meter", "radial", "radial-fan", "radial-facing", "rings")
 
 # Levels (out of 34) the bars drop per second
@@ -333,6 +338,9 @@ class Visualizer:
         # Across both panels the spectrum is one sound (both channels mixed); otherwise the left panel
         # shows the left channel and the right panel the right one
         self.channel = None if self.span else (0 if self.side == "left" else 1)
+        if self.style in NO_BAR_OPTIONS:
+            # Both panels hear the same sound, so the two halves of the picture mirror each other
+            self.channel = None
         self.shown = np.zeros(self.n_bands)
         self.peaks = np.zeros(self.n_bands)
         self.peak_time = np.zeros(self.n_bands)
@@ -908,6 +916,79 @@ class Visualizer:
                     grid[1 + dx, top + dy] = 1.0
         return self._keyboard_side(grid)
 
+
+    def _draw_water(self, chunk, dt):
+        # Worked out in rows x columns for the right panel, then turned into the panel's columns x rows
+        fx = self.fx
+        dt = min(dt, 0.1)
+        rows, cols = HEIGHT, WIDTH
+        if "water" not in fx:
+            fx["water"] = np.zeros((rows, cols))
+            fx["speed"] = np.zeros((rows, cols))
+            fx["glow"] = np.zeros((rows, cols))
+            fx["sparks"] = np.zeros((0, 5))   # x, y, x speed, y speed, light
+            fx["exposure"] = 1.0
+            fx["previous"] = np.zeros(WIDTH)
+        loud = self._band_levels()
+        onset = np.clip((loud - fx["previous"]) * 4.0, 0.0, 1.0)
+        fx["previous"] = loud
+        bass, mids, treble = float(loud[:3].mean()), float(loud[3:6].mean()), float(loud[6:].mean())
+        t = self.clock
+        ys, xs = np.mgrid[0:rows, 0:cols]
+        # The bass: a wobbling spot low in the panel pushes the water
+        sx, sy = 4 + 2.5 * math.sin(t * 0.7), 26 + 3 * math.sin(t * 0.43)
+        blob = np.exp(-((xs - sx) ** 2 + (ys - sy) ** 2) / 6.0)
+        water, speed = fx["water"], fx["speed"]
+        for _ in range(4):
+            step = dt / 4
+            push = 40 * _laplacian(water) - 3.0 * speed - 4.0 * water
+            push += blob * (onset[:3].max() * 400 + bass * 30 * math.sin(t * 12))
+            speed += step * push
+            water += step * speed
+        # The middle notes: a warm light that rises and spreads
+        mx, my = 4 + 3 * math.sin(t * 0.9 + 1), 22 + 6 * math.sin(t * 0.31)
+        glow = fx["glow"]
+        glow += np.exp(-((xs - mx) ** 2 + (ys - my) ** 2) / 8.0) * mids * 0.7
+        glow += blob * onset[:3].max() * 1.5
+        glow = glow + 0.18 * _laplacian(glow)
+        glow = np.vstack([glow[1:], np.zeros((1, cols))]) * 0.25 + glow * 0.75
+        glow *= math.exp(-dt / 0.18)
+        fx["glow"] = glow
+        # The treble: sparks thrown up from the glow, falling back down
+        n = int(onset[6:].max() * 10 + (self.rng.random() < treble * 1.5) * 2)
+        sparks = fx["sparks"]
+        if n:
+            new = np.column_stack((np.full(n, mx) + self.rng.uniform(-1.5, 1.5, n), np.full(n, my),
+                                   self.rng.uniform(-6, 6, n), self.rng.uniform(-28, -12, n), np.ones(n)))
+            sparks = np.vstack([sparks, new])
+        if len(sparks):
+            sparks[:, 3] += 30 * dt
+            sparks[:, 0] += sparks[:, 2] * dt
+            sparks[:, 1] += sparks[:, 3] * dt
+            sparks[:, 4] *= math.exp(-dt / 0.5)
+            keep = ((sparks[:, 4] > 0.05) & (sparks[:, 1] > -2) & (sparks[:, 1] < rows)
+                    & (sparks[:, 0] > -1) & (sparks[:, 0] < cols))
+            sparks = sparks[keep]
+        fx["sparks"] = sparks
+        # Light: the glow, bright edges where the water bends, and the sparks
+        gy, gx = np.gradient(water)
+        lit = glow + np.maximum(-_laplacian(water), 0) * 0.6 + np.hypot(gx, gy) * 0.4
+        for x, y, _, _, light in sparks:
+            xi, yi = int(x), int(y)
+            if 0 <= xi < cols and 0 <= yi < rows:
+                lit[yi, xi] += light * 3.0
+        # Like a camera: quiet music is turned up, loud music down
+        bright = max(float(np.percentile(lit, 98)), 1.5 * float(lit.mean()), 1e-3)
+        fx["exposure"] += (min(max(0.8 / bright, 0.2), 4.0) - fx["exposure"]) * 0.15
+        value = 1 - np.exp(-fx["exposure"] * lit * 1.6)
+        value = np.clip(np.maximum(value - 0.06, 0) / 0.94, 0.0, 1.0)
+        return self._keyboard_side(value.T)
+
+
+def _laplacian(f):
+    """How much each cell differs from its four neighbours (edges reflect)."""
+    p = np.pad(f, 1, mode="edge")
+    return p[:-2, 1:-1] + p[2:, 1:-1] + p[1:-1, :-2] + p[1:-1, 2:] - 4 * f
 
 class MusicPanel:
     """One panel in music mode: the look while sound is heard, and the look's calm idle version once

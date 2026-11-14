@@ -16,6 +16,9 @@ from led_mon.patterns import lightning_bolt_bot, lightning_bolt_top, lookup_tabl
 from led_mon.platform_utils import package_dir, plugins_dir
 from led_mon.serial_ports import open_port, port_lock
 from led_mon.shared_state import is_led_matrix_port
+from led_mon import effects
+from led_mon import dimming
+from led_mon import shared_state
 
 # External Dependencies
 import numpy as np
@@ -222,11 +225,26 @@ def draw_fps_half(grid, fps, available, fill_value, y):
     draw_fps_number(grid, fps, available, fill_value, 3 if y == 0 else 20)
 
 warned = set()
+_drawing_player = None
 def draw_snapshot(grid, fill_value, **kwargs):
-    global warned
+    global warned, _drawing_player
     path = kwargs.get('path', None)
     panel = kwargs.get('panel', None)
     file = kwargs.get('file', None)
+    # A drawing from the Draw tab (greyscale, maybe several frames) instead of a built-in picture
+    from led_mon import drawings
+    name = drawings.name_from_setting(file)
+    if name is not None:
+        if _drawing_player is None:
+            _drawing_player = drawings.Player()
+        frame = _drawing_player.frame(name)
+        if frame is None:
+            if file not in warned:
+                log.warning(f"Drawing {name} not found")
+                warned.add(file)
+            return
+        grid[:, :] = frame.astype(int) * fill_value // 255
+        return
     current_dir = package_dir()
     path = os.path.join(current_dir, path)
     subdirs = [ f.name for f in os.scandir(path) if f.is_dir() and f.name in ['left', 'right']]
@@ -361,6 +379,14 @@ direct_draw_funcs = {
         "fn": draw_battery,
         "border": draw_1_x_2_vert_grid
     },
+    "now-playing": {
+        "fn": lambda *x, **k: None, # Drawn by led_mon.now_playing
+        "border": lambda *x: None # Whole panel, no border
+    },
+    "battery-sand": {
+        "fn": lambda *x, **k: None, # Drawn by led_mon.sand
+        "border": draw_half_outline
+    },
     "fps": {
         "fn": draw_fps,
         "border": lambda *x: None # Whole panel, no border
@@ -433,11 +459,14 @@ RESEND_UNCHANGED_SEC = 5.0
 
 def draw_to_LEDs(s, grid):
     # Ensure all values are valid bytes before sending
-    safe_grid = np.clip(grid, 0, 255).astype(np.uint8)
-    key = safe_grid.tobytes()
     remembers = hasattr(s, 'shows')
     # Hold the port for the whole frame so another thread sharing it can't interleave commands
     with port_lock(s):
+        # "Keep every shade when dim": full-range values, dimmed by the LED current (dimming.py)
+        grid = dimming.prepare(s, grid, effects.manager.settings.get("full_shades"),
+                               shared_state.foreground_value)
+        safe_grid = np.clip(grid, 0, 255).astype(np.uint8)
+        key = safe_grid.tobytes()
         if remembers and s.shows(key, RESEND_UNCHANGED_SEC):
             # Already on the panel: sending it again would only keep the panel busy
             return
@@ -578,7 +607,7 @@ def _find_panel_port(port_location, side_index, owner, device_list=None):
 
 
 class DrawingThread(threading.Thread):
-    def __init__(self, port_location, input_queue, side_index=None):
+    def __init__(self, port_location, input_queue, side_index=None, effect_side=None):
         """Draws the frames put in input_queue on one LED panel.
 
         port_location is the panel's USB location (or port name) at startup; it may be None when the
@@ -596,6 +625,9 @@ class DrawingThread(threading.Thread):
         self._next_reconnect_time = 0.0
         self._warned_missing = False
         self.serial_port = None
+        # Which panel's effects (ripples, sliding, text line; see effects.py) go over these frames
+        self.effect_side = effect_side or (effects.SIDES[side_index] if side_index in (0, 1) else None)
+        self.last_grid = None
         if port_location is not None or side_index is None:
             if side_index is None:
                 self.serial_port = init_device(self.port_location)
@@ -621,6 +653,8 @@ class DrawingThread(threading.Thread):
         finally:
             self.serial_port = None
             _unclaim(self)
+            if self.effect_side and self.side_index is not None:
+                effects.manager.panel_present(self.effect_side, False)
 
     def _attempt_reconnect(self, force=False):
         now = time.monotonic()
@@ -642,6 +676,8 @@ class DrawingThread(threading.Thread):
                 self.port_location = next((d.location for d in list_ports.comports()
                                            if d.device.lower() == port.lower() and d.location), port)
             do_animate(self.serial_port, animate=self.animate_active)
+            if self.effect_side and self.side_index is not None:
+                effects.manager.panel_present(self.effect_side, True)
             self._reconnect_backoff_sec = 0.5
             self._next_reconnect_time = 0.0
             self._warned_missing = False
@@ -662,10 +698,21 @@ class DrawingThread(threading.Thread):
     def run(self):
         while True:
             try:
-                item = self.input_queue.get()
+                wait = effects.manager.interval(self.effect_side) if self.effect_side else None
+                try:
+                    item = self.input_queue.get() if wait is None else self.input_queue.get(timeout=wait)
+                except queue.Empty:
+                    # An effect is playing: draw its next step over the last frame
+                    if (self.last_grid is not None and self.serial_port is not None
+                            and not self.animate_active and effects.manager.owner.get(self.effect_side) is self):
+                        draw_to_LEDs(self.serial_port, effects.manager.apply(
+                            self.effect_side, self.last_grid, new_frame=False))
+                    continue
                 if item is None:  # Sentinel to exit cleanly
                     break
                 if item == SLEEP_PANEL:
+                    if self.effect_side:
+                        effects.manager.forget(self.effect_side)
                     # The firmware fades the panel out and turns its LEDs off until the next command
                     if self.serial_port is not None:
                         send_command(self.serial_port, Commands.Sleep, parameters=[1])
@@ -679,6 +726,12 @@ class DrawingThread(threading.Thread):
                     continue
 
                 if not self.animate_active:
+                    self.last_grid = grid
+                    if self.effect_side:
+                        # The monitor's thread and the audio visualizer's can share a panel: the one that
+                        # drew last owns the effects there
+                        effects.manager.owner[self.effect_side] = self
+                        grid = effects.manager.apply(self.effect_side, grid)
                     draw_to_LEDs(self.serial_port, grid)
                 if animate is not None:
                     do_animate(self.serial_port, animate)

@@ -101,6 +101,8 @@ class HomePage(ttk.Frame):
                  "games"),
                 ("music", "Music", "Choose how the audio visualizer looks and what it listens to.", "music"),
                 ("math", "Math", "Graphs, the Game of Life and other moving maths across both panels.", "math"),
+                ("draw", "Draw", "Draw, animate or import a picture for a panel.", "draw"),
+                ("effects", "Effects", "Ripples when something is plugged in, sliding between apps and more.", "effects"),
                 ("startup", "Startup animation", "What the panels play when the laptop turns on.", "startup")):
             Row(self, theme, icon, title, help_text, command=lambda page=page: window.show_page(page))
         self.status = ttk.Label(self, text="", style="Hint.TLabel")

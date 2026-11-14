@@ -2,7 +2,7 @@
 # Windows 11 Settings app and following the Windows look (see led_mon/theme.py).
 #
 # Pages, picked in the menu on the left: Home, System monitor (the layout editor), Games & patterns, Music,
-# Math, Startup animation and Settings (which opens Firmware, Keyboard shortcuts and About).
+# Math, Draw, Effects, Startup animation and Settings (which opens Firmware, Keyboard shortcuts and About).
 # The bottom of the menu picks which panels the controls act on, and shows whether the panels are
 # showing the system monitor or something from this window. Playing a game or showing a pattern
 # borrows the panel from the monitor; "Back to system monitor" returns it.
@@ -17,7 +17,7 @@ from tkinter import ttk
 
 # Internal Dependencies
 from led_mon import platform_utils
-from white_rabbit import bridge, info_tab, math_tab, music, panels as panels_mod, tabs
+from white_rabbit import bridge, draw_tab, effects_tab, info_tab, math_tab, music, panels as panels_mod, tabs
 
 log = logging.getLogger(__name__)
 
@@ -109,6 +109,8 @@ NAV_PAGES = (
     ("games", "games", "Games & patterns"),
     ("music", "music", "Music"),
     ("math", "math", "Math"),
+    ("draw", "draw", "Draw"),
+    ("effects", "effects", "Effects"),
     ("startup", "startup", "Startup animation"),
     ("settings", "settings", "Settings"),
 )
@@ -116,7 +118,7 @@ SUB_PAGES = {"firmware": ("settings", "Firmware"), "shortcuts": ("settings", "Ke
              "about": ("settings", "About White Rabbit")}
 # --tab names (older names too) -> pages
 START_PAGES = {"panels": "monitor", "startup": "startup", "play": "games", "games": "games", "math": "math",
-               "audio": "music", "music": "music", "firmware": "firmware", "shortcuts": "shortcuts",
+               "draw": "draw", "effects": "effects", "audio": "music", "music": "music", "firmware": "firmware", "shortcuts": "shortcuts",
                "info": "about", "about": "about", "settings": "settings", "home": "home"}
 
 
@@ -180,13 +182,15 @@ class WhiteRabbitWindow:
         self.startup_tab = tabs.StartupTab(self.body, self)
         self.play_tab = tabs.PlayTab(self.body, self)
         self.math_tab = math_tab.MathTab(self.body, self)
+        self.draw_tab = draw_tab.DrawTab(self.body, self)
         self.music_tab = music.MusicTab(self.body, self)
+        self.effects_tab = effects_tab.EffectsTab(self.body, self)
         self.firmware_tab = tabs.FirmwareTab(self.body, self)
         self.shortcuts_tab = tabs.ShortcutsTab(self.body, self)
         self.info_tab = info_tab.InfoTab(self.body, self)
         self.home_page = pages.HomePage(self.body, self)
         self.settings_page = pages.SettingsPage(self.body, self)
-        self.pages.update(home=self.home_page, games=self.play_tab, music=self.music_tab, math=self.math_tab,
+        self.pages.update(home=self.home_page, games=self.play_tab, music=self.music_tab, math=self.math_tab, draw=self.draw_tab, effects=self.effects_tab,
                           startup=self.startup_tab, settings=self.settings_page, firmware=self.firmware_tab,
                           shortcuts=self.shortcuts_tab, about=self.info_tab)
         self.theme.refresh_tree(root)
@@ -279,6 +283,10 @@ class WhiteRabbitWindow:
             self.music_tab.set_visible(key == "music")
         except Exception as e:
             log.error(f"Could not start the Music page's preview: {e}")
+        try:
+            self.effects_tab.set_visible(key == "effects")
+        except Exception as e:
+            log.error(f"Could not start the Effects page's preview: {e}")
         show = getattr(self.pages[key], "page_shown", None)
         if callable(show):
             show()
@@ -624,6 +632,33 @@ def run_window(args, start_tab=None, wait=False):
             except Exception as e:
                 log.exception(f"Smoke test failed: changing the look: {e}")
         root.after(5500, check_look)
+
+        def check_draw_tab():
+            # Import a GIF on the Draw tab, save it, and check the Picture app offers it
+            try:
+                import tempfile
+                from PIL import Image
+                from led_mon import drawings
+                from led_mon.editor import catalog
+                frames = [Image.new("L", (18, 68), 60 * (i + 1)) for i in range(3)]
+                path = os.path.join(tempfile.mkdtemp(), "smoke.gif")
+                frames[0].save(path, save_all=True, append_images=frames[1:], duration=120, loop=0)
+                tab = window.draw_tab
+                window.show_page("draw")
+                tab.import_from(path)
+                tab.name_entry.delete(0, "end")
+                tab.name_entry.insert(0, "Smoke test")
+                tab.save()
+                saved = drawings.load("Smoke test")
+                offered = [v for v, _ in catalog.snapshot_options("left")]
+                if len(saved.frames) != 3 or drawings.setting_value("Smoke test") not in offered:
+                    log.error(f"Smoke test failed: the Draw tab saved {len(saved.frames)} frames; Picture offers {offered}")
+                else:
+                    log.info(f"Smoke test: Draw tab imported and saved a 3-frame GIF in {drawings.folder()}")
+                drawings.delete("Smoke test")
+            except Exception as e:
+                log.error(f"Smoke test failed: the Draw tab: {e}")
+        root.after(4000, check_draw_tab)
 
         def finish():
             if window.editor is not None:

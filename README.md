@@ -37,11 +37,15 @@ and comes back when you press *Stop* or *Back to system monitor*.
 
 - **Layout editor** with a live preview: drag apps onto the left and right
   panel, top or bottom half, and set up several pages that take turns.
-- **Half-panel apps:** CPU cores, CPU graph, GPU graph, memory + battery,
-  disk, network, disk + network, temperatures, fans, FPS number.
-- **Whole-panel apps:** clock, weather, audio visualizer, FPS counter for
-  games, picture, text, and animations (fire, plasma, DNA helix,
-  snowfall, chevrons, bouncing ball).
+- **Half-panel apps:** CPU cores (with an afterglow: a dim trail where each
+  core's load just was), CPU graph, GPU graph, memory + battery, battery as a
+  pile of sand (charging rains sand in, on battery it drains away), disk,
+  network, disk + network, temperatures, fans, FPS number.
+- **Whole-panel apps:** clock, weather, audio visualizer, now playing (the
+  cover of whatever is playing, the song name scrolling along the top and a
+  small visualizer, across both panels), FPS counter for games, picture
+  (your drawings from the Draw tab, or built-in patterns), text, and
+  animations (fire, plasma, DNA helix, snowfall, chevrons, bouncing ball).
 - **Text app:** type your own words, with `{time}`, `{battery}` and `{cpu}`
   filled in live. Three styles: *ticker* (upright letters scrolling up),
   *sideways* (reads along the panel with your head tilted right) and
@@ -106,10 +110,12 @@ microphone hears (pick any microphone Windows has).
 - **Music mode** shows the visualizer on both panels until you turn it off.
   Turn it on here, with *Music mode* in the tray menu, or with
   `Ctrl`+`Alt`+`Shift`+`M`. It uses the look last picked on this tab.
-- **21 looks:** classic, spectrum analyzer, centre out, dots, spectrogram,
+- **22 looks:** classic, spectrum analyzer, centre out, dots, spectrogram,
   level meter, waveform, mirror waveform, double waveform, radial bars,
   radial fan, radial facing, rings, pulse, sparkle, bonfire, beat tunnel,
-  fountain, lava lamp, heartbeat and dancing rabbit. On the radial looks and
+  fountain, lava lamp, heartbeat, dancing rabbit, and water, glow and sparks
+  (the bass pushes ripples through water, the middle notes glow, the treble
+  throws sparks). On the radial looks and
   most of the newer ones the left panel is a mirror image of the right one.
 - **Options:** one 18-bar spectrum across both panels, peak dots, shading,
   upside down, falling speed, sensitivity, and automatic sensitivity.
@@ -123,8 +129,27 @@ editor, so it can also take turns with the other apps.
 
 ![All 21 audio visualizer looks, left and right panel](docs/screenshots/audio-visualizer-looks.png)
 
-*All 21 looks playing the same moment of music, drawn by the app's own
-visualizer code.*
+*21 of the looks playing the same moment of music, drawn by the app's own
+visualizer code (the water look is newer than this picture).*
+
+### Effects tab
+
+Little extras that play over whatever the panels show.
+
+- **Plug-in ripple:** plug in the charger, headphones or any USB device and a
+  ripple runs across the panel from that port's side. Unplug it and the
+  picture drains out through the port. *Try it* buttons show it without
+  plugging anything in, and if White Rabbit guesses the wrong port you can
+  tell it the right one; it remembers.
+- **Text line:** a line of small letters scrolls across the top of both
+  panels when a new song starts, the charger goes in or out, or the battery is
+  low, or with your own message.
+- **Changing apps:** slide the next app in from the bottom, or cut straight to
+  it.
+- **Keep every shade when dim:** dark pictures keep their detail at low
+  brightness. Needs the newest White Rabbit firmware.
+
+![The Effects tab](docs/screenshots/white-rabbit-effects.png)
 
 ### Math tab
 
@@ -164,11 +189,37 @@ letters of each name on the panel for two seconds before the app names.
 
 ![The Math tab](docs/screenshots/white-rabbit-math.png)
 
+### Draw tab
+
+Draw your own pictures for a panel, one LED at a time, in shades of grey.
+
+- **Brush**: pen, eraser or fill (paint bucket), 1 x 1, 2 x 2 or 3 x 3 LEDs,
+  six ready shades or any brightness on the slider. The left mouse button
+  draws; the right button rubs out. Undo and redo with Ctrl+Z and Ctrl+Y.
+- **Whole frame**: clear, fill, swap dark and light, mirror, upside down, and
+  move the picture up, down, left or right.
+- **Frames**: add or copy frames to make an animation, set how long each
+  frame shows, and press Play to watch it in the window.
+- **Import a PNG or GIF**: the picture is shrunk to 9 x 34 LEDs and turned
+  grey (the whole picture, filling the panel, or stretched). A GIF keeps all
+  its frames and its speed.
+- **My drawings**: save, open and delete drawings. They are small files in
+  `%APPDATA%\WhiteRabbit\drawings`.
+- **Show on the ticked panels while I draw** shows the drawing on the panels
+  as you work.
+
+To keep a drawing on a panel, put the **Picture** app on it in the Panels tab
+and pick *My drawing: (name)*. Animated drawings play there too. The monitor
+draws about 10 frames a second, so frames shorter than 100 ms play a little
+slower on the panels than in the window.
+
+![The Draw tab](docs/screenshots/white-rabbit-draw.png)
+
 ### Firmware tab
 
 Shows which firmware each panel has, puts a panel into bootloader mode, and
 flashes the bundled firmware: White Rabbit's (startup animation setting, extra
-patterns) or Framework's official 0.2.0, or any `.uf2` file you choose.
+patterns, dimming that keeps every shade) or Framework's official 0.2.0, or any `.uf2` file you choose.
 
 ![The Firmware tab](docs/screenshots/white-rabbit-firmware.png)
 
@@ -302,6 +353,12 @@ White Rabbit combines two open source projects, both MIT licensed (see
 
 Thanks to everyone who worked on those.
 
+The plug-in ripple, the sand battery, the now playing app, the CPU afterglow,
+the text line, the sliding between apps, the water look and dimming by LED
+current were inspired by patate's (slowpaste)
+[pixeled](https://github.com/slowpaste/pixeled). They are written from scratch
+for White Rabbit; no code was copied.
+
 The window's look is the [Sun Valley ttk theme](https://github.com/rdbende/Sun-Valley-ttk-theme)
 by rdbende (MIT, see [LICENSES/sv-ttk-LICENSE.txt](LICENSES/sv-ttk-LICENSE.txt)), coloured with
 your Windows accent colour.
@@ -312,8 +369,8 @@ project is GPL-3.0 licensed, so no code was copied: the Math tab is written
 from scratch from the textbook definitions of each graph and simulation. The
 "More maths" effects are classic math demos, also written from scratch.
 
-The animations, the old-TV effect, and the mirror, keyboard gap and panel name
-ideas come from Deovandski's
+The animations, the old-TV effect, the Draw tab, and the mirror, keyboard gap
+and panel name ideas come from Deovandski's
 [Framework16 LED Matrix Manager](https://github.com/Deovandski/Deo-s-Framework16-LED-Matrix-Manager)
 (MIT). Only the ideas were used; the code here is written separately.
 

@@ -67,6 +67,8 @@ ICONS = {
     "games": ("\ue7fc", "\u25b6"),
     "music": ("\ue8d6", "\u266a"),
     "math": ("\ue8ef", "\u2211"),
+    "draw": ("\ue70f", "\u270e"),
+    "effects": ("\ue945", "\u2738"),
     "startup": ("\ue7e8", "\u2726"),
     "settings": ("\ue713", "\u2699"),
     "chevron": ("\ue76c", "\u203a"),
@@ -668,6 +670,14 @@ class Slider(ttk.Frame):
             self.value.configure(text=str(value))
             if self.command is not None:
                 self.command(str(value))
+
+    def configure(self, cnf=None, **kw):
+        if "command" in kw:
+            self.command = kw.pop("command")
+        if cnf or kw:
+            return super().configure(cnf, **kw)
+
+    config = configure
 
     def get(self):
         return round(self.var.get())
