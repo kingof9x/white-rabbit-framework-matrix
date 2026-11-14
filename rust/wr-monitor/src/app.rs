@@ -5,18 +5,20 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use wr_core::ports::{discover, Pins};
 use wr_core::queue::FrameQueue;
 use wr_core::settings::Settings;
+use wr_panel::ports::{discover, Pins};
 
 use crate::monitor::{log_panics, pins_of, LayoutSource, Monitor, Shared};
-use crate::panel::{Claims, Panel, PortSystem};
 use crate::sensors::{ScreenBrightness, WindowsReadings};
-use crate::winports::WindowsPorts;
-use crate::{info, paths, ui, warn};
+use crate::{paths, ui};
+use wr_core::{info, warn};
+use wr_panel::hub::PortSystem;
+use wr_panel::panel::{Panel, Panels};
+use wr_panel::winports::WindowsPorts;
 
 pub fn run() -> i32 {
-    crate::log::init(paths::log_file());
+    wr_core::log::init(paths::log_file());
     log_panics();
     info!("White Rabbit Rust test build {} starting", env!("CARGO_PKG_VERSION"));
 
@@ -57,11 +59,11 @@ pub fn run() -> i32 {
     *shared.settings.lock().unwrap() = Settings::load(&paths::settings_file());
 
     let pins: Arc<Mutex<Pins>> = Arc::new(Mutex::new(pins_of(&layout)));
-    let claims = Arc::new(Claims::default());
+    let panels = Panels::new(ports.clone(), pins.clone());
     let queues = [Arc::new(FrameQueue::new()), Arc::new(FrameQueue::new())];
     let mut drawing = Vec::new();
     for (side, queue) in queues.iter().enumerate() {
-        let panel = Panel::new(side, ports.clone(), claims.clone(), pins.clone());
+        let panel = Panel::new(side, panels.clone());
         let queue = queue.clone();
         drawing.push(
             std::thread::Builder::new()
