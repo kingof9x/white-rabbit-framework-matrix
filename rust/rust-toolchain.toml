@@ -1,0 +1,5 @@
+# The Rust version CI and local builds use, so a new release with new lints never breaks the build by surprise
+[toolchain]
+channel = "1.97"
+components = ["rustfmt", "clippy"]
+targets = ["x86_64-pc-windows-msvc"]
