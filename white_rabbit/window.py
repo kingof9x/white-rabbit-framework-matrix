@@ -1,6 +1,6 @@
 # The White Rabbit window: the layout editor and the LED Matrix controls in one place.
 #
-# Tabs: Panels (layout editor), Startup animation, Games & patterns, Math, Audio, Firmware, Keyboard shortcuts, Info.
+# Tabs: Panels (layout editor), Startup animation, Games & patterns, Math, Audio, Effects, Firmware, Keyboard shortcuts, Info.
 # The bar at the bottom picks which panels the controls act on, and shows whether each panel is
 # showing the system monitor or something from this window. Playing a game or showing a pattern
 # borrows the panel from the monitor; "Back to system monitor" returns it.
@@ -15,7 +15,7 @@ from tkinter import ttk
 
 # Internal Dependencies
 from led_mon import platform_utils
-from white_rabbit import bridge, info_tab, math_tab, music, panels as panels_mod, tabs
+from white_rabbit import bridge, effects_tab, info_tab, math_tab, music, panels as panels_mod, tabs
 
 log = logging.getLogger(__name__)
 
@@ -143,13 +143,15 @@ class WhiteRabbitWindow:
         self.notebook.add(self.math_tab, text="Math")
         self.music_tab = music.MusicTab(self.notebook, self)
         self.notebook.add(self.music_tab, text="Audio")
+        self.effects_tab = effects_tab.EffectsTab(self.notebook, self)
+        self.notebook.add(self.effects_tab, text="Effects")
         self.firmware_tab = tabs.FirmwareTab(self.notebook, self)
         self.notebook.add(self.firmware_tab, text="Firmware")
         self.shortcuts_tab = tabs.ShortcutsTab(self.notebook, self)
         self.notebook.add(self.shortcuts_tab, text="Keyboard shortcuts")
         self.info_tab = info_tab.InfoTab(self.notebook, self)
         self.notebook.add(self.info_tab, text="Info")
-        tab = {"startup": self.startup_tab, "play": self.play_tab, "math": self.math_tab, "audio": self.music_tab, "music": self.music_tab,
+        tab = {"startup": self.startup_tab, "play": self.play_tab, "math": self.math_tab, "audio": self.music_tab, "music": self.music_tab, "effects": self.effects_tab,
                "firmware": self.firmware_tab, "shortcuts": self.shortcuts_tab,
                "info": self.info_tab}.get(start_tab)
         if tab is not None:
@@ -358,6 +360,10 @@ class WhiteRabbitWindow:
             self.music_tab.set_visible(self.notebook.select() == str(self.music_tab))
         except Exception as e:
             log.error(f"Could not start the Audio tab's preview: {e}")
+        try:
+            self.effects_tab.set_visible(self.notebook.select() == str(self.effects_tab))
+        except Exception as e:
+            log.error(f"Could not start the Effects tab's preview: {e}")
 
     def on_layout_dirty(self, dirty):
         self.notebook.tab(self.panels_tab, text="Panels *" if dirty else "Panels")

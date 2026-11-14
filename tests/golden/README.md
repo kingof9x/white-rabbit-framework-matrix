@@ -7,7 +7,7 @@ the same pictures.
 - `monitor_apps.json`: LED values (0-255) for every monitor app in the top and bottom half, the
   battery at fixed times (it flashes and pulses), clock and weather characters, temperatures, the app
   names and the borders.
-- `music_looks.json`: all 21 looks, left and right panel, on one panel or across both, with default and
+- `music_looks.json`: all 22 looks, left and right panel, on one panel or across both, with default and
   changed options, every 6th of 48 frames of `looks.demo_samples` music plus a frame after silence.
   Brightness 0.0-1.0 is stored as round(value * 255) and may differ by 1.
 
