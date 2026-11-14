@@ -408,8 +408,10 @@ class Theme:
     def _element_images(self):
         c = self.colors
         r = self.px(4)
-        nav = (self.px(40), self.nav_height())
-        card = (self.px(24), self.px(24))
+        # Tk fills a box by tiling the picture's middle: a big picture needs far fewer copies than a small
+        # one, which made pages with many cards or groups take a third of a second to show
+        nav = (self.px(160), self.nav_height())
+        card = (self.px(160), self.px(160))
         wanted = {
             "nav": self._rounded(nav, r, c["bg"]),
             "nav_hover": self._rounded(nav, r, c["nav_hover"]),
