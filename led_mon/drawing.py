@@ -225,11 +225,26 @@ def draw_fps_half(grid, fps, available, fill_value, y):
     draw_fps_number(grid, fps, available, fill_value, 3 if y == 0 else 20)
 
 warned = set()
+_drawing_player = None
 def draw_snapshot(grid, fill_value, **kwargs):
-    global warned
+    global warned, _drawing_player
     path = kwargs.get('path', None)
     panel = kwargs.get('panel', None)
     file = kwargs.get('file', None)
+    # A drawing from the Draw tab (greyscale, maybe several frames) instead of a built-in picture
+    from led_mon import drawings
+    name = drawings.name_from_setting(file)
+    if name is not None:
+        if _drawing_player is None:
+            _drawing_player = drawings.Player()
+        frame = _drawing_player.frame(name)
+        if frame is None:
+            if file not in warned:
+                log.warning(f"Drawing {name} not found")
+                warned.add(file)
+            return
+        grid[:, :] = frame.astype(int) * fill_value // 255
+        return
     current_dir = package_dir()
     path = os.path.join(current_dir, path)
     subdirs = [ f.name for f in os.scandir(path) if f.is_dir() and f.name in ['left', 'right']]

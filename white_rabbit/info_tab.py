@@ -45,7 +45,8 @@ CREDITS = [
     ("pixeled by patate (slowpaste)", "https://github.com/slowpaste/pixeled",
      "The ideas for the Effects tab, the sand battery and now playing apps (written from scratch)."),
     ("Framework16 LED Matrix Manager by Deo", "https://github.com/Deovandski/Deo-s-Framework16-LED-Matrix-Manager",
-     "The ideas for the animations, the old-TV effect, mirror mode, the keyboard gap and panel names (our own code)."),
+     "The ideas for the animations, the old-TV effect, mirror mode, the keyboard gap, panel names and the Draw tab "
+     "(our own code)."),
 ]
 
 

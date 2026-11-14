@@ -24,7 +24,7 @@ def load_tables():
     saved = sys.argv
     sys.argv = [saved[0], "--disable-plugins"]
     try:
-        from led_mon import drawing  # noqa: F401  (transposes lookup_table, as the app does)
+        from led_mon import drawing  # its lookup_table is the spirals turned the way the app draws them
         from led_mon import patterns as p
     finally:
         sys.argv = saved
@@ -46,7 +46,7 @@ def load_tables():
         "LETTERS_SMALL": p.letters_small,
         "LETTERS_5X6": p.letters_5_x_6,
         "ID_PATTERNS": ids,
-        "SPIRALS": {str(i): p.lookup_table[i] for i in range(p.lookup_table.shape[0])},
+        "SPIRALS": {str(i): drawing.lookup_table[i] for i in range(drawing.lookup_table.shape[0])},
         "LIGHTNING_BOLT": {"top": p.lightning_bolt_top, "bottom": p.lightning_bolt_bot},
     }
 

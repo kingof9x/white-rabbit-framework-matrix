@@ -12,5 +12,7 @@ res/releases/
 # you approve with "don't ask again". Use environment variables instead.
 .claude/settings.local.json
 
+# Drawings from the Draw tab when running from source on Linux
+led_mon/drawings/
 # Rust build output
 rust/target/
