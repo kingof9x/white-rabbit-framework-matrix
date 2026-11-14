@@ -6,6 +6,7 @@
 
 mod icon;
 mod monitor;
+mod music;
 mod paths;
 
 #[cfg(windows)]

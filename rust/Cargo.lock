@@ -923,6 +923,7 @@ dependencies = [
  "windows-sys",
  "wmi",
  "wr-core",
+ "wr-music",
  "wr-panel",
 ]
 
