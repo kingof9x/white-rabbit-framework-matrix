@@ -173,6 +173,61 @@ def monitor_cases():
             label = "-".join("none" if v is None else str(v) for v in values)
             case(f"temp-{label}-{half}", lambda g, values=values, y=y: draw_temp_numbers(g, values, FOREGROUND, y))
 
+    # Fans: two bars, split down the middle
+    for half, y in halves:
+        for a, b in ((0.0, 0.0), (0.25, 1.0), (0.5, 0.1)):
+            def fans(g, a=a, b=b, y=y):
+                drawing.draw_bar(g, a, FOREGROUND, bar_x_offset=1, y=y)
+                drawing.draw_bar(g, b, FOREGROUND, bar_x_offset=5, y=y)
+                drawing.draw_2_x_1_horiz_grid(g, BACKGROUND, y)
+            case(f"fan-{a}-{b}-{half}", fans)
+
+    # Weather readings as the weather app draws them, with the forecast's day and hour bars
+    from led_mon.plugins import time_weather_plugin as tw
+    readings = {
+        "mild": tw.Weather("Current", 21.4, 19.5, 12.5, "km", 225.0, "degC", "Clouds"),
+        "cold": tw.Weather("Current", -4.5, -11.6, 30.2, "mi", 350.0, "degF", "snow"),
+        "hot": tw.Weather("Forecast", 101.0, 99.5, 3.0, "km", 92.0, "degK", "clear"),
+    }
+    for label, weather in readings.items():
+        for measure in ("temp_condition", "wind_chill", "wind", "bogus"):
+            for half, y in halves:
+                def weather_case(g, weather=weather, measure=measure, y=y):
+                    try:
+                        drawing.draw_chars_list(g, tw.get_weather_values(weather, measure), FOREGROUND, y)
+                    except ValueError:
+                        # Python stops at the first character below the panel (the monitor logs it); the
+                        # characters already drawn stay
+                        pass
+                case(f"weather-{label}-{measure}-{half}", weather_case)
+    for day, hour in ((1, 12), (3, 0), (5, 23), (9, -1)):
+        def forecast(g, day=day, hour=hour):
+            drawing.draw_chars_list(g, tw.get_weather_values(readings["mild"], "temp_condition"), FOREGROUND, 0)
+            tw.draw_fc_period_indicator(g, FOREGROUND, day, hour)
+        case(f"weather-forecast-d{day}-h{hour}", forecast)
+
+    # Now playing: the made-up cover, song name and bars, each panel's half
+    from led_mon import now_playing as np_app
+    levels = [7.4, 6.5, 5.5, 4.2, 3.5, 2.5, 1.0, 0.4, -1.0]
+    songs = {
+        "full": np_app.Media(title="Preview song", artist="White Rabbit", playing=True),
+        "title": np_app.Media(title="ok?", playing=True),
+        "none": np_app.Media(playing=True),
+    }
+    options = {
+        "all": dict(title=True, visualizer=True, drift=True),
+        "plain": dict(title=False, visualizer=False, drift=False),
+    }
+    for song, media in songs.items():
+        for opt, kwargs in options.items():
+            for now in (0.0, 2.3, 7.9, 61.25):
+                for side in ("left", "right"):
+                    def now_playing_case(g, media=media, kwargs=kwargs, now=now, side=side):
+                        canvas = np_app.scene(media, np_app.demo_cover(), now, levels=np.array(levels), **kwargs)
+                        half = canvas[:, :WIDTH] if side == "left" else canvas[:, WIDTH:]
+                        g[:, :] = np.maximum(g, np.rint(half.T * FOREGROUND).astype(int))
+                    case(f"now-playing-{song}-{opt}-t{now}-{side}", now_playing_case)
+
     # The app names shown while choosing apps (Ctrl+Alt+Shift+I): half-panel names in pairs,
     # whole-panel names on their own. A fixed list, because loading the plugins adds names to the table.
     # (fps-num's name is 16 rows tall and doesn't fit the 15 rows draw_ids gives it, so it's left out.)

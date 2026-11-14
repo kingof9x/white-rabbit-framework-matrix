@@ -19,13 +19,55 @@ pub trait Readings {
     fn clock(&mut self, app: &App) -> (String, bool);
     /// Seconds, for the battery's flash and pulse.
     fn now(&mut self) -> f64;
+
+    // The apps in `crate::apps`. Each has a default with no reading, so a source that can't read
+    // something leaves it out.
+
+    /// Which panel is drawn next (false: left, true: right). The monitor tells before each panel.
+    fn set_panel(&mut self, _right: bool) {}
+    /// The panel being drawn: true for the right one.
+    fn panel_right(&mut self) -> bool {
+        false
+    }
+    /// Disk (read, write) rates, 0.0-1.0 of the highest seen.
+    fn disk(&mut self) -> (f64, f64) {
+        (0.0, 0.0)
+    }
+    /// Network (upload, download) rates, 0.0-1.0 of the highest seen.
+    fn net(&mut self) -> (f64, f64) {
+        (0.0, 0.0)
+    }
+    /// A GPU's use once a second, newest first (the gpu-graph app). `gpu` is a name, or blank for the first.
+    fn gpu_history(&mut self, _gpu: &str) -> Vec<Option<f64>> {
+        Vec::new()
+    }
+    /// Frames a second of the watched app (blank: the game in front).
+    fn fps(&mut self, _process: &str) -> crate::apps::Fps {
+        crate::apps::Fps::default()
+    }
+    /// What is playing.
+    fn now_playing(&mut self) -> crate::apps::now_playing::NowPlaying {
+        Default::default()
+    }
+    /// The weather for the app's settings (location, units, forecast), or None while there is none.
+    fn weather(&mut self, _app: &App) -> Option<crate::apps::weather::Weather> {
+        None
+    }
+    /// The temperatures app's three values in its unit, None where there is no reading.
+    fn temperatures(&mut self, _app: &App) -> [Option<f64>; 3] {
+        [None; 3]
+    }
+    /// Fan speeds in RPM.
+    fn fans(&mut self) -> Vec<f64> {
+        Vec::new()
+    }
 }
 
 /// The apps this monitor can draw so far. The others show nothing until they are ported.
 pub const SUPPORTED_APPS: [&str; 4] = ["cpu", "cpu-graph", "mem-bat", "time"];
 
 pub fn is_supported(name: &str) -> bool {
-    SUPPORTED_APPS.contains(&name)
+    SUPPORTED_APPS.contains(&name) || crate::apps::DATA_APPS.contains(&name)
 }
 
 /// LED values for the screen brightness 0.0-1.0: (foreground, background).
@@ -71,6 +113,7 @@ pub fn render_panel(grid: &mut Grid, apps: &PanelApps, readings: &mut dyn Readin
                     draw_pm_indicator(grid, fg);
                 }
             }
+            name if crate::apps::DATA_APPS.contains(&name) => draw_data_app(grid, app, readings, fg, y),
             _ => {}
         }
         animate = app.animate;
@@ -79,6 +122,88 @@ pub fn render_panel(grid: &mut Grid, apps: &PanelApps, readings: &mut dyn Readin
         }
     }
     animate
+}
+
+/// The apps in `crate::apps`: disk and network, GPU, FPS, now playing, weather, temperatures and fans.
+fn draw_data_app(grid: &mut Grid, app: &App, readings: &mut dyn Readings, fg: i32, y: usize) {
+    use crate::apps::{now_playing, temp_fan, weather};
+    let arg = |key: &str| app.arg_str(key).unwrap_or_default();
+    match app.name.as_str() {
+        "disk" | "net" => {
+            let (a, b) = if app.name == "disk" { readings.disk() } else { readings.net() };
+            draw_bar(grid, a, fg, 1, y);
+            draw_bar(grid, b, fg, 5, y);
+        }
+        "disk-net" => {
+            let (disk, net) = (readings.disk(), readings.net());
+            draw_disk_net(grid, disk, net, fg, y);
+        }
+        "gpu-graph" => draw_history_graph(grid, &readings.gpu_history(&arg("gpu")), fg, y),
+        "fps" => {
+            let fps = readings.fps(&arg("process"));
+            draw_fps(grid, fps.value, &fps.history, fps.available, fg);
+        }
+        "fps-num" => {
+            let fps = readings.fps(&arg("process"));
+            draw_fps_half(grid, fps.value, fps.available, fg, y);
+        }
+        "temp" => draw_temp_numbers(grid, &readings.temperatures(app), fg, y),
+        "fan" => {
+            let [a, b] = temp_fan::fan_ratios(&readings.fans());
+            draw_bar(grid, a, fg, 1, y);
+            draw_bar(grid, b, fg, 5, y);
+        }
+        "weather" => match readings.weather(app) {
+            Some(w) => {
+                let measures: Vec<String> = match app.arg("measures") {
+                    Some(serde_yaml::Value::Sequence(list)) => {
+                        list.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()
+                    }
+                    _ => vec!["temp_condition".to_string()],
+                };
+                let measures: Vec<&str> = measures.iter().map(String::as_str).collect();
+                let duration = app.arg("measures-duration").and_then(serde_yaml::Value::as_f64).unwrap_or(10.0);
+                let measure = weather::measure_at(&measures, duration, readings.now());
+                let values = weather::weather_values(&w, measure);
+                let chars: Vec<&str> = values.iter().map(String::as_str).collect();
+                draw_chars_list(grid, &chars, fg, y);
+                if app.arg_bool("forecast") {
+                    let int_arg = |key: &str, default: i64| {
+                        app.arg_str(key).and_then(|s| s.trim().parse::<f64>().ok()).map(|v| v as i64).unwrap_or(default)
+                    };
+                    weather::draw_forecast_period(grid, fg, int_arg("forecast_day", 1), int_arg("forecast_hour", 12));
+                }
+            }
+            None => draw_chars_list(grid, &["?", "?"], fg, y),
+        },
+        "now-playing" => {
+            let opts = now_playing::Options {
+                title: app.arg("title").map(|_| app.arg_bool("title")).unwrap_or(true),
+                visualizer: app.arg("visualizer").map(|_| app.arg_bool("visualizer")).unwrap_or(true),
+                drift: app.arg("drift").map(|_| app.arg_bool("drift")).unwrap_or(true),
+                when_idle: app.arg_str("when_idle").unwrap_or_else(|| "skip".into()),
+            };
+            let right = match arg("side").as_str() {
+                "left" => false,
+                "right" => true,
+                _ => readings.panel_right(),
+            };
+            let np = readings.now_playing();
+            let now = readings.now();
+            if !now_playing::draw_now_playing(grid, &np, &opts, right, now, fg) {
+                // The clock, 24-hour, from the top
+                let mut clock_app = app.clone();
+                clock_app.args = serde_yaml::Mapping::new();
+                clock_app.args.insert("fmt_24_hour".into(), true.into());
+                let (digits, _) = readings.clock(&clock_app);
+                let d: Vec<String> = digits.chars().map(|c| c.to_string()).collect();
+                if d.len() == 4 {
+                    draw_chars_list(grid, &[&d[0], &d[1], "horiz_colon", &d[2], &d[3]], fg, 0);
+                }
+            }
+        }
+        _ => {}
+    }
 }
 
 /// The names of the panel's apps, inside an outline (Ctrl+Alt+Shift+I, or Identify panels).
@@ -147,7 +272,7 @@ mod tests {
     #[test]
     fn unported_apps_stay_dark() {
         let mut g = Grid::new();
-        render_panel(&mut g, &panel("disk", "weather"), &mut Fixed, 160, 35);
+        render_panel(&mut g, &panel("no-such-app", "none"), &mut Fixed, 160, 35);
         assert!(g.is_dark());
     }
 

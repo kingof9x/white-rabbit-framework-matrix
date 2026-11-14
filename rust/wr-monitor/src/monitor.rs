@@ -211,6 +211,7 @@ impl Monitor {
 
         for (side, (q, apps)) in self.queues.iter().zip(&panels).enumerate() {
             let mut grid = Grid::new();
+            self.readings.set_panel(side == 1);
             let animate = render_panel(&mut grid, apps, self.readings.as_mut(), fg, bg);
             let mut do_animate = None;
             if [changed.left, changed.right][side] {

@@ -4,6 +4,8 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use wr_core::apps::now_playing::{demo_cover, draw_half, scene, Media, Options};
+use wr_core::apps::weather::{draw_forecast_period, weather_values, Weather};
 use wr_core::drawing::*;
 use wr_core::patterns::ICONS;
 use wr_core::{Grid, HEIGHT, WIDTH};
@@ -170,6 +172,70 @@ fn monitor_cases() -> BTreeMap<String, Grid> {
             ("none-none-none", [None, None, None]),
         ] {
             case(format!("temp-{label}-{half}"), &|g| draw_temp_numbers(g, &values, FOREGROUND, y));
+        }
+    }
+
+    for (half, y) in halves {
+        for (a, b) in [(0.0, 0.0), (0.25, 1.0), (0.5, 0.1)] {
+            case(format!("fan-{}-{}-{half}", py(a), py(b)), &|g| {
+                draw_bar(g, a, FOREGROUND, 1, y);
+                draw_bar(g, b, FOREGROUND, 5, y);
+                draw_app_border("fan", g, BACKGROUND, y, 8);
+            });
+        }
+    }
+
+    let weather = |temp, chill, speed, speed_symbol: &str, dir, temp_symbol: &str, condition: &str| Weather {
+        temp,
+        wind_chill: chill,
+        wind_speed: speed,
+        wind_speed_symbol: speed_symbol.into(),
+        wind_dir: dir,
+        temp_symbol: temp_symbol.into(),
+        condition: condition.into(),
+    };
+    let readings = [
+        ("mild", weather(21.4, 19.5, 12.5, "km", 225.0, "degC", "Clouds")),
+        ("cold", weather(-4.5, -11.6, 30.2, "mi", 350.0, "degF", "snow")),
+        ("hot", weather(101.0, 99.5, 3.0, "km", 92.0, "degK", "clear")),
+    ];
+    for (label, w) in &readings {
+        for measure in ["temp_condition", "wind_chill", "wind", "bogus"] {
+            for (half, y) in halves {
+                case(format!("weather-{label}-{measure}-{half}"), &|g| {
+                    let values = weather_values(w, measure);
+                    let chars: Vec<&str> = values.iter().map(String::as_str).collect();
+                    draw_chars_list(g, &chars, FOREGROUND, y);
+                });
+            }
+        }
+    }
+    for (day, hour) in [(1, 12), (3, 0), (5, 23), (9, -1)] {
+        case(format!("weather-forecast-d{day}-h{hour}"), &|g| {
+            let values = weather_values(&readings[0].1, "temp_condition");
+            let chars: Vec<&str> = values.iter().map(String::as_str).collect();
+            draw_chars_list(g, &chars, FOREGROUND, 0);
+            draw_forecast_period(g, FOREGROUND, day, hour);
+        });
+    }
+
+    let levels = [7.4, 6.5, 5.5, 4.2, 3.5, 2.5, 1.0, 0.4, -1.0];
+    let song =
+        |title: &str, artist: &str| Media { title: title.into(), artist: artist.into(), playing: true, cover: None };
+    let songs = [("full", song("Preview song", "White Rabbit")), ("title", song("ok?", "")), ("none", song("", ""))];
+    let all = Options { title: true, visualizer: true, drift: true, when_idle: "skip".into() };
+    let plain = Options { title: false, visualizer: false, drift: false, when_idle: "skip".into() };
+    let cover = demo_cover();
+    for (label, media) in &songs {
+        for (opt, options) in [("all", &all), ("plain", &plain)] {
+            for now in [0.0, 2.3, 7.9, 61.25] {
+                for side in ["left", "right"] {
+                    case(format!("now-playing-{label}-{opt}-t{}-{side}", py(now)), &|g| {
+                        let canvas = scene(media, Some(&cover), now, options, Some(&levels));
+                        draw_half(g, &canvas, side == "right", FOREGROUND);
+                    });
+                }
+            }
         }
     }
 
