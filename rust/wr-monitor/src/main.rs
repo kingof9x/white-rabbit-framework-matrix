@@ -4,6 +4,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 #![cfg_attr(not(windows), allow(dead_code))]
 
+mod control;
 mod icon;
 mod monitor;
 mod paths;

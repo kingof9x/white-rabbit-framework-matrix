@@ -22,9 +22,21 @@ pub fn settings_file() -> PathBuf {
     config_dir().join("settings.json")
 }
 
+/// %LOCALAPPDATA%\WhiteRabbit: Python's `user_log_dir` (an empty variable counts as unset there).
+pub fn log_dir() -> PathBuf {
+    let base = ["LOCALAPPDATA", "APPDATA", "USERPROFILE", "HOME"]
+        .iter()
+        .find_map(|v| std::env::var_os(v).filter(|s| !s.is_empty()));
+    base.map(PathBuf::from).unwrap_or_else(|| PathBuf::from(".")).join(APP_NAME)
+}
+
 pub fn log_file() -> PathBuf {
-    let base = std::env::var_os("LOCALAPPDATA").or_else(|| std::env::var_os("APPDATA"));
-    base.map(PathBuf::from).unwrap_or_else(|| PathBuf::from(".")).join(APP_NAME).join("WhiteRabbit-rust-test.log")
+    log_dir().join("WhiteRabbit-rust-test.log")
+}
+
+/// The control channel's key, which the window reads to talk to the monitor (`led_mon/control.py`).
+pub fn control_key_file() -> PathBuf {
+    log_dir().join("control.key")
 }
 
 /// The layout file: CONFIG_FILE, then config-local.yaml, then config.yaml. None: use the bundled one.
