@@ -1,6 +1,7 @@
-//! Apps that show your own content rather than readings: the Text app and the Picture app
-//! (built-in pictures and Draw tab drawings).
+//! Apps that show your own content rather than readings: the Text app, the Picture app (built-in
+//! pictures and Draw tab drawings), and the panel names shown by Identify panels.
 
+pub mod panel_names;
 pub mod picture;
 pub mod text;
 

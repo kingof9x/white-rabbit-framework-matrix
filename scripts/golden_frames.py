@@ -97,6 +97,7 @@ TEXTS = (("short", "Hi"), ("time", "10:47 87% 12%"), ("words", "Hello, world! 42
          ("symbols", "a+b=c? (x/y)*2 #1 <3> _ ' \" \u00b0 ~ \u00df"), ("percent", "5% 100%"),
          ("blank", "   "))
 TEXT_TIMES = (0.0, 1.0, 3.3, 7.25, 40.0)
+PANEL_NAMES = ("Left", "Right", "Desk", "abcdefgh", "a b", "\u00e4\u00f6\u00fc!", "?\u00e9#", "", "10:47")
 
 
 def monitor_cases():
@@ -212,6 +213,11 @@ def monitor_cases():
         case(f"text-values-{label}", lambda g, app=app, fmt_24=fmt_24: drawing.draw_app(
             "text", g, app, FOREGROUND, text="{time} {Battery} {CPU} {other}", style="stacked",
             fmt_24_hour=fmt_24))
+
+    # Panel names, shown first by Identify panels
+    from led_mon.panel_names import name_grid
+    for name in PANEL_NAMES:
+        case(f"name-{name}", lambda g, name=name: g.__setitem__(slice(None), name_grid(name, FOREGROUND)))
 
     # Clock and weather characters (the time and weather plugins draw these lists)
     for name, chars in (("time-1234", ["1", "2", "horiz_colon", "3", "4"]),

@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use wr_core::apps::panel_names::name_grid;
 use wr_core::apps::picture::{draw_frame, Drawing};
 use wr_core::apps::text;
 use wr_core::drawing::*;
@@ -208,6 +209,11 @@ fn monitor_cases() -> BTreeMap<String, Grid> {
         case(format!("text-values-{label}"), &|g| {
             text::draw_with_values(g, "{time} {Battery} {CPU} {other}", "stacked", FOREGROUND, &values, 2.0)
         });
+    }
+
+    // Panel names
+    for name in ["Left", "Right", "Desk", "abcdefgh", "a b", "\u{e4}\u{f6}\u{fc}!", "?\u{e9}#", "", "10:47"] {
+        case(format!("name-{name}"), &|g| *g = name_grid(name, FOREGROUND));
     }
 
     let char_cases: [(&str, &[&str]); 7] = [

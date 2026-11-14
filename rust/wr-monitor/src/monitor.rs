@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
+use wr_core::apps::panel_names::{load_panel_names, name_grid};
 use wr_core::layout::{Layout, Rotation};
 use wr_core::queue::{FrameQueue, Item};
 use wr_core::render::{brightness_values, render_ids, render_panel, Readings};
@@ -15,6 +16,9 @@ use wr_core::Grid;
 use wr_panel::ports::Pins;
 
 use wr_core::{error, info, warn};
+
+/// How long Identify panels shows each panel's own name before the apps' names.
+const NAME_SECONDS: f64 = 2.0;
 
 /// What the tray, the shortcuts and the power events change, read by the main loop.
 #[derive(Default)]
@@ -32,12 +36,27 @@ pub struct Shared {
     pub quit: AtomicBool,
     /// Show the apps' names until then.
     pub identify_until: Mutex<Option<Instant>>,
+    /// Before the apps' names: each panel's own name (left, right) until then.
+    pub panel_names: Mutex<Option<(Instant, [String; 2])>>,
     pub settings: Mutex<Settings>,
 }
 
 impl Shared {
+    /// Identify panels: each panel's name for 2 seconds, then the apps' names for `seconds`.
     pub fn identify(&self, seconds: f64) {
-        *self.identify_until.lock().unwrap() = Some(Instant::now() + Duration::from_secs_f64(seconds));
+        self.identify_with_names(seconds, load_panel_names(&crate::paths::settings_file()));
+    }
+
+    pub fn identify_with_names(&self, seconds: f64, names: [String; 2]) {
+        let names_until = Instant::now() + Duration::from_secs_f64(NAME_SECONDS);
+        *self.panel_names.lock().unwrap() = Some((names_until, names));
+        *self.identify_until.lock().unwrap() = Some(names_until + Duration::from_secs_f64(seconds));
+    }
+
+    /// The name to show on this panel (0 left, 1 right) right now while identifying, or None.
+    fn panel_name(&self, side: usize) -> Option<String> {
+        let names = self.panel_names.lock().unwrap();
+        names.as_ref().filter(|(until, _)| Instant::now() < *until).map(|(_, n)| n[side].clone())
     }
 
     fn identifying(&self) -> bool {
@@ -201,9 +220,12 @@ impl Monitor {
         let panels = [self.rotation.panel(false), self.rotation.panel(true)];
 
         if self.shared.identifying() {
-            for (q, apps) in self.queues.iter().zip(&panels) {
+            for (side, (q, apps)) in self.queues.iter().zip(&panels).enumerate() {
                 let mut grid = Grid::new();
-                render_ids(&mut grid, apps, fg, bg);
+                match self.shared.panel_name(side) {
+                    Some(name) => grid = name_grid(&name, fg),
+                    None => render_ids(&mut grid, apps, fg, bg),
+                }
                 q.put(Item::Frame(grid, Some(false)));
             }
             self.latch = true;
@@ -315,9 +337,22 @@ mod tests {
     }
 
     #[test]
+    fn identify_shows_the_panel_names_first() {
+        let mut m = monitor();
+        m.shared.identify_with_names(3.0, ["Desk".into(), "Right".into()]);
+        m.step();
+        let Item::Frame(grid, _) = &frames(&m.queues[0])[0] else { panic!() };
+        assert_eq!(*grid, name_grid("Desk", 160));
+        let Item::Frame(grid, _) = &frames(&m.queues[1])[0] else { panic!() };
+        assert_eq!(*grid, name_grid("Right", 160));
+    }
+
+    #[test]
     fn identify_shows_the_names() {
         let mut m = monitor();
-        m.shared.identify(3.0);
+        m.shared.identify_with_names(3.0, ["Left".into(), "Right".into()]);
+        // Past the panel names
+        *m.shared.panel_names.lock().unwrap() = None;
         m.step();
         // The bundled layout's left panel starts with the clock on the whole panel: its name fills it
         let Item::Frame(grid, animate) = &frames(&m.queues[0])[0] else { panic!() };
