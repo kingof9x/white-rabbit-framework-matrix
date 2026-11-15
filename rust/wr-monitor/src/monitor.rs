@@ -318,6 +318,7 @@ impl Monitor {
                 continue;
             }
             let mut grid = Grid::new();
+            self.readings.set_panel(side == 1);
             let animate = render_panel_on(&mut grid, apps, self.readings.as_mut(), fg, bg, ["left", "right"][side]);
             let mut do_animate = None;
             if [changed.left, changed.right][side] {
