@@ -142,6 +142,10 @@ pub struct EffectsSettings {
     /// back after the unplug drain. Not in the Python app, so only saved when on.
     #[serde(skip_serializing_if = "is_false")]
     pub fade: bool,
+    /// The two panels sit next to each other (no keyboard between them): the unplug drain runs across
+    /// both as one picture. Not in the Python app, so only saved when on.
+    #[serde(skip_serializing_if = "is_false")]
+    pub panels_together: bool,
     /// Dim the panels with the LED chip's current instead of darker values (needs newer firmware).
     pub full_shades: bool,
 }
@@ -162,6 +166,7 @@ impl Default for EffectsSettings {
             text_speed: 5,
             slide: true,
             fade: false,
+            panels_together: false,
             full_shades: false,
         }
     }
@@ -185,6 +190,7 @@ impl EffectsSettings {
             ("text_battery", &mut s.text_battery),
             ("slide", &mut s.slide),
             ("fade", &mut s.fade),
+            ("panels_together", &mut s.panels_together),
             ("full_shades", &mut s.full_shades),
         ] {
             if let Some(v) = get(key) {
@@ -1017,6 +1023,35 @@ pub struct Effects {
     pub foreground: i32,
     /// Ripples across all panels at once, each with the panel order it was made for.
     ripples: Vec<(Ripple, Vec<Side>)>,
+    /// One drain across both panels (`panels_together`), shared by the two players.
+    wide: Option<WideDrain>,
+}
+
+/// The unplug drain over both panels side by side: left panel, the gap, right panel.
+#[derive(Clone, Debug)]
+struct WideDrain {
+    drain: Drain,
+    /// The port is on the left, so the drain runs on the flipped picture.
+    flipped: bool,
+    /// When it last moved on, and the picture it made then (both panels ask for it each frame).
+    last: Option<f64>,
+    picture: Picture,
+}
+
+impl WideDrain {
+    /// The whole picture at `now`, moving the drain on only once per moment.
+    fn at(&mut self, now: f64) -> &Picture {
+        let dt = match self.last {
+            Some(last) if now <= last => return &self.picture,
+            Some(last) => (now - last).min(0.1),
+            None => 0.0,
+        };
+        self.last = Some(now);
+        self.drain.advance(dt);
+        let picture = self.drain.pixels(dt);
+        self.picture = if self.flipped { picture.flipped() } else { picture };
+        &self.picture
+    }
 }
 
 impl Default for Effects {
@@ -1034,6 +1069,7 @@ impl Effects {
             panels: [false; 2],
             foreground: 160,
             ripples: Vec::new(),
+            wide: None,
         }
     }
 
@@ -1095,9 +1131,12 @@ impl Effects {
             let (jack_x, jack_y) = match panel {
                 None => (wide as f64 / 2.0, HEIGHT as f64 / 2.0),
                 Some(panel) => {
-                    let player = &mut self.players[panel.index()];
-                    if matches!(player.phase, Some(Phase::Drain | Phase::Empty)) {
-                        player.start_rise(now);
+                    let together = self.wide.take().is_some();
+                    for (i, player) in self.players.iter_mut().enumerate() {
+                        if (together || i == panel.index()) && matches!(player.phase, Some(Phase::Drain | Phase::Empty))
+                        {
+                            player.start_rise(now);
+                        }
                     }
                     (if at_left { 0.0 } else { wide as f64 }, row as f64 + 0.5)
                 }
@@ -1109,6 +1148,25 @@ impl Effects {
             return;
         }
         let Some(panel) = panel else { return };
+        if self.settings.panels_together && self.panels == [true, true] {
+            if let (Some(left), Some(right)) = (&self.players[0].last_base, &self.players[1].last_base) {
+                // Both panels as one picture, the port at the outer edge of the panel on its side
+                let mut both = Picture::zeros(HEIGHT, 2 * WIDTH + GAP);
+                both.put_columns(0, left);
+                both.put_columns(WIDTH + GAP, right);
+                let frame = if at_left { both.flipped() } else { both };
+                let drain = Drain::new(&frame, row as f64 + 0.5, 2.0, 11);
+                self.wide = Some(WideDrain { drain, flipped: at_left, last: None, picture: frame });
+                for player in self.players.iter_mut() {
+                    player.drain = None;
+                    player.slide = None;
+                    player.phase = Some(Phase::Drain);
+                    player.phase_since = now;
+                }
+                return;
+            }
+        }
+        self.wide = None;
         let player = &mut self.players[panel.index()];
         let Some(base) = &player.last_base else { return };
         let frame = if at_left { base.flipped() } else { base.clone() };
@@ -1156,6 +1214,9 @@ impl Effects {
     /// The panel's picture was replaced by something else (a game, sleep): drop what is playing.
     pub fn forget(&mut self, side: Side) {
         self.players[side.index()] = SidePlayer::new();
+        if self.players.iter().all(|p| p.phase != Some(Phase::Drain)) {
+            self.wide = None;
+        }
     }
 
     /// The frame to send to the panel on this side. `new_frame` is false when the drawing thread is only
@@ -1205,6 +1266,20 @@ impl Effects {
         }
 
         match player.phase {
+            Some(Phase::Drain) if self.wide.is_some() => {
+                let wide = self.wide.as_mut().unwrap();
+                let start = if i == 0 { 0 } else { WIDTH + GAP };
+                out = wide.at(now).columns(start, start + WIDTH);
+                if wide.drain.drained {
+                    self.wide = None;
+                    for p in self.players.iter_mut() {
+                        if p.phase == Some(Phase::Drain) {
+                            p.phase = Some(Phase::Empty);
+                            p.phase_since = now;
+                        }
+                    }
+                }
+            }
             Some(Phase::Drain) => {
                 if let Some((drain, flipped)) = &mut player.drain {
                     drain.advance(dt);
@@ -1331,6 +1406,29 @@ mod tests {
         assert_eq!(back.v[0][HEIGHT - 1], 200);
         assert_eq!(back.v[0][0], 200);
         assert!(!e.player(Side::Left).active());
+    }
+
+    #[test]
+    fn panels_together_drain_both_as_one_picture() {
+        let mut e = Effects::new();
+        e.configure(EffectsSettings { panels_together: true, ..EffectsSettings::default() });
+        e.panel_present(Side::Left, true);
+        e.panel_present(Side::Right, true);
+        e.apply(Side::Left, &filled(200), true, 0.0);
+        e.apply(Side::Right, &filled(200), true, 0.0);
+        e.plug(Some("right-middle"), false, 0.0);
+        assert_eq!(e.player(Side::Left).phase, Some(Phase::Drain));
+        assert_eq!(e.player(Side::Right).phase, Some(Phase::Drain));
+        let mut t = 0.0;
+        while e.player(Side::Left).phase == Some(Phase::Drain) && t < 5.0 {
+            t += 1.0 / 30.0;
+            e.apply(Side::Left, &filled(200), true, t);
+            e.apply(Side::Right, &filled(200), true, t);
+        }
+        // Both panels finish draining together, then come back
+        assert_eq!(e.player(Side::Left).phase, Some(Phase::Empty));
+        assert_eq!(e.player(Side::Right).phase, Some(Phase::Empty));
+        assert!(e.wide.is_none());
     }
 
     #[test]

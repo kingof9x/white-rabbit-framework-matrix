@@ -120,6 +120,7 @@ fn show_settings(app: &AppWindow, s: &EffectsSettings) {
     page.set_text_speed(s.text_speed as f32);
     page.set_slide(s.slide);
     page.set_fade(s.fade);
+    page.set_panels_together(s.panels_together);
     page.set_full_shades(s.full_shades);
 }
 
@@ -307,6 +308,7 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
             new.text_speed = page.get_text_speed().round() as i64;
             new.slide = page.get_slide();
             new.fade = page.get_fade();
+            new.panels_together = page.get_panels_together();
             new.full_shades = page.get_full_shades();
             // The monitor may have learned ports since this page read them
             new.learned_ports = load_settings().learned_ports;

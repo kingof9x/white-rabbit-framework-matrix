@@ -16,6 +16,7 @@ export global EffectsPage {
     in-out property <float> text-speed: 5;
     in-out property <bool> slide: true;
     in-out property <bool> fade;
+    in-out property <bool> panels-together;
     in-out property <bool> full-shades;
     // "Left back" ... "Right front"
     in property <[string]> positions;
@@ -75,6 +76,7 @@ export component EffectsView inherits HorizontalLayout {
                 CheckBox { text: "headphones (audio card)"; enabled: EffectsPage.plug-animation; checked <=> EffectsPage.plug-headphones; toggled => { EffectsPage.changed(); } }
                 CheckBox { text: "every other USB device"; enabled: EffectsPage.plug-animation; checked <=> EffectsPage.plug-usb; toggled => { EffectsPage.changed(); } }
             }
+            CheckBox { text: "My two LED panels sit next to each other: drain both panels as one picture"; enabled: EffectsPage.plug-animation; checked <=> EffectsPage.panels-together; toggled => { EffectsPage.changed(); } }
             Row {
                 Label { text: "Try it at:"; }
                 ComboBox {

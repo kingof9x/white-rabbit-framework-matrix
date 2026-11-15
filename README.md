@@ -207,7 +207,8 @@ Little extras that play over whatever the panels show.
   ripple runs across the panel from that port's side. Unplug it and the
   picture drains out through the port. *Try it* buttons show it without
   plugging anything in, and if White Rabbit guesses the wrong port you can
-  tell it the right one; it remembers.
+  tell it the right one; it remembers. If your two panels sit next to each
+  other, tick the box and the unplug drains both as one picture.
 - **Text line:** a line of small letters scrolls across the top of both
   panels when a new song starts, the charger goes in or out, or the battery is
   low, or with your own message.
