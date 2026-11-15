@@ -55,7 +55,7 @@ pub fn to_json(s: &Settings) -> Value {
 /// One line about what music mode is hearing, from the monitor's reply.
 pub fn hearing_text(hearing: Option<&Value>) -> String {
     let Some(hearing) = hearing.filter(|h| h.as_object().is_some_and(|m| !m.is_empty())) else {
-        return "Music mode is starting...".into();
+        return "Audio mode is starting...".into();
     };
     let mut parts = Vec::new();
     for side in ["left", "right"] {
@@ -72,9 +72,9 @@ pub fn hearing_text(hearing: Option<&Value>) -> String {
         parts.push(format!("{side} panel: {state} ({device})"));
     }
     if parts.is_empty() {
-        "Music mode is starting...".into()
+        "Audio mode is starting...".into()
     } else {
-        format!("Music mode is listening. {}", parts.join("; "))
+        format!("Audio mode is listening. {}", parts.join("; "))
     }
 }
 
@@ -112,7 +112,7 @@ impl State {
                 self.capture_problem = None;
             }
             Err(e) => {
-                wr_core::warn!("The Music page couldn't listen: {e}");
+                wr_core::warn!("The Audio page couldn't listen: {e}");
                 self.capture_problem = Some(format!("Couldn't listen: {e}"));
                 self.capture_key = Some(key);
             }
@@ -209,7 +209,7 @@ fn page_state() -> Rc<RefCell<State>> {
 fn show_music_mode(app: &AppWindow, reply: Option<Value>) {
     let page = app.global::<MusicPage>();
     let Some(on) = reply.as_ref().and_then(|r| r.get("music_mode")).and_then(|v| v.as_bool()) else {
-        page.set_mode_status("The system monitor isn't running, so music mode can't start.".into());
+        page.set_mode_status("The system monitor isn't running, so audio mode can't start.".into());
         page.set_mode_hearing("".into());
         return;
     };
@@ -325,7 +325,7 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
                 page.set_status("Couldn't save the change (see the log).".into());
                 return;
             }
-            page.set_status("Saved. Music mode uses this look from now on.".into());
+            page.set_status("Saved. Audio mode uses this look from now on.".into());
             // The monitor starts the visualizer again with the new look, if music mode is on
             ctx2.in_background(
                 || link::request(json!({"cmd": "music", "action": "reload"}), Duration::from_secs(3)),
@@ -399,11 +399,11 @@ mod tests {
 
     #[test]
     fn hearing_line() {
-        assert_eq!(hearing_text(None), "Music mode is starting...");
+        assert_eq!(hearing_text(None), "Audio mode is starting...");
         let h = json!({"left": {"device": "Speakers", "silent": true}, "right": {"problem": "No device"}});
         assert_eq!(
             hearing_text(Some(&h)),
-            "Music mode is listening. left panel: too quiet (Speakers); right panel: No device (no sound device yet)"
+            "Audio mode is listening. left panel: too quiet (Speakers); right panel: No device (no sound device yet)"
         );
     }
 

@@ -274,7 +274,7 @@ impl Parts {
                 borrowed.iter().map(|p| p.called()).collect::<Vec<_>>().join(", ")
             )
         } else if music {
-            "Panels are showing music mode".to_string()
+            "Panels are showing audio mode".to_string()
         } else {
             "Panels are showing the system monitor".to_string()
         };
@@ -294,7 +294,7 @@ impl Parts {
                 } else if self.lender.is_borrowed(&p.device) {
                     "Showing something from this window"
                 } else if music {
-                    "Showing music mode"
+                    "Showing audio mode"
                 } else {
                     "Showing the system monitor"
                 };
@@ -490,7 +490,7 @@ pub fn set_music_mode(ctx: &Rc<Ctx>, on: bool, done: Option<Box<dyn FnOnce(&AppW
         },
         move |app, (parts, reply)| {
             if reply.is_none() && on {
-                app.global::<App>().set_home_status("Music mode needs the system monitor, which isn't running.".into());
+                app.global::<App>().set_home_status("Audio mode needs the system monitor, which isn't running.".into());
             }
             parts.update_bar(app);
             if let Some(done) = done {

@@ -64,7 +64,7 @@ pub struct Shared {
 impl Shared {
     pub fn set_music_mode(&self, on: bool) {
         self.music_mode.store(on, Ordering::SeqCst);
-        info!("Music mode {}", if on { "on" } else { "off" });
+        info!("Audio mode {}", if on { "on" } else { "off" });
     }
 
     /// Identify panels: each panel's name for 2 seconds, then the apps' names for `seconds`.

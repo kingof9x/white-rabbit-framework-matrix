@@ -102,7 +102,7 @@ export component AppWindow inherits Window {
         { key: "home", label: "Home", icon: @image-url("icons/home.svg") },
         { key: "monitor", label: "System monitor", icon: @image-url("icons/desktop.svg") },
         { key: "games", label: "Games & patterns", icon: @image-url("icons/games.svg") },
-        { key: "music", label: "Music", icon: @image-url("icons/music_note_2.svg") },
+        { key: "music", label: "Audio", icon: @image-url("icons/music_note_2.svg") },
         { key: "math", label: "Math", icon: @image-url("icons/math_formula.svg") },
         { key: "draw", label: "Draw", icon: @image-url("icons/paint_brush.svg") },
         { key: "effects", label: "Effects", icon: @image-url("icons/sparkle.svg") },
@@ -116,7 +116,7 @@ export component AppWindow inherits Window {
     }
     function title-of(p: string) -> string {
         return p == "home" ? "Home" : p == "settings" ? "Settings" : p == "monitor" ? "System monitor"
-            : p == "games" ? "Games & patterns" : p == "music" ? "Music" : p == "math" ? "Math" : p == "draw" ? "Draw"
+            : p == "games" ? "Games & patterns" : p == "music" ? "Audio" : p == "math" ? "Math" : p == "draw" ? "Draw"
             : p == "effects" ? "Effects" : p == "startup" ? "Startup animation" : p == "firmware" ? "Firmware"
             : p == "shortcuts" ? "Keyboard shortcuts" : p == "about" ? "About White Rabbit" : "";
     }
