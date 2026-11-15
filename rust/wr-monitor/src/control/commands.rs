@@ -35,6 +35,16 @@ pub struct Commands {
     pub settings_file: PathBuf,
     /// Passes a request to the tray window.
     pub ui: Box<dyn Fn(UiRequest) + Send + Sync>,
+    /// Windows' side of the window's questions: where temperatures come from, the GPUs.
+    pub system: Box<dyn System>,
+}
+
+/// What the control commands read from Windows (stand-ins in tests).
+pub trait System: Send + Sync {
+    /// The "sensor_source" reply: {"choice", "reading", "temps_from", "named", ...}.
+    fn sensor_source(&self, reload: bool) -> Value;
+    /// The GPUs' names for the layout editor.
+    fn gpus(&self) -> Vec<String>;
 }
 
 type Reply = Result<Map<String, Value>, String>;
@@ -85,12 +95,11 @@ impl Commands {
     fn status(&self) -> Reply {
         let settings = self.shared.settings.lock().unwrap().clone();
         let config_file = crate::paths::layout_file().map(|p| p.display().to_string());
-        // The Python monitor also says where temperatures come from (sensor_source); the window copes
-        // without it
         Ok(object(json!({
             "ports": self.bridge.open_ports(),
             "config_file": config_file,
             "brightness": Self::brightness_state(&settings),
+            "gpus": self.system.gpus(),
         })))
     }
 
@@ -270,8 +279,9 @@ impl Handler for Commands {
             "shortcuts" => self.shortcuts(),
             "power" => self.power(message),
             "sensor_source" => {
-                info!("TODO: the Rust monitor has no choice of sensor source yet");
-                Ok(Map::new())
+                // The readings re-read sensor_source and sensor_refresh_seconds from settings.json each time
+                let reload = message.get("reload").is_some_and(truthy);
+                Ok(object(json!({"sensor_source": self.system.sensor_source(reload)})))
             }
             "quit" => {
                 // The window is about to install an update: quit like the tray's Quit, after replying
@@ -306,8 +316,30 @@ mod tests {
             bridge: Arc::new(bridge),
             settings_file: file,
             ui: Box::new(move |r| a.lock().unwrap().push(r)),
+            system: Box::new(FakeSystem),
         };
         (c, asked, dir)
+    }
+
+    struct FakeSystem;
+
+    impl System for FakeSystem {
+        fn sensor_source(&self, reload: bool) -> Value {
+            json!({"choice": "auto", "reading": !reload, "named": [["CPU", 50.0]]})
+        }
+        fn gpus(&self) -> Vec<String> {
+            vec!["Radeon 7700S".into()]
+        }
+    }
+
+    #[test]
+    fn says_where_temperatures_come_from_and_names_the_gpus() {
+        let (c, _, _) = commands();
+        let reply = ask(&c, json!({"cmd": "sensor_source"}));
+        assert_eq!(reply["sensor_source"]["named"], json!([["CPU", 50.0]]));
+        assert_eq!(reply["sensor_source"]["reading"], json!(true));
+        assert_eq!(ask(&c, json!({"cmd": "sensor_source", "reload": true}))["sensor_source"]["reading"], json!(false));
+        assert_eq!(ask(&c, json!({"cmd": "status"}))["gpus"], json!(["Radeon 7700S"]));
     }
 
     fn ask(c: &Commands, v: Value) -> Value {

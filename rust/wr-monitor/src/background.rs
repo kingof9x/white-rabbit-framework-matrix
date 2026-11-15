@@ -79,6 +79,11 @@ impl OnceLog {
         }
     }
 
+    /// The failure logged last, until it works again.
+    pub fn error(&self) -> Option<&str> {
+        self.last.as_deref()
+    }
+
     pub fn ok(&mut self, what: &str) {
         if self.last.take().is_some() {
             wr_core::info!("{what} works again");
