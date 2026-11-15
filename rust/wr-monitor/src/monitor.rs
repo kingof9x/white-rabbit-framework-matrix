@@ -53,6 +53,8 @@ pub struct Shared {
     pub music_restart: AtomicBool,
     /// What the visualizers hear ({side: {device, problem, loudness, silent, input}}).
     pub hearing: Mutex<serde_json::Value>,
+    /// The last thing plugged in or out, for the Effects tab (`PlugEvent::to_json`).
+    pub last_plug: Mutex<serde_json::Value>,
     /// Both panels (wr-panel), once the exe has found them: dimming, swapping and lining them up.
     pub panels: Mutex<Option<Arc<Panels>>>,
     /// The Effects tab's effects drawn over the panels.

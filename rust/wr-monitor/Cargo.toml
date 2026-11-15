@@ -45,6 +45,7 @@ windows-sys = { version = "0.60", features = [
     "Win32_Devices_Communication",
     "Win32_Devices_DeviceAndDriverInstallation",
     "Win32_Devices_Display",
+    "Win32_Devices_Properties",
     "Win32_Graphics_Gdi",
     "Win32_Security",
     "Win32_Security_Authorization",

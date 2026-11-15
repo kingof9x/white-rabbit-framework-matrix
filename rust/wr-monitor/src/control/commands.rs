@@ -191,10 +191,44 @@ impl Commands {
                     fx.plug(position, message.get("event").and_then(Value::as_str) != Some("out"));
                 }
                 "say" => fx.effects().say(message.get("text").and_then(Value::as_str).unwrap_or("")),
+                "learn" => {
+                    let key = message.get("key").and_then(Value::as_str).unwrap_or("");
+                    let position = message.get("position").and_then(Value::as_str).unwrap_or("");
+                    if !key.is_empty() && wr_core::effects::parse_position(position).0.is_some() {
+                        self.change_learned_ports(&fx, |ports| {
+                            ports.insert(key.into(), Value::String(position.into()));
+                        });
+                        let mut last = self.shared.last_plug.lock().unwrap();
+                        if last.get("key").and_then(Value::as_str) == Some(key) {
+                            last["position"] = json!(position);
+                            last["how"] = json!("learned");
+                        }
+                    }
+                }
+                "forget_ports" => self.change_learned_ports(&fx, Map::clear),
                 _ => {}
             }
         }
-        object(json!({"last_plug": {}, "panels": self.bridge.open_ports()}))
+        let last_plug = self.shared.last_plug.lock().unwrap().clone();
+        let last_plug = if last_plug.is_null() { json!({}) } else { last_plug };
+        object(json!({"last_plug": last_plug, "panels": self.bridge.open_ports()}))
+    }
+
+    /// Changes the Effects tab's corrected ports in settings.json and uses them straight away.
+    fn change_learned_ports(
+        &self,
+        fx: &wr_panel::overlay::EffectsOverlay,
+        change: impl FnOnce(&mut Map<String, Value>),
+    ) {
+        let mut effects = self.settings_json().get("effects").cloned().map(object).unwrap_or_default();
+        let mut ports = effects.get("learned_ports").cloned().map(object).unwrap_or_default();
+        change(&mut ports);
+        effects.insert("learned_ports".into(), Value::Object(ports));
+        let effects = Value::Object(effects);
+        if let Err(e) = self.save("effects", effects.clone()) {
+            wr_core::warn!("{e}");
+        }
+        fx.effects().configure(wr_core::effects::EffectsSettings::from_json(&effects));
     }
 
     fn release(&self, message: &Map<String, Value>) -> Reply {
@@ -333,6 +367,24 @@ mod tests {
         assert_eq!(ask(&c, json!({"cmd": "music", "action": "status"})), json!({"ok": true, "music_mode": false}));
         assert_eq!(ask(&c, json!({"cmd": "music", "action": "toggle"})), json!({"ok": true, "music_mode": true}));
         assert_eq!(ask(&c, json!({"cmd": "music", "action": "off"})), json!({"ok": true, "music_mode": false}));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn effects_tab_corrects_a_port() {
+        let (c, _, dir) = commands();
+        let fx = wr_panel::overlay::EffectsOverlay::new(wr_core::effects::EffectsSettings::default());
+        *c.shared.effects.lock().unwrap() = Some(fx.clone());
+        *c.shared.last_plug.lock().unwrap() = json!({"key": "K", "position": null, "how": "unknown"});
+        let reply = ask(&c, json!({"cmd": "effects", "action": "learn", "key": "K", "position": "left-back"}));
+        assert_eq!(reply["last_plug"]["position"], json!("left-back"));
+        assert_eq!(reply["last_plug"]["how"], json!("learned"));
+        assert_eq!(fx.effects().settings.learned_ports.get("K").map(String::as_str), Some("left-back"));
+        let saved: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("settings.json")).unwrap()).unwrap();
+        assert_eq!(saved["effects"]["learned_ports"], json!({"K": "left-back"}));
+        assert_eq!(saved["music"], json!({"style": "bars"}));
+        ask(&c, json!({"cmd": "effects", "action": "forget_ports"}));
+        assert!(fx.effects().settings.learned_ports.is_empty());
         let _ = std::fs::remove_dir_all(dir);
     }
 }

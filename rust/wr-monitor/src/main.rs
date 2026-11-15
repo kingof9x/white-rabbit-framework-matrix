@@ -12,6 +12,7 @@ mod launch;
 mod monitor;
 mod music;
 mod paths;
+mod plug;
 mod power;
 
 #[cfg(windows)]
@@ -22,6 +23,8 @@ mod background;
 mod gpu;
 #[cfg(windows)]
 mod media;
+#[cfg(windows)]
+mod plugwin;
 #[cfg(windows)]
 mod sensors;
 #[cfg(windows)]
