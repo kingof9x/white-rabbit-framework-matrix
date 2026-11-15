@@ -2,7 +2,7 @@
 // live with the effects (EffectsPage, saved under "effects").
 import { Theme } from "../theme.slint";
 import { Group, Hint, Status, CheckBox, Slider, LedImage, Button } from "../widgets.slint";
-import { LineEdit } from "std-widgets.slint";
+import { LineEdit, ComboBox } from "std-widgets.slint";
 import { EffectsPage } from "effects.slint";
 
 component Row inherits HorizontalLayout {
@@ -63,6 +63,34 @@ export component MessagesView inherits HorizontalLayout {
                 Label { text: round(EffectsPage.text-speed); }
             }
         }
+        Group {
+            title: "Vertical messages";
+            help: "A message of its own on each panel, running down the panel in place of what it shows, until you stop it. Leave a panel empty to keep its picture.";
+            Row {
+                Label { text: "Left panel:"; min-width: 90px; }
+                LineEdit { width: 280px; text <=> EffectsPage.vertical-left; accepted => { if EffectsPage.show-vertical { EffectsPage.changed(); } } }
+            }
+            Row {
+                Label { text: "Right panel:"; min-width: 90px; }
+                LineEdit { width: 280px; text <=> EffectsPage.vertical-right; accepted => { if EffectsPage.show-vertical { EffectsPage.changed(); } } }
+            }
+            Row {
+                Label { text: "Letters:"; min-width: 90px; }
+                ComboBox {
+                    width: 280px;
+                    model: ["Upright, scrolling up", "On their side, scrolling up", "Two per row"];
+                    current-index: EffectsPage.vertical-style;
+                    selected => { EffectsPage.vertical-style = self.current-index; EffectsPage.changed(); }
+                }
+            }
+            Row {
+                Button {
+                    text: EffectsPage.show-vertical ? "Stop showing them" : "Show them";
+                    enabled: EffectsPage.show-vertical || EffectsPage.vertical-left != "" || EffectsPage.vertical-right != "";
+                    clicked => { EffectsPage.show-vertical = !EffectsPage.show-vertical; EffectsPage.changed(); }
+                }
+            }
+        }
         if EffectsPage.status != "": Status { text: EffectsPage.status; }
     }
     VerticalLayout {
@@ -72,7 +100,7 @@ export component MessagesView inherits HorizontalLayout {
             width: 230px;
             title: "Preview";
             LedImage { source: EffectsPage.preview; width: 182px; height: 292px; }
-            Hint { text: "Left panel and right panel. Plays what Show them does."; horizontal-alignment: center; }
+            Hint { text: "Left panel and right panel. Plays your messages."; horizontal-alignment: center; }
         }
     }
 }

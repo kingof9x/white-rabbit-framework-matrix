@@ -103,6 +103,9 @@ fn page_state() -> Shared {
     STATE.with(|s| s.borrow().clone()).expect("effects page wired")
 }
 
+/// The vertical messages' letter styles, as the Letters list shows them.
+const VERTICAL_STYLES: [&str; 3] = ["ticker", "sideways", "stacked"];
+
 fn load_settings() -> EffectsSettings {
     EffectsSettings::from_json(&settings::get("effects").unwrap_or(Value::Null))
 }
@@ -125,6 +128,10 @@ fn show_settings(app: &AppWindow, s: &EffectsSettings) {
     page.set_fade(s.fade);
     page.set_panels_together(s.panels_together);
     page.set_pinned(s.show_messages);
+    page.set_vertical_left(s.vertical_left.clone().into());
+    page.set_vertical_right(s.vertical_right.clone().into());
+    page.set_vertical_style(VERTICAL_STYLES.iter().position(|v| *v == s.vertical_style).unwrap_or(0) as i32);
+    page.set_show_vertical(s.show_vertical);
     page.set_max_messages(EffectsSettings::MAX_MESSAGES as i32);
     if !s.messages.is_empty() {
         let lines: Vec<slint::SharedString> = s.messages.iter().map(|m| m.as_str().into()).collect();
@@ -323,6 +330,11 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
             new.panels_together = page.get_panels_together();
             new.messages = page.get_messages().iter().map(|m| m.trim().to_string()).filter(|m| !m.is_empty()).collect();
             new.show_messages = page.get_pinned() && !new.messages.is_empty();
+            new.vertical_left = page.get_vertical_left().trim().to_string();
+            new.vertical_right = page.get_vertical_right().trim().to_string();
+            new.vertical_style = VERTICAL_STYLES[page.get_vertical_style().clamp(0, 2) as usize].to_string();
+            new.show_vertical =
+                page.get_show_vertical() && !(new.vertical_left.is_empty() && new.vertical_right.is_empty());
             new.full_shades = page.get_full_shades();
             // The monitor may have learned ports since this page read them
             new.learned_ports = load_settings().learned_ports;

@@ -228,6 +228,10 @@ starts, the charger goes in or out, or the battery is low. Add your own
 messages (up to 10 lines) and *Show them* keeps them going round one after
 another until you stop them.
 
+*Vertical messages* give each panel a message of its own, running down the
+panel in place of what it shows (upright letters, letters on their side, or
+two letters per row) until you stop them.
+
 ### Math page
 
 Graphs and simulations drawn in greyscale on the panels. With both panels

@@ -150,6 +150,17 @@ pub struct EffectsSettings {
     pub messages: Vec<String>,
     #[serde(skip_serializing_if = "is_false")]
     pub show_messages: bool,
+    /// A message of its own on each panel, running down the panel instead of what it shows, while
+    /// `show_vertical` is on. `vertical_style`: "ticker", "sideways" or "stacked" (the Text app's
+    /// styles). Not in the Python app, so only saved when set.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub vertical_left: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub vertical_right: String,
+    #[serde(skip_serializing_if = "is_ticker")]
+    pub vertical_style: String,
+    #[serde(skip_serializing_if = "is_false")]
+    pub show_vertical: bool,
     /// Slide the next app in from the bottom when the panel changes app, instead of cutting to it.
     pub slide: bool,
     /// With `slide` off: fade from one app to the next instead of cutting. Also how the picture comes
@@ -183,6 +194,10 @@ impl Default for EffectsSettings {
             text_speed: 5,
             messages: Vec::new(),
             show_messages: false,
+            vertical_left: String::new(),
+            vertical_right: String::new(),
+            vertical_style: "ticker".into(),
+            show_vertical: false,
             slide: true,
             fade: false,
             panels_together: false,
@@ -229,6 +244,19 @@ impl EffectsSettings {
         if let Some(v) = get("show_messages") {
             s.show_messages = truthy(v);
         }
+        for (key, field) in [("vertical_left", &mut s.vertical_left), ("vertical_right", &mut s.vertical_right)] {
+            if let Some(Value::String(text)) = get(key) {
+                *field = text.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(120).collect();
+            }
+        }
+        if let Some(Value::String(style)) = get("vertical_style") {
+            if ["ticker", "sideways", "stacked"].contains(&style.as_str()) {
+                s.vertical_style = style.clone();
+            }
+        }
+        if let Some(v) = get("show_vertical") {
+            s.show_vertical = truthy(v);
+        }
         // Test builds before 1.5 saved one message as "pinned_message"
         if let Some(text) = get("pinned_message").and_then(tidy) {
             if s.messages.is_empty() {
@@ -273,6 +301,10 @@ fn is_true(b: &bool) -> bool {
     *b
 }
 
+fn is_ticker(style: &String) -> bool {
+    style == "ticker"
+}
+
 /// How the panel goes from one app to the next (and comes back after the unplug drain).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Transition {
@@ -283,6 +315,15 @@ pub enum Transition {
 
 impl EffectsSettings {
     pub const MAX_MESSAGES: usize = 10;
+
+    /// The vertical message on this side's panel, when one is showing.
+    pub fn vertical(&self, side: Side) -> Option<&str> {
+        let text = match side {
+            Side::Left => &self.vertical_left,
+            Side::Right => &self.vertical_right,
+        };
+        (self.show_vertical && !text.trim().is_empty()).then_some(text.as_str())
+    }
 
     /// Whether the plug effect plays for a port at this position ("left-back", "right", None...).
     pub fn plug_side_on(&self, position: Option<&str>) -> bool {
@@ -1290,7 +1331,10 @@ impl Effects {
     }
 
     pub fn active(&self, side: Side) -> bool {
-        self.players[side.index()].active() || self.ripples_on(side) || self.text.active()
+        self.players[side.index()].active()
+            || self.ripples_on(side)
+            || self.text.active()
+            || self.settings.vertical(side).is_some()
     }
 
     /// How long a drawing thread may wait for a new frame before redrawing the effect itself; None
@@ -1311,9 +1355,23 @@ impl Effects {
     /// redrawing its last frame to move an effect on.
     pub fn apply(&mut self, side: Side, grid: &Grid, new_frame: bool, now: f64) -> Grid {
         let i = side.index();
+        // A vertical message takes the panel's place (and is what the other effects play over)
+        let vertical = self.settings.vertical(side).map(|text| {
+            let mut g = Grid::new();
+            crate::apps::text::draw_text(
+                &mut g,
+                text,
+                &self.settings.vertical_style,
+                self.foreground.clamp(1, 255),
+                now,
+            );
+            g
+        });
+        let new_frame = new_frame || vertical.is_some();
+        let grid = vertical.as_ref().unwrap_or(grid);
         let transition = self.settings.transition();
         let base = Picture::from_grid(grid);
-        let others_active = self.ripples_on(side) || self.text.active();
+        let others_active = self.ripples_on(side) || self.text.active() || vertical.is_some();
         let player = &mut self.players[i];
         if new_frame || player.last_base.is_none() {
             player.last_base = Some(base.clone());
@@ -1566,6 +1624,26 @@ mod tests {
             (Value::Bool(false), Value::Bool(false))
         );
         assert!(saved.get("plug_left").is_none(), "on is the default, so it isn't saved");
+    }
+
+    #[test]
+    fn vertical_messages_take_each_panel() {
+        let mut e = Effects::new();
+        let on = serde_json::json!({"vertical_left": "HELLO", "vertical_right": "", "show_vertical": true, "vertical_style": "stacked"});
+        e.configure(EffectsSettings::from_json(&on));
+        e.panel_present(Side::Left, true);
+        e.panel_present(Side::Right, true);
+        assert!(e.active(Side::Left));
+        let left = e.apply(Side::Left, &filled(0), true, 0.0);
+        assert!(left.v.iter().flatten().any(|&v| v > 0), "the message is drawn");
+        let right = e.apply(Side::Right, &filled(7), true, 0.0);
+        assert_eq!(right.v[4][20], 7, "a panel without a message keeps its picture");
+        let saved = serde_json::to_value(&e.settings).unwrap();
+        assert_eq!(saved["vertical_style"], "stacked");
+        assert!(saved.get("vertical_right").is_none());
+        let off = EffectsSettings::from_json(&serde_json::json!({"vertical_left": "HI"}));
+        assert_eq!(off.vertical(Side::Left), None, "kept but not showing");
+        assert!(serde_json::to_value(EffectsSettings::default()).unwrap().get("vertical_style").is_none());
     }
 
     #[test]
