@@ -4,7 +4,7 @@
 #   wr-music    the music visualizer: looks, sound analysis, capturing the sound (Windows)
 #   wr-monitor  the Windows program: panels, tray menu, lid and sleep, keyboard shortcuts
 [workspace]
-members = ["wr-core", "wr-panel", "wr-monitor"]
+members = ["wr-core", "wr-panel", "wr-monitor", "wr-music"]
 resolver = "2"
 
 [workspace.package]

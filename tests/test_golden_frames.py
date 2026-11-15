@@ -24,6 +24,11 @@ def test_music_looks_draw_the_golden_frames():
     assert golden_frames.differences(golden_frames.MUSIC_FILE, golden_frames.music_cases(), tolerance=1) == []
 
 
+def test_music_idle_draws_the_golden_frames():
+    assert golden_frames.differences(golden_frames.MUSIC_IDLE_FILE, golden_frames.music_idle_cases(),
+                                     tolerance=1) == []
+
+
 def test_every_music_look_is_covered():
     from led_mon.equalizer_files import looks
     names = golden_frames.load(golden_frames.MUSIC_FILE)

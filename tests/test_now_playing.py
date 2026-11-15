@@ -143,3 +143,48 @@ def test_what_is_playing_goes_in_the_log(caplog):
         w.poll()
     lines = [r.getMessage() for r in caplog.records if "Spotify" in r.getMessage()]
     assert lines == ["Now playing: Spotify.exe is playing: Song - Band"]
+
+
+def test_lone_now_playing_falls_back_to_the_monitor_apps(monkeypatch):
+    pytest.importorskip("requests")  # The monitor loads the weather plugin
+    from led_mon import led_system_monitor as mon
+    media = {"m": np_mod.Media()}
+    w = np_mod.Watcher(reader=lambda: media["m"])
+    w.poll()
+    monkeypatch.setattr(np_mod, "watcher", w)
+    monkeypatch.setattr(w, "want", lambda now=None: None)
+    lone = [{"name": "now-playing", "args": {"when_idle": "skip", "side": "left"}}]
+    assert [a["name"] for a in mon.now_playing_fallback("left", lone)] == ["cpu", "mem-bat"]
+    assert [a["name"] for a in mon.now_playing_fallback("right", lone)] == ["disk", "net"]
+    # Set to keep the cover or show the clock: stays
+    clock = [{"name": "now-playing", "args": {"when_idle": "clock"}}]
+    assert mon.now_playing_fallback("left", clock) is clock
+    # Something playing: Now playing shows
+    media["m"] = np_mod.Media(title="Song", playing=True)
+    w.poll()
+    assert mon.now_playing_fallback("left", lone) is lone
+    # Other apps are left alone
+    two = [{"name": "cpu"}, {"name": "mem-bat"}]
+    assert mon.now_playing_fallback("left", two) is two
+
+
+def test_now_playing_page_comes_back_when_music_starts(monkeypatch):
+    pytest.importorskip("requests")
+    from led_mon import led_system_monitor as mon
+    media = {"m": np_mod.Media()}
+    w = np_mod.Watcher(reader=lambda: media["m"])
+    monkeypatch.setattr(np_mod, "watcher", w)
+    monkeypatch.setattr(w, "want", lambda now=None: None)
+    quads = {"top-left": [{"name": "cpu"}, {"name": "now-playing", "args": {"when_idle": "skip"}}],
+             "bottom-left": [{"name": "mem-bat"}, {"name": "blank"}]}
+    assert mon.now_playing_page(quads["top-left"]) == 1
+    assert mon.now_playing_page([{"name": "now-playing", "args": {"when_idle": "last"}}]) is None
+    tracker = mon.NowPlayingTracker()
+    assert not tracker.update(quads)          # nothing heard yet
+    w.poll()
+    assert not tracker.update(quads)          # nothing playing
+    media["m"] = np_mod.Media(title="Song", playing=True)
+    w.poll()
+    assert tracker.update(quads)              # it started: jump to the page
+    assert not tracker.update(quads)          # only once
+    assert not tracker.update({"top-left": [{"name": "cpu"}]})

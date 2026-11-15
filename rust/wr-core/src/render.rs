@@ -67,7 +67,9 @@ pub trait Readings {
 pub const SUPPORTED_APPS: [&str; 4] = ["cpu", "cpu-graph", "mem-bat", "time"];
 
 pub fn is_supported(name: &str) -> bool {
-    SUPPORTED_APPS.contains(&name) || crate::apps::DATA_APPS.contains(&name)
+    SUPPORTED_APPS.contains(&name)
+        || crate::apps::CONTENT_APPS.contains(&name)
+        || crate::apps::DATA_APPS.contains(&name)
 }
 
 /// LED values for the screen brightness 0.0-1.0: (foreground, background).
@@ -114,6 +116,8 @@ pub fn render_panel(grid: &mut Grid, apps: &PanelApps, readings: &mut dyn Readin
                 }
             }
             name if crate::apps::DATA_APPS.contains(&name) => draw_data_app(grid, app, readings, fg, y),
+            "text" => crate::apps::text::draw_app(grid, app, readings, fg),
+            "snap" => crate::apps::picture::draw_app(grid, app, fg),
             _ => {}
         }
         animate = app.animate;

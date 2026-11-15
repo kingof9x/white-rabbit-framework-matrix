@@ -1,12 +1,23 @@
-//! The apps that show readings from the computer besides the CPU and memory: disk and network
-//! rates, the GPU graph, FPS, now playing, weather, temperatures and fans. The drawing and the
-//! sums are here, so they can be tested; reading the values from Windows is in `wr-monitor`.
+//! Apps beyond the CPU, memory and clock that `render.rs` draws itself.
+//!
+//! Apps that show your own content rather than readings: the Text app, the Picture app (built-in
+//! pictures and Draw tab drawings), and the panel names shown by Identify panels.
+//!
+//! Apps that show readings from the computer: disk and network rates, the GPU graph, FPS, now
+//! playing, weather, temperatures and fans. The drawing and the sums are here, so they can be
+//! tested; reading the values from Windows is in `wr-monitor`.
 
 pub mod gpu;
 pub mod now_playing;
+pub mod panel_names;
+pub mod picture;
 pub mod rates;
 pub mod temp_fan;
+pub mod text;
 pub mod weather;
+
+/// The app names drawn by this module, added to the ones `render.rs` draws itself.
+pub const CONTENT_APPS: [&str; 2] = ["text", "snap"];
 
 /// The apps in this module, which `render_panel` can draw.
 pub const DATA_APPS: [&str; 10] =

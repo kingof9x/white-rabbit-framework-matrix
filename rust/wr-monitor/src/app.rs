@@ -9,11 +9,14 @@ use wr_core::queue::FrameQueue;
 use wr_core::settings::Settings;
 use wr_panel::ports::{discover, Pins};
 
+use crate::control::bridge::{pid_alive, Bridge};
+use crate::control::commands::Commands;
 use crate::monitor::{log_panics, pins_of, LayoutSource, Monitor, Shared};
 use crate::sensors::{ScreenBrightness, WindowsReadings};
 use crate::{paths, ui};
 use wr_core::{info, warn};
-use wr_panel::panel::{Claims, Panel, PortSystem};
+use wr_panel::hub::PortSystem;
+use wr_panel::panel::{Panel, Panels};
 use wr_panel::winports::WindowsPorts;
 
 pub fn run() -> i32 {
@@ -58,11 +61,13 @@ pub fn run() -> i32 {
     *shared.settings.lock().unwrap() = Settings::load(&paths::settings_file());
 
     let pins: Arc<Mutex<Pins>> = Arc::new(Mutex::new(pins_of(&layout)));
-    let claims = Arc::new(Claims::default());
+    let panels = Panels::new(ports.clone(), pins.clone());
+    // The window's serial/hold/release commands share the drawing threads' open ports
+    let bridge = Arc::new(Bridge::new(panels.clone()));
     let queues = [Arc::new(FrameQueue::new()), Arc::new(FrameQueue::new())];
     let mut drawing = Vec::new();
     for (side, queue) in queues.iter().enumerate() {
-        let panel = Panel::new(side, ports.clone(), claims.clone(), pins.clone());
+        let panel = Panel::new(side, panels.clone());
         let queue = queue.clone();
         drawing.push(
             std::thread::Builder::new()
@@ -70,6 +75,28 @@ pub fn run() -> i32 {
                 .spawn(move || panel.run(queue))
                 .expect("drawing thread"),
         );
+    }
+
+    // The White Rabbit window talks to the panels and changes settings through the control channel
+    let commands = Commands {
+        shared: shared.clone(),
+        bridge: bridge.clone(),
+        settings_file: paths::settings_file(),
+        ui: Box::new(ui::request),
+    };
+    crate::control::serve(Arc::new(commands));
+    {
+        // Give back the panels of a window that closed or crashed without releasing them
+        let (bridge, shared) = (bridge.clone(), shared.clone());
+        std::thread::Builder::new()
+            .name("holders".into())
+            .spawn(move || loop {
+                std::thread::sleep(Duration::from_secs(2));
+                if bridge.release_orphans(pid_alive) {
+                    shared.redraw.store(true, Ordering::SeqCst);
+                }
+            })
+            .expect("holders thread");
     }
 
     let brightness = ScreenBrightness::start();

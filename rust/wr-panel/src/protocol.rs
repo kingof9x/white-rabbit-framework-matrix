@@ -9,6 +9,12 @@ pub const ANIMATE: u8 = 0x04;
 pub const STAGE_COL: u8 = 0x07;
 pub const FLUSH_COLS: u8 = 0x08;
 pub const VERSION: u8 = 0x20;
+/// White Rabbit firmware only: the LED current (brightness of every LED at once), 0-255.
+pub const GLOBAL_CURRENT: u8 = 0x30;
+/// The current that leaves the pixel values as they are.
+pub const FULL_CURRENT: u8 = 255;
+/// How many bytes the panel answers to any query.
+pub const ANSWER_LEN: usize = 32;
 
 /// USB IDs of the Framework LED Matrix Input Module.
 pub const LED_MATRIX_VID: u16 = 0x32AC;
@@ -44,6 +50,16 @@ pub fn frame_commands(grid: &Grid) -> Vec<Vec<u8>> {
 /// Fades the panel out and turns its LEDs off until the next command.
 pub fn sleep() -> Vec<u8> {
     command(SLEEP, &[1])
+}
+
+/// Asks for the LED current. Firmware with the command answers 32 bytes; older firmware doesn't answer.
+pub fn global_current_query() -> Vec<u8> {
+    command(GLOBAL_CURRENT, &[])
+}
+
+/// Sets the LED current.
+pub fn global_current(value: u8) -> Vec<u8> {
+    command(GLOBAL_CURRENT, &[value])
 }
 
 /// The panel's own downward scroll of what it shows, on or off.

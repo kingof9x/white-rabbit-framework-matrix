@@ -10,6 +10,8 @@ pub struct Settings {
     /// 0-100, used when not following the screen.
     pub brightness_level: u8,
     pub turn_off_with_lid: bool,
+    /// Turn the panels off when the laptop's own screen isn't in use (docked, "Second screen only").
+    pub turn_off_when_screen_unused: bool,
     /// The letters of the keyboard shortcuts that are turned off (Ctrl+Alt+Shift + letter).
     pub shortcuts_off: Vec<char>,
 }
@@ -20,6 +22,7 @@ impl Default for Settings {
             follow_screen_brightness: true,
             brightness_level: 70,
             turn_off_with_lid: true,
+            turn_off_when_screen_unused: true,
             shortcuts_off: vec![],
         }
     }
@@ -53,6 +56,9 @@ impl Settings {
         }
         if let Some(v) = map.get("turn_off_with_lid") {
             s.turn_off_with_lid = truthy(v);
+        }
+        if let Some(v) = map.get("turn_off_when_screen_unused") {
+            s.turn_off_when_screen_unused = truthy(v);
         }
         if let Some(Value::Object(sc)) = map.get("shortcuts") {
             s.shortcuts_off = SHORTCUT_LETTERS
@@ -110,11 +116,13 @@ mod tests {
     fn reads_the_keys_the_monitor_uses() {
         let s = Settings::from_json(
             r#"{"follow_screen_brightness": false, "brightness_level": "42.5",
-            "turn_off_with_lid": 0, "shortcuts": {"m": false, "i": true}, "music": {"style": "bars"}}"#,
+            "turn_off_with_lid": 0, "turn_off_when_screen_unused": false, "shortcuts": {"m": false, "i": true}, "music": {"style": "bars"}}"#,
         );
         assert!(!s.follow_screen_brightness);
         assert_eq!(s.brightness_level, 42);
         assert!(!s.turn_off_with_lid);
+        assert!(!s.turn_off_when_screen_unused);
+        assert!(Settings::default().turn_off_when_screen_unused);
         assert!(!s.shortcut_on('m'));
         assert!(s.shortcut_on('i') && s.shortcut_on('n'));
         assert_eq!(Settings::from_json("not json"), Settings::default());

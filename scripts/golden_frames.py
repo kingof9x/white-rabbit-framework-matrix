@@ -22,6 +22,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GOLDEN_DIR = os.path.join(ROOT, "tests", "golden")
 MONITOR_FILE = os.path.join(GOLDEN_DIR, "monitor_apps.json")
 MUSIC_FILE = os.path.join(GOLDEN_DIR, "music_looks.json")
+MUSIC_IDLE_FILE = os.path.join(GOLDEN_DIR, "music_idle.json")
 
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
@@ -76,6 +77,28 @@ CPU_16 = [i / 15 for i in range(16)]
 CPU_24 = [((i * 7) % 24) / 23 for i in range(24)]
 HISTORY = [0.9, 0.75, None, 0.6, 0.45, 0.3, 0.15, 0.05, 0.0, 1.0, 0.5, 0.33, 0.66, 0.2, 0.8, 0.1]
 FPS_HISTORY = [144.0, 140.5, 0.0, 120.0, 61.0, 59.9, 30.0, 75.0, 90.0]
+
+# A drawing's frames: values that need clipping and rounding down, and a frame number in each
+def drawing_frames(count, offset):
+    return [[[((x * 29 + y * 7 + k * 50 + offset) % 300) - 20 + (0.5 if x % 2 else 0) for x in range(WIDTH)]
+             for y in range(HEIGHT)] for k in range(count)]
+
+
+DRAWINGS = {
+    "three-frames": {"version": 1, "delay_ms": 150, "frames": drawing_frames(3, 0)},
+    "fast": {"version": 1, "delay_ms": 5, "frames": drawing_frames(2, 77)},
+    "no-delay": {"version": 1, "frames": drawing_frames(4, 11)},
+    "text-delay": {"version": 1, "delay_ms": "250", "frames": drawing_frames(2, 5)},
+    "empty": {"version": 1, "delay_ms": 100, "frames": []},
+}
+DRAWING_TIMES = (0.0, 0.149, 0.15, 0.7, 12.34)
+
+TEXTS = (("short", "Hi"), ("time", "10:47 87% 12%"), ("words", "Hello, world! 42"),
+         ("long", "The quick brown fox jumps over the lazy dog 0123456789"),
+         ("symbols", "a+b=c? (x/y)*2 #1 <3> _ ' \" \u00b0 ~ \u00df"), ("percent", "5% 100%"),
+         ("blank", "   "))
+TEXT_TIMES = (0.0, 1.0, 3.3, 7.25, 40.0)
+PANEL_NAMES = ("Left", "Right", "Desk", "abcdefgh", "a b", "\u00e4\u00f6\u00fc!", "?\u00e9#", "", "10:47")
 
 
 def monitor_cases():
@@ -152,6 +175,50 @@ def monitor_cases():
         if os.path.exists(os.path.join(ROOT, "led_mon", "snapshot_files", panel, file)):
             case(f"snap-{panel}-{file[:-5]}", lambda g, panel=panel, file=file: drawing.draw_app(
                 "snap", g, FOREGROUND, path="snapshot_files", panel=panel, file=file))
+
+    # Drawings from the Draw tab ("drawing:<name>"): frames played at their delay, scaled by the brightness
+    import tempfile
+    from led_mon import drawings
+    real_folder, real_player = drawings.folder, drawing._drawing_player
+    with tempfile.TemporaryDirectory() as folder:
+        drawings.folder = lambda: folder
+        clock = FrozenClock(0.0)
+        try:
+            for name, data in DRAWINGS.items():
+                with open(os.path.join(folder, name + ".json"), "w") as f:
+                    json.dump(data, f)
+                for t in DRAWING_TIMES:
+                    def picture(g, name=name, t=t):
+                        clock.now = 0.0
+                        drawing._drawing_player = drawings.Player(clock=clock.monotonic)
+                        clock.now = t
+                        drawing.draw_app("snap", g, FOREGROUND, file="drawing:" + name)
+                    case(f"drawing-{name}-t{t}", picture)
+        finally:
+            drawings.folder, drawing._drawing_player = real_folder, real_player
+
+    # The Text app: each style, still and scrolling, at fixed times
+    from led_mon import text_styles
+    for style in text_styles.STYLES:
+        for label, text in TEXTS:
+            for t in TEXT_TIMES:
+                case(f"text-{style}-{label}-t{t}", lambda g, text=text, style=style, t=t:
+                     text_styles.draw_text(g, text, style, FOREGROUND, t))
+    # Its live values filled in, from made-up readings
+    import datetime
+    for label, cpu, battery, hour, fmt_24 in (("pm", 0.123, (0.876, True), 13, False),
+                                              ("24h", None, None, 9, True),
+                                              ("midnight", 1.0, (0.004, False), 0, False)):
+        app = text_styles.TextApp(lambda cpu=cpu: cpu, lambda battery=battery: battery, clock=lambda: 2.0,
+                                  now=lambda hour=hour: datetime.datetime(2026, 1, 2, hour, 5))
+        case(f"text-values-{label}", lambda g, app=app, fmt_24=fmt_24: drawing.draw_app(
+            "text", g, app, FOREGROUND, text="{time} {Battery} {CPU} {other}", style="stacked",
+            fmt_24_hour=fmt_24))
+
+    # Panel names, shown first by Identify panels
+    from led_mon.panel_names import name_grid
+    for name in PANEL_NAMES:
+        case(f"name-{name}", lambda g, name=name: g.__setitem__(slice(None), name_grid(name, FOREGROUND)))
 
     # Clock and weather characters (the time and weather plugins draw these lists)
     for name, chars in (("time-1234", ["1", "2", "horiz_colon", "3", "4"]),
@@ -300,6 +367,31 @@ def music_cases():
     return cases
 
 
+IDLE_FRAMES = 160          # frames played per idle case
+IDLE_QUIET = range(20, 140)  # the frames with no sound: after 4 s (80 frames) the calm idle version starts
+
+
+def music_idle_cases():
+    """{case name: grid} for music mode's switch to each look's calm idle version and back (looks.MusicPanel):
+    music, then silence long enough for the idle version, then music again; every 10th frame."""
+    from led_mon.equalizer_files import looks
+    cases = {}
+    silence = np.zeros((looks.FFT_SIZE, 2))
+    for style in looks.STYLE_KEYS:
+        for side in ("left", "right"):
+            panel = looks.MusicPanel({"style": style}, side, idle_after_sec=4.0)
+            panel.visualizer.rng = np.random.default_rng(1)
+            panel.idle_visualizer.rng = np.random.default_rng(1)
+            t = 1.0
+            for frame in range(1, IDLE_FRAMES + 1):
+                samples = silence if frame in IDLE_QUIET else looks.demo_samples(t)
+                grid = panel.frame(samples, MUSIC_DT)
+                t += MUSIC_DT
+                if frame % 10 == 0:
+                    cases[f"idle-{style}-{side}-f{frame:03d}"] = np.asarray(grid, dtype=float) * 255.0
+    return cases
+
+
 # Saving and checking --------------------------------------------------------------------------------
 
 def save(path, cases, description):
@@ -331,16 +423,21 @@ def main():
     parser = argparse.ArgumentParser(description="Write or check the golden frames in tests/golden/.")
     parser.add_argument("--check", action="store_true", help="only compare with the saved frames")
     args = parser.parse_args()
-    monitor, music = monitor_cases(), music_cases()
+    monitor, music, idle = monitor_cases(), music_cases(), music_idle_cases()
     if args.check:
-        problems = differences(MONITOR_FILE, monitor) + differences(MUSIC_FILE, music, tolerance=1)
+        problems = (differences(MONITOR_FILE, monitor) + differences(MUSIC_FILE, music, tolerance=1)
+                    + differences(MUSIC_IDLE_FILE, idle, tolerance=1))
         print("\n".join(problems) if problems else "All golden frames match.")
         return 1 if problems else 0
     save(MONITOR_FILE, monitor, "LED values (0-255) the monitor apps draw for fixed inputs. "
                                 "Made by scripts/golden_frames.py.")
     save(MUSIC_FILE, music, "Music look brightness (0.0-1.0, stored as round(value * 255)) for fixed made-up "
                             "music, and to_leds() values. Made by scripts/golden_frames.py.")
-    print(f"Saved {len(monitor)} monitor frames and {len(music)} music frames in {GOLDEN_DIR}")
+    save(MUSIC_IDLE_FILE, idle, "Music mode brightness (0.0-1.0, stored as round(value * 255)) while it switches "
+                                "to each look's calm idle version during silence and back. "
+                                "Made by scripts/golden_frames.py.")
+    print(f"Saved {len(monitor)} monitor frames, {len(music)} music frames and {len(idle)} idle frames "
+          f"in {GOLDEN_DIR}")
     return 0
 
 

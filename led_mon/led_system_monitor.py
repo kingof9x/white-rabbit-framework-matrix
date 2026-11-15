@@ -263,6 +263,54 @@ def on_plug(kind, position, plugged_in, info):
     if kind == "charger" and settings["text_charger"]:
         effects.manager.say("Charging" if plugged_in else "On battery")
 
+# Now playing pages set to "Skip to the next page" show these when they are the panel's only page
+NOW_PLAYING_FALLBACK = {"left": ("cpu", "mem-bat"), "right": ("disk", "net")}
+_fallback_apps = {}
+
+
+def now_playing_page(apps):
+    """The page index of a Now playing app set to skip in a quadrant's app list, or None."""
+    for i, app in enumerate(apps or []):
+        if app.get('name') == 'now-playing' and (app.get('args') or {}).get('when_idle', 'skip') == 'skip':
+            return i
+    return None
+
+
+def now_playing_fallback(side, panel_args, now=None):
+    """panel_args, or the side's usual monitor apps when it is a lone Now playing with nothing playing."""
+    if len(panel_args) != 1 or panel_args[0].get('name') != 'now-playing':
+        return panel_args
+    if not now_playing.should_skip(panel_args[0].get('args'), now):
+        return panel_args
+    if side not in _fallback_apps:
+        from led_mon.editor import catalog
+        _fallback_apps[side] = [dict(catalog.new_app(name, side), duration=60) for name in NOW_PLAYING_FALLBACK[side]]
+    return _fallback_apps[side]
+
+
+class NowPlayingTracker:
+    """Keeps Windows being asked what is playing while any page has Now playing set to skip, and says
+    when something starts playing (so that page can come back)."""
+
+    def __init__(self):
+        self.was_playing = None
+
+    def update(self, quads, now=None):
+        if not any(now_playing_page(apps) is not None for apps in quads.values()):
+            self.was_playing = None
+            return False
+        now_playing.watcher.want(now)
+        media, _ = now_playing.watcher.current()
+        if not now_playing.watcher.polled:
+            return False
+        started = self.was_playing is False and media.playing
+        self.was_playing = bool(media.playing)
+        return started
+
+
+now_playing_tracker = NowPlayingTracker()
+
+
 def on_song(song):
     """A new song started playing: show its name on the text line, if the Effects tab says so."""
     if effects.manager.settings["text_song"]:
@@ -945,17 +993,30 @@ def app(args, base_apps, plugin_apps):
             # Keep quadrant schedules aligned even when one quadrant is suppressed by
             # a sibling panel-scope app; otherwise manual Alt+N can create lasting skew.
             now = time.monotonic()
-            # Now playing, set to skip, with nothing playing: both halves of its panel go on to the next page
+            # Now playing, set to skip: with nothing playing, both halves of its panel go on to the next page;
+            # when something starts playing, its panel jumps back to it
             skipping_quadrants = set()
+            playing_started = now_playing_tracker.update(quads, now)
             for owner_quadrant in (left_owner_quadrant, right_owner_quadrant):
                 if owner_quadrant is None:
                     continue
                 owner = quads[owner_quadrant][app_idx[owner_quadrant]]
                 if (owner['name'] == 'now-playing' and len(quads[owner_quadrant]) > 1
-                        and now - base_time_map[owner_quadrant][owner['name']] >= 2
                         and now_playing.should_skip(owner.get('args'), now)):
                     panel_side = 'left' if 'left' in owner_quadrant else 'right'
                     skipping_quadrants.update(q for q in quads if panel_side in q)
+            if playing_started and not freeze_app_switching:
+                for side in ('left', 'right'):
+                    page = now_playing_page(quads[f'top-{side}'])
+                    if page is None or page == app_idx[f'top-{side}']:
+                        continue
+                    for quadrant in (f'top-{side}', f'bottom-{side}'):
+                        if page < len(quads[quadrant]):
+                            if 'dispose-fn' in quads[quadrant][app_idx[quadrant]]:
+                                apps_to_dispose.append(quads[quadrant][app_idx[quadrant]])
+                            app_idx[quadrant] = page
+                            base_time_map[quadrant][quads[quadrant][page]['name']] = now
+                    idx_changed[left_drawing_queue if side == 'left' else right_drawing_queue] = True
             for quadrant, apps in quads.items():
                     app = apps[app_idx[quadrant]]
                     suppressed_for_rotation = quadrant in suppressed_quadrants_pre_rotation
@@ -996,6 +1057,9 @@ def app(args, base_apps, plugin_apps):
 
             left_args = [left_owner_app] if left_owner_app else [left_top_app, left_bottom_app]
             right_args = [right_owner_app] if right_owner_app else [right_top_app, right_bottom_app]
+            # Now playing as the panel's only page, with nothing playing: the usual monitor apps instead of a clock
+            left_args = now_playing_fallback('left', left_args, now)
+            right_args = now_playing_fallback('right', right_args, now)
 
             left_suppressed_quadrant = None
             if left_owner_quadrant == 'top-left':
