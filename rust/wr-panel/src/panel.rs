@@ -60,6 +60,12 @@ pub struct Panels {
     overlay: Mutex<Option<Arc<dyn Overlay>>>,
 }
 
+/// True if two USB locations are the same position, e.g. `1-3.3:x.0` and `1-3.3` (but not `1-3.30`).
+fn same_position(a: &str, b: &str) -> bool {
+    let base = |l: &str| l.split(':').next().unwrap_or(l).to_lowercase();
+    base(a) == base(b)
+}
+
 fn side_name(side: usize) -> &'static str {
     if side == 0 {
         "left"
@@ -107,8 +113,22 @@ impl Panels {
         let list = self.hub.list();
         let pins = self.pins.lock().unwrap().clone();
         let mut sides = self.sides.lock().unwrap();
-        let other = sides[1 - side].port.as_ref().map(|p| p.name().to_lowercase());
-        let taken = |p: &str| other.as_deref() == Some(p.to_lowercase().as_str());
+        let other = &sides[1 - side];
+        let other_port = other.port.as_ref().map(|p| p.name().to_lowercase());
+        // While the other side is looking for its panel, the panel back at the other side's own USB
+        // position is kept for it. Otherwise, when the modules come back one at a time (moving the
+        // keyboard), the first side to look grabs whichever panel showed up first, and the two swap.
+        let reserved = other.port.is_none().then(|| other.location.clone()).flatten().filter(|l| !l.is_empty());
+        let taken = |p: &str| {
+            other_port.as_deref() == Some(p.to_lowercase().as_str())
+                || reserved.as_deref().is_some_and(|r| {
+                    p.eq_ignore_ascii_case(r)
+                        || list.iter().any(|d| {
+                            d.device.eq_ignore_ascii_case(p)
+                                && d.location.as_deref().is_some_and(|l| same_position(l, r))
+                        })
+                })
+        };
         let name = find_panel_port(&list, &pins, sides[side].location.as_deref(), side, &taken)
             .ok_or_else(|| "no free LED panel found".to_string())?;
         let port = self.hub.open(&name).map_err(|e| e.to_string())?;
@@ -424,6 +444,40 @@ mod tests {
         assert_eq!(panels.port_names()[0], some("COM7"), "the panel now on the left side");
         left.handle(Item::Frame(g, None));
         assert_eq!(writes(&fake).last().unwrap().0, "COM7");
+    }
+
+    #[test]
+    fn panels_coming_back_one_at_a_time_keep_their_sides() {
+        // Callum's log: both panels unplugged (keyboard moved), then the right one (1-3.3) came back
+        // first, and the left side took it; then the left one (1-4.2) came back and went to the right.
+        let fake = Arc::new(Fake::default());
+        *fake.ports.lock().unwrap() = vec![panel_port("COM4", "1-4.2:x.0"), panel_port("COM5", "1-3.3:x.0")];
+        let panels = Panels::new(Arc::new(FakeSystem(fake.clone())), Arc::default());
+        let (mut left, mut right) = (Panel::new(0, panels.clone()), Panel::new(1, panels.clone()));
+        assert!(left.connect(true) && right.connect(true));
+        assert_eq!(panels.port_names(), [some("COM4"), some("COM5")]);
+        panels.disconnect(0);
+        panels.disconnect(1);
+        *fake.ports.lock().unwrap() = vec![panel_port("COM5", "1-3.3:x.0")];
+        assert!(!left.connect(true), "the right panel is kept for the right side");
+        assert!(right.connect(true));
+        *fake.ports.lock().unwrap() = vec![panel_port("COM3", "1-4.2:x.0"), panel_port("COM5", "1-3.3:x.0")];
+        assert!(left.connect(true));
+        assert_eq!(panels.port_names(), [some("COM3"), some("COM5")]);
+    }
+
+    #[test]
+    fn a_lone_panel_in_a_new_place_is_still_used() {
+        // Both panels gone; one comes back at a position neither side had: the first side to look takes it
+        let (fake, panels, mut left, mut right) = setup();
+        left.connect(true);
+        right.connect(true);
+        panels.disconnect(0);
+        panels.disconnect(1);
+        *fake.ports.lock().unwrap() = vec![panel_port("COM6", "1-3.4:x.0")];
+        assert!(right.connect(true));
+        assert!(!left.connect(true));
+        assert_eq!(panels.port_names(), [None, some("COM6")]);
     }
 
     #[test]
