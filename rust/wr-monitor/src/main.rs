@@ -11,9 +11,19 @@ mod paths;
 #[cfg(windows)]
 mod app;
 #[cfg(windows)]
+mod background;
+#[cfg(windows)]
+mod gpu;
+#[cfg(windows)]
+mod media;
+#[cfg(windows)]
 mod sensors;
 #[cfg(windows)]
+mod thermal;
+#[cfg(windows)]
 mod ui;
+#[cfg(windows)]
+mod weather;
 
 #[cfg(windows)]
 fn main() {
