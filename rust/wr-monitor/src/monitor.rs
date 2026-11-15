@@ -9,12 +9,14 @@ use std::time::{Duration, Instant, SystemTime};
 use wr_core::apps::panel_names::{load_panel_names, name_grid};
 use wr_core::layout::{Layout, Rotation};
 use wr_core::queue::{FrameQueue, Item};
-use wr_core::render::{brightness_values, render_ids, render_panel, Readings};
+use wr_core::render::{brightness_values, render_ids, render_panel_on, Readings};
 use wr_core::settings::Settings;
 use wr_core::Grid;
 use wr_panel::ports::Pins;
 
 use crate::music::Music;
+use wr_panel::overlay::EffectsOverlay;
+use wr_panel::panel::Panels;
 
 use wr_core::{error, info, warn};
 
@@ -51,6 +53,10 @@ pub struct Shared {
     pub music_restart: AtomicBool,
     /// What the visualizers hear ({side: {device, problem, loudness, silent, input}}).
     pub hearing: Mutex<serde_json::Value>,
+    /// Both panels (wr-panel), once the exe has found them: dimming, swapping and lining them up.
+    pub panels: Mutex<Option<Arc<Panels>>>,
+    /// The Effects tab's effects drawn over the panels.
+    pub effects: Mutex<Option<Arc<EffectsOverlay>>>,
 }
 
 impl Shared {
@@ -157,6 +163,8 @@ pub struct Monitor {
     /// Send every panel its scrolling on the next frame (see Shared::redraw).
     redraw: bool,
     music: Music,
+    /// The names of the apps each panel shows, to slide only when they change.
+    shown: [Option<Vec<String>>; 2],
     /// Music mode's look, read from settings.json when it starts.
     music_settings: Option<wr_music::Settings>,
     /// The side showed a preview on the last frame.
@@ -190,6 +198,7 @@ impl Monitor {
             latch: false,
             redraw: false,
             music: Music::default(),
+            shown: [None, None],
             music_settings: None,
             previewed: [false; 2],
             last_check: Instant::now(),
@@ -201,6 +210,11 @@ impl Monitor {
         let layout = self.source.load();
         *self.pins.lock().unwrap() = pins_of(&layout);
         self.rotation.set_layout(layout);
+        // Swap left and right (layout editor) changes which panel is which: follow it now
+        if let Some(panels) = self.shared.panels.lock().unwrap().clone() {
+            panels.align();
+        }
+        self.shown = [None, None];
         info!("Layout read again");
     }
 
@@ -267,6 +281,16 @@ impl Monitor {
         }
         let panels = [self.rotation.panel(false), self.rotation.panel(true)];
         self.music.foreground.store(fg, Ordering::SeqCst);
+        let effects = self.shared.effects.lock().unwrap().clone();
+        let full_shades = effects.as_ref().is_some_and(|fx| {
+            let mut e = fx.effects();
+            e.foreground = fg;
+            e.settings.full_shades
+        });
+        if let Some(panels) = self.shared.panels.lock().unwrap().as_ref() {
+            panels.options.foreground.store(fg, Ordering::SeqCst);
+            panels.options.full_shades.store(full_shades, Ordering::SeqCst);
+        }
         self.run_music(&panels);
 
         if self.shared.identifying() {
@@ -294,10 +318,19 @@ impl Monitor {
                 continue;
             }
             let mut grid = Grid::new();
-            let animate = render_panel(&mut grid, apps, self.readings.as_mut(), fg, bg);
+            let animate = render_panel_on(&mut grid, apps, self.readings.as_mut(), fg, bg, ["left", "right"][side]);
             let mut do_animate = None;
             if [changed.left, changed.right][side] {
                 do_animate = Some(animate);
+                // Slide the new app in over the old one (Effects tab). Not when the same apps come
+                // round again
+                let key = Some(apps.apps().iter().map(|a| a.name.clone()).collect::<Vec<_>>());
+                if !animate && self.shown[side] != key {
+                    if let Some(fx) = self.shared.effects.lock().unwrap().as_ref() {
+                        fx.start_slide(side);
+                    }
+                }
+                self.shown[side] = key;
             }
             if self.latch && apps.animate() {
                 do_animate = Some(true);

@@ -14,8 +14,10 @@ use crate::control::commands::Commands;
 use crate::monitor::{log_panics, pins_of, LayoutSource, Monitor, Shared};
 use crate::sensors::{ScreenBrightness, WindowsReadings};
 use crate::{paths, ui};
+use wr_core::effects::EffectsSettings;
 use wr_core::{info, warn};
 use wr_panel::hub::PortSystem;
+use wr_panel::overlay::EffectsOverlay;
 use wr_panel::panel::{Panel, Panels};
 use wr_panel::winports::WindowsPorts;
 
@@ -64,6 +66,16 @@ pub fn run() -> i32 {
     let panels = Panels::new(ports.clone(), pins.clone());
     // The window's serial/hold/release commands share the drawing threads' open ports
     let bridge = Arc::new(Bridge::new(panels.clone()));
+    // The Effects tab's effects, drawn over every frame by the drawing threads
+    let effects_json = std::fs::read_to_string(paths::settings_file())
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .map(|v| v["effects"].clone())
+        .unwrap_or_default();
+    let effects = EffectsOverlay::new(EffectsSettings::from_json(&effects_json));
+    panels.set_overlay(effects.clone());
+    *shared.effects.lock().unwrap() = Some(effects);
+    *shared.panels.lock().unwrap() = Some(panels.clone());
     let queues = [Arc::new(FrameQueue::new()), Arc::new(FrameQueue::new())];
     let mut drawing = Vec::new();
     for (side, queue) in queues.iter().enumerate() {

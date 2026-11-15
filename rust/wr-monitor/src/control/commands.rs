@@ -177,6 +177,26 @@ impl Commands {
         reply
     }
 
+    /// "effects" (the Effects tab): reload the settings, try an effect, or show a message. Learning
+    /// which port is where comes with the plug watcher, which the Rust monitor doesn't have yet.
+    fn effects(&self, message: &Map<String, Value>) -> Map<String, Value> {
+        if let Some(fx) = self.shared.effects.lock().unwrap().clone() {
+            match message.get("action").and_then(Value::as_str).unwrap_or("") {
+                "reload" => {
+                    let raw = self.settings_json().get("effects").cloned().unwrap_or(Value::Null);
+                    fx.effects().configure(wr_core::effects::EffectsSettings::from_json(&raw));
+                }
+                "try" => {
+                    let position = message.get("position").and_then(Value::as_str);
+                    fx.plug(position, message.get("event").and_then(Value::as_str) != Some("out"));
+                }
+                "say" => fx.effects().say(message.get("text").and_then(Value::as_str).unwrap_or("")),
+                _ => {}
+            }
+        }
+        object(json!({"last_plug": {}, "panels": self.bridge.open_ports()}))
+    }
+
     fn release(&self, message: &Map<String, Value>) -> Reply {
         let released = self.bridge.release(message.get("ports"));
         if !released.is_empty() {
@@ -212,6 +232,7 @@ impl Handler for Commands {
                 Ok(Map::new())
             }
             "music" => Ok(self.music(message)),
+            "effects" => Ok(self.effects(message)),
             "shortcuts" => self.shortcuts(),
             "power" => self.power(message),
             "sensor_source" => {

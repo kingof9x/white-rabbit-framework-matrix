@@ -1,9 +1,24 @@
 //! Drawing one panel's frame from the apps it shows now: a port of `render_panel` in
 //! `led_mon/rendering.py` and the app-name display of the main loop.
 
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
+
+use crate::animations::{self, Look};
 use crate::drawing::*;
 use crate::layout::{App, PanelApps};
+use crate::sand::{self, SandPiles};
 use crate::Grid;
+
+/// What the apps that move on their own keep between frames: the sand piles, and each running
+/// animation with when it last drew ({(panel, look): (animation, seconds)}).
+#[derive(Default)]
+struct Moving {
+    sand: SandPiles,
+    animations: HashMap<(String, String), (Box<dyn Look>, f64)>,
+}
+
+static MOVING: LazyLock<Mutex<Moving>> = LazyLock::new(Mutex::default);
 
 /// What the apps show, read from the computer. The monitor exe reads Windows; tests use fixed values.
 pub trait Readings {
@@ -22,7 +37,7 @@ pub trait Readings {
 }
 
 /// The apps this monitor can draw so far. The others show nothing until they are ported.
-pub const SUPPORTED_APPS: [&str; 4] = ["cpu", "cpu-graph", "mem-bat", "time"];
+pub const SUPPORTED_APPS: [&str; 6] = ["cpu", "cpu-graph", "mem-bat", "time", "battery-sand", "animation"];
 
 pub fn is_supported(name: &str) -> bool {
     SUPPORTED_APPS.contains(&name) || crate::apps::CONTENT_APPS.contains(&name)
@@ -37,6 +52,19 @@ pub fn brightness_values(ratio: f64) -> (i32, i32) {
 
 /// Draws the panel's apps into `grid`. Returns the `animate` setting of the last app drawn.
 pub fn render_panel(grid: &mut Grid, apps: &PanelApps, readings: &mut dyn Readings, fg: i32, bg: i32) -> bool {
+    render_panel_on(grid, apps, readings, fg, bg, "left")
+}
+
+/// [`render_panel`] for the panel on this side ("left" or "right"), which the apps that move on
+/// their own keep apart.
+pub fn render_panel_on(
+    grid: &mut Grid,
+    apps: &PanelApps,
+    readings: &mut dyn Readings,
+    fg: i32,
+    bg: i32,
+    side: &str,
+) -> bool {
     let whole = matches!(apps, PanelApps::Whole(_));
     let mut animate = false;
     for (j, app) in apps.apps().into_iter().enumerate() {
@@ -73,6 +101,25 @@ pub fn render_panel(grid: &mut Grid, apps: &PanelApps, readings: &mut dyn Readin
             }
             "text" => crate::apps::text::draw_app(grid, app, readings, fg),
             "snap" => crate::apps::picture::draw_app(grid, app, fg),
+            "battery-sand" => {
+                let speed = app.arg_str("sand_speed").unwrap_or_else(|| "normal".into());
+                let (battery, now) = (readings.battery(), readings.now());
+                let moving = &mut MOVING.lock().unwrap();
+                sand::draw_sand_battery(&mut moving.sand, grid, battery, fg, y, side, &speed, now);
+            }
+            "animation" => {
+                let look = app.arg_str("look").unwrap_or_else(|| "fire".into());
+                let panel = app.arg_str("panel").unwrap_or_else(|| side.to_string());
+                let now = readings.now();
+                let moving = &mut MOVING.lock().unwrap();
+                let entry = moving
+                    .animations
+                    .entry((panel, look.clone()))
+                    .or_insert_with(|| (animations::make_look(&look, None), now - animations::LOOK_STEP));
+                let frame = entry.0.frame(now - entry.1);
+                entry.1 = now;
+                *grid = animations::to_leds(&frame, fg);
+            }
             _ => {}
         }
         animate = app.animate;
