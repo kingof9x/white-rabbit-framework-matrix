@@ -331,6 +331,8 @@ mod tests {
     #[test]
     fn draws_every_app() {
         let mut renderer = Renderer::new();
+        // A computer without a battery (like the Windows test machine) has no battery sand to draw
+        let has_battery = renderer.readings.battery().is_some();
         for info in catalog::offered() {
             let entry = catalog::new_app(info.key, "left", Some("drawing:none".into()));
             let page = if info.size == catalog::Size::Full {
@@ -341,7 +343,7 @@ mod tests {
             let grid = renderer.render(Some(&page), "left");
             let lit = grid.v.iter().flatten().filter(|v| **v > 0).count();
             // A drawing that doesn't exist and an empty text stay dark; the rest show something
-            if !matches!(info.key, "snap" | "text") {
+            if !matches!(info.key, "snap" | "text") && (has_battery || info.key != "battery-sand") {
                 assert!(lit > 0, "{} drew nothing", info.key);
             }
         }
