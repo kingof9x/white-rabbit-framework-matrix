@@ -346,7 +346,8 @@ pub enum Transition {
 }
 
 impl EffectsSettings {
-    pub const MAX_MESSAGES: usize = 10;
+    /// Lines of your own message: 5 lines of 6 rows fill most of the 34-row panel.
+    pub const MAX_MESSAGES: usize = 5;
 
     /// The vertical message on this side's panel, when one is showing.
     pub fn vertical(&self, side: Side) -> Option<&str> {
@@ -1015,14 +1016,13 @@ pub fn text_width(text: &str) -> usize {
 #[derive(Clone, Debug)]
 pub struct TextLine {
     queue: VecDeque<String>,
-    /// The message showing, and when it started.
-    current: Option<(Vec<TextColumn>, f64)>,
+    /// The message showing (one or more lines, one under the other), and when it started.
+    current: Option<(Vec<Vec<TextColumn>>, f64)>,
     /// Columns a second.
     pub speed: f64,
-    /// Messages shown in turn, again and again, whenever nothing else is waiting, until unpinned.
+    /// Your own message, its lines one under the other, shown again and again whenever nothing else is
+    /// waiting, until unpinned.
     pinned: Vec<String>,
-    /// The pinned message to show next.
-    next_pinned: usize,
 }
 
 impl Default for TextLine {
@@ -1036,7 +1036,7 @@ impl TextLine {
     const QUEUE: usize = 8;
 
     pub fn new() -> TextLine {
-        TextLine { queue: VecDeque::new(), current: None, speed: 18.0, pinned: Vec::new(), next_pinned: 0 }
+        TextLine { queue: VecDeque::new(), current: None, speed: 18.0, pinned: Vec::new() }
     }
 
     /// Queues a message, its spaces squeezed to one and cut to 120 letters.
@@ -1055,7 +1055,8 @@ impl TextLine {
         self.speed = 6.0 + 3.0 * setting.clamp(1, 10) as f64;
     }
 
-    /// Keeps these messages going round, taking turns, until they are unpinned (an empty list).
+    /// Keeps this message (its lines one under the other) going round until it is unpinned (an empty
+    /// list).
     pub fn pin(&mut self, texts: &[String]) {
         let texts: Vec<String> = texts
             .iter()
@@ -1066,21 +1067,20 @@ impl TextLine {
             return;
         }
         self.pinned = texts;
-        self.next_pinned = 0;
         // Turned off: stop it now rather than letting it scroll to the end
         if self.pinned.is_empty() {
             self.current = None;
         }
     }
 
-    /// The next message: one waiting, else the next pinned one.
-    fn next(&mut self) -> Option<String> {
-        if let Some(text) = self.queue.pop_front() {
-            return Some(text);
-        }
-        let text = self.pinned.get(self.next_pinned % self.pinned.len().max(1))?.clone();
-        self.next_pinned = (self.next_pinned + 1) % self.pinned.len();
-        Some(text)
+    /// The next message's lines: one waiting, else the pinned one.
+    fn next(&mut self) -> Option<Vec<Vec<TextColumn>>> {
+        let lines = match self.queue.pop_front() {
+            Some(text) => vec![text],
+            None if !self.pinned.is_empty() => self.pinned.clone(),
+            None => return None,
+        };
+        Some(lines.iter().take(EffectsSettings::MAX_MESSAGES).map(|l| text_columns(l)).collect())
     }
 
     /// Drops what is showing and waiting.
@@ -1089,29 +1089,33 @@ impl TextLine {
         self.current = None;
     }
 
-    /// The text line across all panels as TEXT_ROWS rows of `width` 0/1 values, or None when it is idle.
+    /// The text line across all panels as TEXT_ROWS rows of `width` 0/1 values for each line of the
+    /// message (one under the other, scrolling together), or None when it is idle.
     pub fn strip(&mut self, width: usize, now: f64) -> Option<Vec<Vec<u8>>> {
         if self.current.is_none() {
             let next = self.next()?;
-            self.current = Some((text_columns(&next), now));
+            self.current = Some((next, now));
         }
-        let (cols, start) = self.current.as_ref().unwrap();
+        let (lines, start) = self.current.as_ref().unwrap();
+        let longest = lines.iter().map(Vec::len).max().unwrap_or(0);
         let mut x = width as f64 - (now - start) * self.speed;
-        if x + (cols.len() as f64) < 0.0 {
+        if x + (longest as f64) < 0.0 {
             // Gone off the left edge: the next message, if any
             self.current = None;
             let next = self.next()?;
-            self.current = Some((text_columns(&next), now));
+            self.current = Some((next, now));
             x = width as f64;
         }
-        let cols = &self.current.as_ref().unwrap().0;
-        let mut out = vec![vec![0u8; width]; TEXT_ROWS];
+        let lines = &self.current.as_ref().unwrap().0;
+        let mut out = vec![vec![0u8; width]; TEXT_ROWS * lines.len()];
         let xi = int_round(x);
-        for (c, col) in cols.iter().enumerate() {
-            let at = xi + c as i64;
-            if (0..width as i64).contains(&at) {
-                for (r, &v) in col.iter().enumerate() {
-                    out[r][at as usize] = v;
+        for (n, cols) in lines.iter().enumerate() {
+            for (c, col) in cols.iter().enumerate() {
+                let at = xi + c as i64;
+                if (0..width as i64).contains(&at) {
+                    for (r, &v) in col.iter().enumerate() {
+                        out[n * TEXT_ROWS + r][at as usize] = v;
+                    }
                 }
             }
         }
@@ -1618,7 +1622,7 @@ impl Effects {
             let order = self.order(side);
             if let Some(at) = order.iter().position(|&s| s == side) {
                 if let Some(strip) = self.text.strip(WIDTH * order.len(), now) {
-                    for (r, row) in strip.iter().enumerate() {
+                    for (r, row) in strip.iter().enumerate().take(HEIGHT) {
                         for x in 0..WIDTH {
                             out.set(r, x, (row[at * WIDTH + x] as i32 * self.foreground) as f64);
                         }
@@ -1701,14 +1705,20 @@ mod tests {
     }
 
     #[test]
-    fn pinned_messages_take_turns_until_unpinned() {
+    fn pinned_message_lines_show_together_until_unpinned() {
         let mut t = TextLine::new();
         t.pin(&["HI".to_string(), "YO".to_string()]);
         assert!(t.active());
-        assert_eq!(t.next().as_deref(), Some("HI"));
-        assert_eq!(t.next().as_deref(), Some("YO"));
-        assert_eq!(t.next().as_deref(), Some("HI"));
         let width = 2 * WIDTH + GAP;
+        // Both lines at once, the second under the first
+        t.strip(width, 0.0);
+        let rows = t.strip(width, 0.6).unwrap();
+        assert_eq!(rows.len(), 2 * TEXT_ROWS);
+        assert!(rows[..TEXT_ROWS].iter().any(|r| r.contains(&1)));
+        assert!(rows[TEXT_ROWS..].iter().any(|r| r.contains(&1)));
+        t.say("SONG");
+        t.clear();
+        t.pin(&["HI".to_string(), "YO".to_string()]);
         let mut shown = 0;
         let mut now = 0.0;
         while now < 5.0 {

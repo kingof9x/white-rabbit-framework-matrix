@@ -226,9 +226,9 @@ What the panels play when something is plugged in or out, plus a few extras.
 ### Display messages page
 
 A line of small letters scrolls across the top of both panels when a new song
-starts, the charger goes in or out, or the battery is low. Add your own
-messages (up to 10 lines) and *Show them* keeps them going round one after
-another until you stop them.
+starts, the charger goes in or out, or the battery is low. Write your own
+message (up to 5 lines, shown one under the other) and *Show message* keeps
+it going round until you stop it.
 
 *Vertical messages* give each panel a message of its own, running down the
 panel in place of what it shows (upright letters, letters on their side, or

@@ -31,7 +31,7 @@ export component MessagesView inherits HorizontalLayout {
                 CheckBox { text: "the charger goes in or out"; enabled: EffectsPage.text-line; checked <=> EffectsPage.text-charger; toggled => { EffectsPage.changed(); } }
                 CheckBox { text: "the battery is low"; enabled: EffectsPage.text-line; checked <=> EffectsPage.text-battery; toggled => { EffectsPage.changed(); } }
             }
-            Label { text: "Your own messages:"; }
+            Label { text: "Your own message (up to 5 lines):"; }
             for text[i] in EffectsPage.messages: Row {
                 LineEdit {
                     width: 280px;
@@ -45,12 +45,12 @@ export component MessagesView inherits HorizontalLayout {
             Row {
                 Button { text: "Add a line"; enabled: EffectsPage.messages.length < EffectsPage.max-messages; clicked => { EffectsPage.add-message(); } }
                 Button {
-                    text: EffectsPage.pinned ? "Stop showing them" : "Show them";
+                    text: EffectsPage.pinned ? "Stop showing message" : "Show message";
                     enabled: EffectsPage.text-line;
                     clicked => { EffectsPage.pinned = !EffectsPage.pinned; EffectsPage.changed(); }
                 }
             }
-            Hint { text: EffectsPage.pinned ? "Your messages go round on the panels one after another until you stop them. Other messages still get their turn." : "Show them keeps your messages going round on the panels, one after another, until you stop them."; }
+            Hint { text: EffectsPage.pinned ? "Your message keeps going round on the panels, its lines one under the other, until you stop it. Other messages still get their turn." : "Show message keeps your message going round on the panels, its lines one under the other, until you stop it."; }
             Row {
                 Label { text: "Scroll speed:"; }
                 Slider {
@@ -65,7 +65,7 @@ export component MessagesView inherits HorizontalLayout {
         }
         Group {
             title: "Vertical messages";
-            help: "A message of its own on each panel, running down the panel in place of what it shows, until you stop it. Leave a panel empty to keep its picture.";
+            help: "A message of its own on each panel, running down the panel in place of what it shows, until you stop it with Stop showing message. Leave a panel empty to keep its picture.";
             Row {
                 Label { text: "Left panel:"; min-width: 90px; }
                 LineEdit { width: 280px; text <=> EffectsPage.vertical-left; accepted => { if EffectsPage.show-vertical { EffectsPage.changed(); } } }
@@ -85,7 +85,7 @@ export component MessagesView inherits HorizontalLayout {
             }
             Row {
                 Button {
-                    text: EffectsPage.show-vertical ? "Stop showing them" : "Show them";
+                    text: EffectsPage.show-vertical ? "Stop showing message" : "Show message";
                     enabled: EffectsPage.show-vertical || EffectsPage.vertical-left != "" || EffectsPage.vertical-right != "";
                     clicked => { EffectsPage.show-vertical = !EffectsPage.show-vertical; EffectsPage.changed(); }
                 }
