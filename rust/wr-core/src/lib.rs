@@ -6,6 +6,7 @@
 //! `tests/golden.rs` compares the pictures with the ones Python saved in `tests/golden/`.
 
 pub mod animations;
+pub mod apps;
 pub mod drawing;
 pub mod effects;
 pub mod grid;

@@ -147,6 +147,7 @@ def test_what_is_playing_goes_in_the_log(caplog):
 
 def test_lone_now_playing_falls_back_to_the_monitor_apps(monkeypatch):
     pytest.importorskip("requests")  # The monitor loads the weather plugin
+    pytest.importorskip("led_mon.led_system_monitor")  # needs wmi on Windows (only in the full build)
     from led_mon import led_system_monitor as mon
     media = {"m": np_mod.Media()}
     w = np_mod.Watcher(reader=lambda: media["m"])
@@ -170,6 +171,7 @@ def test_lone_now_playing_falls_back_to_the_monitor_apps(monkeypatch):
 
 def test_now_playing_page_comes_back_when_music_starts(monkeypatch):
     pytest.importorskip("requests")
+    pytest.importorskip("led_mon.led_system_monitor")  # needs wmi on Windows (only in the full build)
     from led_mon import led_system_monitor as mon
     media = {"m": np_mod.Media()}
     w = np_mod.Watcher(reader=lambda: media["m"])

@@ -1,7 +1,7 @@
 name: Rust monitor
 
 # The Rust rewrite of the monitor (rust/). Checks that it still draws exactly what the Python monitor
-# draws (the golden frames in tests/golden/) and builds WhiteRabbit-rust-test.exe for trying it out.
+# draws (the golden frames in tests/golden/) and builds the Rust WhiteRabbit.exe (the Windows build ships it with the Python window).
 # The exe is a test build: it is attached to the workflow run (Actions > this run > Artifacts), not
 # to a release.
 
@@ -41,7 +41,7 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
   build:
-    name: Build WhiteRabbit-rust-test.exe
+    name: Build the Rust WhiteRabbit.exe
     needs: test
     runs-on: windows-latest
     steps:
@@ -55,8 +55,8 @@ jobs:
         run: cargo build --release -p wr-monitor
       - name: Size
         shell: pwsh
-        run: "Get-Item rust/target/release/WhiteRabbit-rust-test.exe | Select-Object Name, Length"
+        run: "Get-Item rust/target/release/WhiteRabbit.exe | Select-Object Name, Length"
       - uses: actions/upload-artifact@v4
         with:
-          name: WhiteRabbit-rust-test
-          path: rust/target/release/WhiteRabbit-rust-test.exe
+          name: WhiteRabbit-rust-monitor
+          path: rust/target/release/WhiteRabbit.exe

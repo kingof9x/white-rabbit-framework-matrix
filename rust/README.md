@@ -10,11 +10,16 @@ icon. It aims to use far less memory and CPU than the Python monitor (about 66 M
   every pixel must match.
 - `wr-panel`: talking to the panels. The bytes of each command, finding which serial port is the left
   or right panel, and each panel's drawing thread.
-- `wr-music`: the music visualizer (being written).
-- `wr-monitor`: the Windows program, `WhiteRabbit-rust-test.exe` for now. Finds the panels, draws the
+- `wr-music`: the music visualizer.
+- `wr-monitor`: the Windows program, `WhiteRabbit.exe` in the installed app. It opens the window, the
+  Python app built as `WhiteRabbitWindow.exe` next to it, on a plain start, from the tray's
+  "Open White Rabbit..." and when the window's options (`--window`, `--diagnose`, ...) are given;
+  `--background` (Start with Windows) runs the monitor only. Finds the panels, draws the
   layout's apps, has a tray menu, turns the panels off with the lid, and has the
   Ctrl+Alt+Shift+I / N / F / U shortcuts. It uses the same settings, layout file and single-instance lock
-  as the Python app, so only one of them runs at a time.
+  as the Python app, so only one of them runs at a time. It answers the White Rabbit window on the same
+  control channel as the Python monitor (`led_mon/control.py`), so the window can change settings,
+  show previews and drive the panels through it.
 
 So far it draws the cpu, cpu-graph, mem-bat and time apps; other apps stay dark until they are ported.
 

@@ -4,6 +4,11 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use wr_core::apps::now_playing::{demo_cover, draw_half, scene, Media, Options};
+use wr_core::apps::panel_names::name_grid;
+use wr_core::apps::picture::{draw_frame, Drawing};
+use wr_core::apps::text;
+use wr_core::apps::weather::{draw_forecast_period, weather_values, Weather};
 use wr_core::drawing::*;
 use wr_core::patterns::ICONS;
 use wr_core::{Grid, HEIGHT, WIDTH};
@@ -144,6 +149,75 @@ fn monitor_cases() -> BTreeMap<String, Grid> {
         }
     }
 
+    // Drawings from the Draw tab, made the same way as DRAWINGS in golden_frames.py
+    let frames = |count: usize, offset: usize| {
+        let frames: Vec<Vec<Vec<f64>>> = (0..count)
+            .map(|k| {
+                (0..HEIGHT)
+                    .map(|y| {
+                        (0..WIDTH)
+                            .map(|x| {
+                                let v = ((x * 29 + y * 7 + k * 50 + offset) % 300) as f64 - 20.0;
+                                v + if x % 2 == 1 { 0.5 } else { 0.0 }
+                            })
+                            .collect()
+                    })
+                    .collect()
+            })
+            .collect();
+        serde_json::json!(frames)
+    };
+    let drawings = [
+        ("three-frames", serde_json::json!({"version": 1, "delay_ms": 150, "frames": frames(3, 0)})),
+        ("fast", serde_json::json!({"version": 1, "delay_ms": 5, "frames": frames(2, 77)})),
+        ("no-delay", serde_json::json!({"version": 1, "frames": frames(4, 11)})),
+        ("text-delay", serde_json::json!({"version": 1, "delay_ms": "250", "frames": frames(2, 5)})),
+        ("empty", serde_json::json!({"version": 1, "delay_ms": 100, "frames": []})),
+    ];
+    for (name, data) in &drawings {
+        let drawing = Drawing::from_json(data).unwrap();
+        for t in [0.0, 0.149, 0.15, 0.7, 12.34] {
+            case(format!("drawing-{name}-t{}", py(t)), &|g| draw_frame(g, drawing.frame_at(t), FOREGROUND));
+        }
+    }
+
+    // The Text app
+    let texts = [
+        ("short", "Hi"),
+        ("time", "10:47 87% 12%"),
+        ("words", "Hello, world! 42"),
+        ("long", "The quick brown fox jumps over the lazy dog 0123456789"),
+        ("symbols", "a+b=c? (x/y)*2 #1 <3> _ ' \" \u{b0} ~ \u{df}"),
+        ("percent", "5% 100%"),
+        ("blank", "   "),
+    ];
+    for style in text::STYLES {
+        for (label, words) in texts {
+            for t in [0.0, 1.0, 3.3, 7.25, 40.0] {
+                case(format!("text-{style}-{label}-t{}", py(t)), &|g| text::draw_text(g, words, style, FOREGROUND, t));
+            }
+        }
+    }
+    for (label, cpu, battery, hour, fmt_24) in [
+        ("pm", Some(0.123), Some(0.876), 13, false),
+        ("24h", None, None, 9, true),
+        ("midnight", Some(1.0), Some(0.004), 0, false),
+    ] {
+        let values = text::TextValues {
+            time: text::time_text(hour, 5, fmt_24),
+            battery: text::percent_text(battery),
+            cpu: text::percent_text(cpu),
+        };
+        case(format!("text-values-{label}"), &|g| {
+            text::draw_with_values(g, "{time} {Battery} {CPU} {other}", "stacked", FOREGROUND, &values, 2.0)
+        });
+    }
+
+    // Panel names
+    for name in ["Left", "Right", "Desk", "abcdefgh", "a b", "\u{e4}\u{f6}\u{fc}!", "?\u{e9}#", "", "10:47"] {
+        case(format!("name-{name}"), &|g| *g = name_grid(name, FOREGROUND));
+    }
+
     let char_cases: [(&str, &[&str]); 7] = [
         ("time-1234", &["1", "2", "horiz_colon", "3", "4"]),
         ("time-0905", &["0", "9", "horiz_colon", "0", "5"]),
@@ -170,6 +244,70 @@ fn monitor_cases() -> BTreeMap<String, Grid> {
             ("none-none-none", [None, None, None]),
         ] {
             case(format!("temp-{label}-{half}"), &|g| draw_temp_numbers(g, &values, FOREGROUND, y));
+        }
+    }
+
+    for (half, y) in halves {
+        for (a, b) in [(0.0, 0.0), (0.25, 1.0), (0.5, 0.1)] {
+            case(format!("fan-{}-{}-{half}", py(a), py(b)), &|g| {
+                draw_bar(g, a, FOREGROUND, 1, y);
+                draw_bar(g, b, FOREGROUND, 5, y);
+                draw_app_border("fan", g, BACKGROUND, y, 8);
+            });
+        }
+    }
+
+    let weather = |temp, chill, speed, speed_symbol: &str, dir, temp_symbol: &str, condition: &str| Weather {
+        temp,
+        wind_chill: chill,
+        wind_speed: speed,
+        wind_speed_symbol: speed_symbol.into(),
+        wind_dir: dir,
+        temp_symbol: temp_symbol.into(),
+        condition: condition.into(),
+    };
+    let readings = [
+        ("mild", weather(21.4, 19.5, 12.5, "km", 225.0, "degC", "Clouds")),
+        ("cold", weather(-4.5, -11.6, 30.2, "mi", 350.0, "degF", "snow")),
+        ("hot", weather(101.0, 99.5, 3.0, "km", 92.0, "degK", "clear")),
+    ];
+    for (label, w) in &readings {
+        for measure in ["temp_condition", "wind_chill", "wind", "bogus"] {
+            for (half, y) in halves {
+                case(format!("weather-{label}-{measure}-{half}"), &|g| {
+                    let values = weather_values(w, measure);
+                    let chars: Vec<&str> = values.iter().map(String::as_str).collect();
+                    draw_chars_list(g, &chars, FOREGROUND, y);
+                });
+            }
+        }
+    }
+    for (day, hour) in [(1, 12), (3, 0), (5, 23), (9, -1)] {
+        case(format!("weather-forecast-d{day}-h{hour}"), &|g| {
+            let values = weather_values(&readings[0].1, "temp_condition");
+            let chars: Vec<&str> = values.iter().map(String::as_str).collect();
+            draw_chars_list(g, &chars, FOREGROUND, 0);
+            draw_forecast_period(g, FOREGROUND, day, hour);
+        });
+    }
+
+    let levels = [7.4, 6.5, 5.5, 4.2, 3.5, 2.5, 1.0, 0.4, -1.0];
+    let song =
+        |title: &str, artist: &str| Media { title: title.into(), artist: artist.into(), playing: true, cover: None };
+    let songs = [("full", song("Preview song", "White Rabbit")), ("title", song("ok?", "")), ("none", song("", ""))];
+    let all = Options { title: true, visualizer: true, drift: true, when_idle: "skip".into() };
+    let plain = Options { title: false, visualizer: false, drift: false, when_idle: "skip".into() };
+    let cover = demo_cover();
+    for (label, media) in &songs {
+        for (opt, options) in [("all", &all), ("plain", &plain)] {
+            for now in [0.0, 2.3, 7.9, 61.25] {
+                for side in ["left", "right"] {
+                    case(format!("now-playing-{label}-{opt}-t{}-{side}", py(now)), &|g| {
+                        let canvas = scene(media, Some(&cover), now, options, Some(&levels));
+                        draw_half(g, &canvas, side == "right", FOREGROUND);
+                    });
+                }
+            }
         }
     }
 

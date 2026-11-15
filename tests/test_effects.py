@@ -329,6 +329,7 @@ def test_charger(monkeypatch):
 
 def test_monitor_plays_the_wanted_kinds(monkeypatch):
     pytest.importorskip("requests")  # The monitor loads the weather plugin
+    pytest.importorskip("led_mon.led_system_monitor")  # needs wmi on Windows (only in the full build)
     from led_mon import led_system_monitor as mon
     played = []
     monkeypatch.setattr(mon.effects.manager, "plug", lambda pos, inn: played.append((pos, inn)))
@@ -344,6 +345,7 @@ def test_monitor_plays_the_wanted_kinds(monkeypatch):
 
 def test_slide_only_when_the_apps_change():
     pytest.importorskip("requests")  # The monitor loads the weather plugin
+    pytest.importorskip("led_mon.led_system_monitor")  # needs wmi on Windows (only in the full build)
     from led_mon import led_system_monitor as mon
     clock = [{"name": "time", "args": {"fmt_24_hour": True}}]
     assert mon.apps_key(clock) == mon.apps_key([dict(clock[0])])

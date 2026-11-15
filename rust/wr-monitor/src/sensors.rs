@@ -1,19 +1,31 @@
 //! What the apps show, read from Windows: CPU load, memory, battery, the clock, and the screen's
-//! brightness (the same sources as `led_mon/monitors.py`).
+//! brightness (the same sources as `led_mon/monitors.py`); disk and network rates, GPU use,
+//! temperatures and fans, the weather and what is playing (the slower ones on their own threads,
+//! see `background.rs`).
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use sysinfo::{CpuRefreshKind, RefreshKind, System};
+use std::collections::HashMap;
+
+use sysinfo::{CpuRefreshKind, DiskRefreshKind, Disks, Networks, RefreshKind, System};
 use windows_sys::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
 use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
 
+use wr_core::apps::now_playing::NowPlaying;
+use wr_core::apps::rates::RateMonitor;
+use wr_core::apps::temp_fan::{self, Thermal};
+use wr_core::apps::weather::Weather;
+use wr_core::apps::{gpu, Fps};
 use wr_core::layout::App;
 use wr_core::monitors::{core_groups, CpuSmoother, History};
 use wr_core::render::Readings;
 
 use wr_core::warn;
+
+use crate::background::Background;
+use crate::weather::WeatherSettings;
 
 pub struct WindowsReadings {
     cores: System,
@@ -21,6 +33,22 @@ pub struct WindowsReadings {
     smoother: CpuSmoother,
     history: History,
     started: Instant,
+    right: bool,
+    disks: Disks,
+    networks: Networks,
+    disk_rates: RateMonitor,
+    net_rates: RateMonitor,
+    gpus: Background<Vec<(String, Option<f64>)>>,
+    gpu_histories: HashMap<String, History>,
+    thermal: Background<Thermal>,
+    weather: HashMap<String, Background<Option<Weather>>>,
+    media: Background<NowPlaying>,
+    fps_warned: bool,
+}
+
+/// Seconds since 1970, as Python's time.time().
+fn unix_now() -> f64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0)
 }
 
 impl WindowsReadings {
@@ -36,6 +64,19 @@ impl WindowsReadings {
             smoother: CpuSmoother::new(core_groups(logical, physical)),
             history: History::new(),
             started: Instant::now(),
+            right: false,
+            disks: Disks::new_with_refreshed_list_specifics(DiskRefreshKind::nothing().with_io_usage()),
+            networks: Networks::new_with_refreshed_list(),
+            disk_rates: RateMonitor::new(),
+            net_rates: RateMonitor::new(),
+            gpus: Background::new("gpu", Duration::from_secs(1), Vec::new(), |_| crate::gpu::reader()),
+            gpu_histories: HashMap::new(),
+            thermal: Background::new("sensors", Duration::from_secs(2), Thermal::default(), crate::thermal::reader),
+            weather: HashMap::new(),
+            media: Background::new("now-playing", Duration::from_secs(1), NowPlaying::default(), |_| {
+                crate::media::reader()
+            }),
+            fps_warned: false,
         }
     }
 }
@@ -93,6 +134,77 @@ impl Readings for WindowsReadings {
 
     fn now(&mut self) -> f64 {
         self.started.elapsed().as_secs_f64()
+    }
+
+    fn set_panel(&mut self, right: bool) {
+        self.right = right;
+    }
+
+    fn panel_right(&mut self) -> bool {
+        self.right
+    }
+
+    fn disk(&mut self) -> (f64, f64) {
+        self.disks.refresh_specifics(false, DiskRefreshKind::nothing().with_io_usage());
+        let (read, written) = self.disks.list().iter().fold((0u64, 0u64), |(r, w), d| {
+            let u = d.usage();
+            (r.saturating_add(u.total_read_bytes), w.saturating_add(u.total_written_bytes))
+        });
+        self.disk_rates.add(read, written, unix_now())
+    }
+
+    fn net(&mut self) -> (f64, f64) {
+        self.networks.refresh(true);
+        let (sent, received) = self.networks.iter().fold((0u64, 0u64), |(s, r), (_, n)| {
+            (s.saturating_add(n.total_transmitted()), r.saturating_add(n.total_received()))
+        });
+        self.net_rates.add(sent, received, unix_now())
+    }
+
+    fn gpu_history(&mut self, name: &str) -> Vec<Option<f64>> {
+        let rows = self.gpus.get();
+        let now = self.started.elapsed().as_secs_f64();
+        self.gpu_histories.entry(name.to_string()).or_default().get(now, || gpu::pick(&rows, name))
+    }
+
+    fn fps(&mut self, _process: &str) -> Fps {
+        // Python runs PresentMon for this; it isn't ported yet, so the app shows "?"
+        if !self.fps_warned {
+            self.fps_warned = true;
+            wr_core::info!("The fps apps can't measure frames in this build yet; they show a question mark");
+        }
+        Fps::default()
+    }
+
+    fn now_playing(&mut self) -> NowPlaying {
+        self.media.get()
+    }
+
+    fn weather(&mut self, app: &App) -> Option<Weather> {
+        let settings = WeatherSettings::of(app);
+        self.weather
+            .entry(settings.key())
+            .or_insert_with(|| {
+                Background::new("weather", crate::weather::REFRESH, None, move |_| crate::weather::reader(settings))
+            })
+            .get()
+    }
+
+    fn temperatures(&mut self, app: &App) -> [Option<f64>; 3] {
+        let thermal = self.thermal.get();
+        let chosen: Vec<String> =
+            ["sensor_1", "sensor_2", "sensor_3"].iter().map(|k| app.arg_str(k).unwrap_or_default()).collect();
+        let unit = app.arg_str("unit").unwrap_or_else(|| "C".into());
+        let values = temp_fan::pick(&thermal.named, &chosen, 3);
+        let mut result = [None; 3];
+        for (slot, v) in result.iter_mut().zip(values) {
+            *slot = v.map(|c| temp_fan::to_unit(c, &unit));
+        }
+        result
+    }
+
+    fn fans(&mut self) -> Vec<f64> {
+        self.thermal.get().fans
     }
 }
 

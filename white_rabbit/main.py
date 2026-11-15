@@ -56,6 +56,12 @@ def run(argv=None):
             from white_rabbit.window import run_window
             run_window(args, start_tab=args.tab, wait=args.wait_for_monitor)
             return
+        rust = platform_utils.rust_monitor_exe()
+        if rust is not None and argv in ([], ["--background"]):
+            # The installed app's WhiteRabbit.exe (Rust) runs the monitor and opens this window
+            import subprocess
+            subprocess.Popen([rust, *argv], creationflags=platform_utils.subprocess_flags())
+            return
         if "--background" in argv:
             argv.remove("--background")
             run_monitor(argv)

@@ -274,6 +274,33 @@ def launch_self(*args):
     return subprocess.Popen(command, cwd=cwd, creationflags=subprocess_flags())
 
 
+# The installed Windows app: WhiteRabbit.exe is the Rust monitor and this Python app is the window,
+# WhiteRabbitWindow.exe, next to it. Without it (portable exe, Linux, running from source) the Python
+# monitor is used.
+MONITOR_EXE = "WhiteRabbit.exe"
+
+
+def rust_monitor_exe():
+    """The Rust monitor next to this window exe, or None when this program runs the monitor itself."""
+    if not (IS_WINDOWS and is_frozen()):
+        return None
+    here = os.path.abspath(sys.executable)
+    path = os.path.join(os.path.dirname(here), MONITOR_EXE)
+    if os.path.normcase(path) == os.path.normcase(here) or not os.path.isfile(path):
+        return None
+    return path
+
+
+def launch_monitor(config_file=None):
+    """Start the monitor and tray icon without a window: the Rust monitor when installed beside it."""
+    import subprocess
+    rust = rust_monitor_exe()
+    if rust is None:
+        return launch_self("--background", *(["--config-file", config_file] if config_file else []))
+    env = dict(os.environ, CONFIG_FILE=config_file) if config_file else None
+    return subprocess.Popen([rust, "--background"], env=env, creationflags=subprocess_flags())
+
+
 def show_error(message, title=DISPLAY_NAME):
     """Tell the user about a fatal problem when there is no console to print to (Windows)."""
     if not IS_WINDOWS:
