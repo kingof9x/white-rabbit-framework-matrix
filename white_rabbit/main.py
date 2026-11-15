@@ -41,6 +41,22 @@ def run_monitor(argv):
     led_system_monitor.main(sys.argv)
 
 
+def open_external_app(which):
+    """Find and open Libre Hardware Monitor ("lhm", asking where it is if it isn't found) or Framework Control."""
+    from led_mon import app_settings, external_apps
+    if which == "lhm":
+        configured = app_settings.load_settings().get("libre_hardware_monitor_path") or ""
+        target = external_apps.find_libre_hardware_monitor(configured)
+        if target is None:
+            external_apps.find_and_open_libre_hardware_monitor()
+            return
+        message = external_apps.open_target(target, "Libre Hardware Monitor")
+    else:
+        message = external_apps.open_target(external_apps.find_framework_control(), "Framework Control")
+    if message:
+        platform_utils.show_error(message)
+
+
 def run(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     platform_utils.load_env_file()
@@ -50,6 +66,10 @@ def run(argv=None):
             # The tray's Find Libre Hardware Monitor... item: a file picker needs a main thread of its own
             from led_mon import external_apps
             external_apps.find_and_open_libre_hardware_monitor()
+            return
+        if "--open-lhm" in argv or "--open-framework-control" in argv:
+            # The Rust tray's Libre Hardware Monitor / Framework Control items
+            open_external_app("lhm" if "--open-lhm" in argv else "fc")
             return
         if "--window" in argv or "--edit-layout" in argv:
             args = window_args(argv)

@@ -170,6 +170,51 @@ pub struct Monitor {
     /// The side showed a preview on the last frame.
     previewed: [bool; 2],
     last_check: Instant,
+    /// What each panel last showed from its apps, for the old-TV switch-off.
+    last_grids: [Option<Grid>; 2],
+    low_battery: LowBattery,
+}
+
+/// Says so on the text line once when the battery drops to 20% (again after charging): Python's
+/// `LowBatteryNotice`.
+#[derive(Default)]
+struct LowBattery {
+    said: bool,
+    next_check: f64,
+}
+
+impl LowBattery {
+    const LEVEL: f64 = 20.0;
+
+    /// The text to say now, if any. `battery` is (charge 0.0-1.0, plugged in).
+    fn check(&mut self, now: f64, battery: impl FnOnce() -> Option<(f64, bool)>) -> Option<String> {
+        if now < self.next_check {
+            return None;
+        }
+        self.next_check = now + 30.0;
+        let (charge, plugged) = battery()?;
+        let percent = charge * 100.0;
+        if plugged || percent > Self::LEVEL + 2.0 {
+            self.said = false;
+        } else if percent <= Self::LEVEL && !self.said {
+            self.said = true;
+            return Some(format!("Battery {}%", percent as i64));
+        }
+        None
+    }
+}
+
+/// Plays the old-TV frames on the panels together, one every `TV_FRAME_SECONDS`.
+fn play_tv(queues: &[Arc<FrameQueue>; 2], frames: [Vec<Grid>; 2]) {
+    let steps = frames.iter().map(Vec::len).max().unwrap_or(0);
+    for i in 0..steps {
+        for (q, f) in queues.iter().zip(&frames) {
+            if let Some(g) = f.get(i) {
+                q.put(Item::Frame(g.clone(), Some(false)));
+            }
+        }
+        std::thread::sleep(Duration::from_secs_f64(wr_core::animations::TV_FRAME_SECONDS));
+    }
 }
 
 impl Monitor {
@@ -202,6 +247,8 @@ impl Monitor {
             music_settings: None,
             previewed: [false; 2],
             last_check: Instant::now(),
+            last_grids: [None, None],
+            low_battery: LowBattery::default(),
         }
     }
 
@@ -245,6 +292,14 @@ impl Monitor {
         let power_sleep = self.shared.power_sleep.load(Ordering::SeqCst);
         if self.shared.paused.load(Ordering::SeqCst) || power_sleep {
             if !self.blanked {
+                // Stop the visualizers first so they don't light the panels again
+                self.music.stop_all();
+                if self.shared.settings.lock().unwrap().tv_effect {
+                    // Old TV turning off: the picture squeezes into a line, then a dot that fades
+                    let fg = self.music.foreground.load(Ordering::SeqCst);
+                    let frames = [0, 1].map(|s| wr_core::animations::tv_off_frames(self.last_grids[s].as_ref(), fg));
+                    play_tv(&self.queues, frames);
+                }
                 for q in &self.queues {
                     q.put(Item::Frame(Grid::new(), Some(false)));
                     q.put(Item::Frame(Grid::new(), None));
@@ -261,10 +316,11 @@ impl Monitor {
             self.latch = true;
             return Duration::from_millis(250);
         }
+        let settings = self.shared.settings.lock().unwrap().clone();
+        // Coming back on after the panels were off: play the old-TV switch-on into the first pictures
+        let tv_on = self.blanked && settings.tv_effect;
         self.blanked = false;
         self.asleep = false;
-
-        let settings = self.shared.settings.lock().unwrap().clone();
         let ratio = if settings.follow_screen_brightness {
             (self.screen_brightness)()
         } else {
@@ -292,6 +348,16 @@ impl Monitor {
             panels.options.full_shades.store(full_shades, Ordering::SeqCst);
         }
         self.run_music(&panels);
+        let now_sec = self.started.elapsed().as_secs_f64();
+        let readings = &mut self.readings;
+        if let Some(text) = self.low_battery.check(now_sec, || readings.battery()) {
+            if let Some(fx) = effects.as_ref() {
+                let mut e = fx.effects();
+                if e.settings.text_battery {
+                    e.say(&text);
+                }
+            }
+        }
 
         if self.shared.identifying() {
             for (side, (q, apps)) in self.queues.iter().zip(&panels).enumerate() {
@@ -306,6 +372,7 @@ impl Monitor {
             return Duration::from_millis(100);
         }
 
+        let mut outputs: Vec<(usize, Grid, Option<bool>)> = Vec::new();
         for (side, (q, apps)) in self.queues.iter().zip(&panels).enumerate() {
             if let Some(grid) = self.shared.preview_frame(side) {
                 // The window's preview stays still: the panel's own scrolling goes off
@@ -341,7 +408,20 @@ impl Monitor {
             if self.redraw || std::mem::take(&mut self.previewed[side]) {
                 do_animate = Some(animate);
             }
-            q.put(Item::Frame(grid, do_animate));
+            outputs.push((side, grid, do_animate));
+        }
+        if tv_on {
+            let mut frames: [Vec<Grid>; 2] = [vec![], vec![]];
+            for (side, grid, _) in &outputs {
+                let mut f = wr_core::animations::tv_on_frames(Some(grid), fg);
+                f.pop();
+                frames[*side] = f;
+            }
+            play_tv(&self.queues, frames);
+        }
+        for (side, grid, do_animate) in outputs {
+            self.last_grids[side] = Some(grid.clone());
+            self.queues[side].put(Item::Frame(grid, do_animate));
         }
         self.latch = false;
         self.redraw = false;
@@ -541,5 +621,36 @@ mod tests {
     fn the_bundled_layout_reads() {
         let m = monitor();
         assert!(!m.rotation.layout.quadrants.is_empty());
+    }
+
+    #[test]
+    fn low_battery_is_said_once_until_charged() {
+        let mut b = LowBattery::default();
+        assert_eq!(b.check(0.0, || Some((0.19, false))), Some("Battery 19%".into()));
+        assert_eq!(b.check(31.0, || Some((0.18, false))), None);
+        assert_eq!(b.check(62.0, || Some((0.30, true))), None);
+        assert_eq!(b.check(93.0, || Some((0.20, false))), Some("Battery 20%".into()));
+        // Not more often than every 30 seconds
+        assert_eq!(b.check(100.0, || panic!("read too soon")), None);
+    }
+
+    #[test]
+    fn stopping_plays_the_old_tv_switch_off() {
+        let mut m = monitor();
+        m.step();
+        for q in &m.queues {
+            frames(q);
+        }
+        m.shared.paused.store(true, Ordering::SeqCst);
+        m.step();
+        // The queues keep only the newest frames: the TV frames went by, then the dark frames
+        assert!(m.last_grids.iter().all(Option::is_some));
+        m.shared.settings.lock().unwrap().tv_effect = false;
+        m.shared.paused.store(false, Ordering::SeqCst);
+        m.step();
+        m.shared.paused.store(true, Ordering::SeqCst);
+        let started = Instant::now();
+        m.step();
+        assert!(started.elapsed() < Duration::from_millis(30), "no TV frames when it's off");
     }
 }

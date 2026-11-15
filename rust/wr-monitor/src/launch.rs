@@ -11,7 +11,16 @@ use wr_core::{info, warn};
 pub const WINDOW_EXE: &str = "WhiteRabbitWindow.exe";
 
 /// Options the Python app handles: the window, its layout editor and its reports.
-const WINDOW_OPTIONS: [&str; 6] = ["--window", "--edit-layout", "--find-lhm", "--diagnose", "--list-apps", "--tab"];
+const WINDOW_OPTIONS: [&str; 8] = [
+    "--window",
+    "--edit-layout",
+    "--find-lhm",
+    "--open-lhm",
+    "--open-framework-control",
+    "--diagnose",
+    "--list-apps",
+    "--tab",
+];
 
 /// What a start of WhiteRabbit.exe should do.
 #[derive(Debug, PartialEq, Eq)]
