@@ -112,6 +112,7 @@ pub fn smoke_test(ui: &AppWindow, ctx: &Rc<app::Ctx>) {
         "math",
         "draw",
         "effects",
+        "messages",
         "startup",
         "settings",
         "firmware",

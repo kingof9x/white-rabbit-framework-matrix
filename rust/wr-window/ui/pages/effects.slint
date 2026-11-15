@@ -1,5 +1,5 @@
-// Effects: a ripple when something is plugged in, the text line along the top of the panels, sliding
-// between apps, and dimming. The monitor plays them; this page saves the settings and previews them.
+// Effects: a ripple when something is plugged in, sliding between apps, and dimming (the text line's
+// settings are here too, shown on the Display messages page). The monitor plays them; this page saves the settings and previews them.
 import { Theme } from "../theme.slint";
 import { Group, Hint, Body, Status, CheckBox, RadioButton, Slider, Dialog, AccentButton, LedImage, Button } from "../widgets.slint";
 import { ComboBox, LineEdit } from "std-widgets.slint";
@@ -127,48 +127,6 @@ export component EffectsView inherits HorizontalLayout {
             }
         }
         Group {
-            title: "Text line";
-            help: "A line of small letters that scrolls across the top of both panels, over whatever they show, then gets out of the way.";
-            CheckBox { text: "Show the text line"; checked <=> EffectsPage.text-line; toggled => { EffectsPage.changed(); } }
-            Row {
-                Label { text: "Say when:"; }
-                CheckBox { text: "a new song starts"; enabled: EffectsPage.text-line; checked <=> EffectsPage.text-song; toggled => { EffectsPage.changed(); } }
-                CheckBox { text: "the charger goes in or out"; enabled: EffectsPage.text-line; checked <=> EffectsPage.text-charger; toggled => { EffectsPage.changed(); } }
-                CheckBox { text: "the battery is low"; enabled: EffectsPage.text-line; checked <=> EffectsPage.text-battery; toggled => { EffectsPage.changed(); } }
-            }
-            Label { text: "Your own messages:"; }
-            for text[i] in EffectsPage.messages: Row {
-                LineEdit {
-                    width: 280px;
-                    text: text;
-                    edited(t) => { EffectsPage.message-edited(i, t); }
-                    // While they're showing, Enter shows the new words
-                    accepted => { if EffectsPage.pinned { EffectsPage.changed(); } }
-                }
-                Button { text: "Remove"; enabled: EffectsPage.messages.length > 1; clicked => { EffectsPage.remove-message(i); } }
-            }
-            Row {
-                Button { text: "Add a line"; enabled: EffectsPage.messages.length < EffectsPage.max-messages; clicked => { EffectsPage.add-message(); } }
-                Button {
-                    text: EffectsPage.pinned ? "Stop showing them" : "Show them";
-                    enabled: EffectsPage.text-line;
-                    clicked => { EffectsPage.pinned = !EffectsPage.pinned; EffectsPage.changed(); }
-                }
-            }
-            Hint { text: EffectsPage.pinned ? "Your messages go round on the panels one after another until you stop them. Other messages still get their turn." : "Show them keeps your messages going round on the panels, one after another, until you stop them."; }
-            Row {
-                Label { text: "Scroll speed:"; }
-                Slider {
-                    width: 220px;
-                    minimum: 1;
-                    maximum: 10;
-                    value <=> EffectsPage.text-speed;
-                    released => { EffectsPage.changed(); }
-                }
-                Label { text: round(EffectsPage.text-speed); }
-            }
-        }
-        Group {
             title: "Changing apps";
             RadioButton { text: "Slide the next app in from the bottom"; checked: EffectsPage.slide; clicked => { EffectsPage.slide = true; EffectsPage.fade = false; EffectsPage.changed(); } }
             RadioButton { text: "Fade into the next app"; checked: !EffectsPage.slide && EffectsPage.fade; clicked => { EffectsPage.slide = false; EffectsPage.fade = true; EffectsPage.changed(); } }
@@ -189,7 +147,7 @@ export component EffectsView inherits HorizontalLayout {
             width: 230px;
             title: "Preview";
             LedImage { source: EffectsPage.preview; width: 182px; height: 292px; }
-            Hint { text: "Left panel and right panel. Plays what Plug in, Unplug and Show them do."; horizontal-alignment: center; }
+            Hint { text: "Left panel and right panel. Plays what Plug in and Unplug do."; horizontal-alignment: center; }
         }
     }
 }

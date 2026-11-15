@@ -1,0 +1,78 @@
+// Display messages: the text line along the top of both panels, with your own messages. Its settings
+// live with the effects (EffectsPage, saved under "effects").
+import { Theme } from "../theme.slint";
+import { Group, Hint, Status, CheckBox, Slider, LedImage, Button } from "../widgets.slint";
+import { LineEdit } from "std-widgets.slint";
+import { EffectsPage } from "effects.slint";
+
+component Row inherits HorizontalLayout {
+    spacing: 10px;
+    alignment: start;
+}
+
+component Label inherits Text {
+    color: Theme.text;
+    font-size: Theme.body;
+    vertical-alignment: center;
+}
+
+export component MessagesView inherits HorizontalLayout {
+    spacing: 16px;
+    VerticalLayout {
+        horizontal-stretch: 1;
+        spacing: 12px;
+        Group {
+            title: "Text line";
+            help: "A line of small letters that scrolls across the top of both panels, over whatever they show, then gets out of the way.";
+            CheckBox { text: "Show the text line"; checked <=> EffectsPage.text-line; toggled => { EffectsPage.changed(); } }
+            Row {
+                Label { text: "Say when:"; }
+                CheckBox { text: "a new song starts"; enabled: EffectsPage.text-line; checked <=> EffectsPage.text-song; toggled => { EffectsPage.changed(); } }
+                CheckBox { text: "the charger goes in or out"; enabled: EffectsPage.text-line; checked <=> EffectsPage.text-charger; toggled => { EffectsPage.changed(); } }
+                CheckBox { text: "the battery is low"; enabled: EffectsPage.text-line; checked <=> EffectsPage.text-battery; toggled => { EffectsPage.changed(); } }
+            }
+            Label { text: "Your own messages:"; }
+            for text[i] in EffectsPage.messages: Row {
+                LineEdit {
+                    width: 280px;
+                    text: text;
+                    edited(t) => { EffectsPage.message-edited(i, t); }
+                    // While they're showing, Enter shows the new words
+                    accepted => { if EffectsPage.pinned { EffectsPage.changed(); } }
+                }
+                Button { text: "Remove"; enabled: EffectsPage.messages.length > 1; clicked => { EffectsPage.remove-message(i); } }
+            }
+            Row {
+                Button { text: "Add a line"; enabled: EffectsPage.messages.length < EffectsPage.max-messages; clicked => { EffectsPage.add-message(); } }
+                Button {
+                    text: EffectsPage.pinned ? "Stop showing them" : "Show them";
+                    enabled: EffectsPage.text-line;
+                    clicked => { EffectsPage.pinned = !EffectsPage.pinned; EffectsPage.changed(); }
+                }
+            }
+            Hint { text: EffectsPage.pinned ? "Your messages go round on the panels one after another until you stop them. Other messages still get their turn." : "Show them keeps your messages going round on the panels, one after another, until you stop them."; }
+            Row {
+                Label { text: "Scroll speed:"; }
+                Slider {
+                    width: 220px;
+                    minimum: 1;
+                    maximum: 10;
+                    value <=> EffectsPage.text-speed;
+                    released => { EffectsPage.changed(); }
+                }
+                Label { text: round(EffectsPage.text-speed); }
+            }
+        }
+        if EffectsPage.status != "": Status { text: EffectsPage.status; }
+    }
+    VerticalLayout {
+        alignment: start;
+        horizontal-stretch: 0;
+        Group {
+            width: 230px;
+            title: "Preview";
+            LedImage { source: EffectsPage.preview; width: 182px; height: 292px; }
+            Hint { text: "Left panel and right panel. Plays what Show them does."; horizontal-alignment: center; }
+        }
+    }
+}

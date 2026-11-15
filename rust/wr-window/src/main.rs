@@ -51,6 +51,7 @@ pub fn start_page(tab: &str) -> &'static str {
         "math" => "math",
         "draw" => "draw",
         "effects" => "effects",
+        "messages" | "text" => "messages",
         "audio" | "music" => "music",
         "firmware" => "firmware",
         "shortcuts" => "shortcuts",

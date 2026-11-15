@@ -25,7 +25,8 @@ The newest version is on the [Releases](https://github.com/kingof9x/white-rabbit
 ![The Home page in light mode](docs/screenshots/white-rabbit-home.png)
 
 - **A menu down the left side** instead of a row of tabs: Home, System
-  monitor, Games & patterns, Audio, Math, Draw, Effects, Startup animation and
+  monitor, Games & patterns, Audio, Math, Draw, Effects, Display messages, Startup
+  animation and
   Settings. Firmware, Keyboard shortcuts and About White Rabbit live under
   Settings.
 - **A Home page** that shows what each panel is doing right now, with the
@@ -212,10 +213,6 @@ Little extras that play over whatever the panels show.
   tell it the right one; it remembers. If your two panels sit next to each
   other, tick the box and the unplug drains both as one picture.
   You can turn the effect off for the ports on one side of the laptop.
-- **Text line:** a line of small letters scrolls across the top of both
-  panels when a new song starts, the charger goes in or out, or the battery is
-  low, or with your own messages, which can keep going round one after
-  another until you stop them.
 - **Changing apps:** slide the next app in from the bottom, fade into it, or
   cut straight to it. After the unplug animation the picture comes back the
   same way.
@@ -223,6 +220,14 @@ Little extras that play over whatever the panels show.
   brightness. Needs the newest White Rabbit firmware.
 
 ![The Effects page](docs/screenshots/white-rabbit-effects.png)
+
+
+### Display messages page
+
+A line of small letters scrolls across the top of both panels when a new song
+starts, the charger goes in or out, or the battery is low. Add your own
+messages (up to 10 lines) and *Show them* keeps them going round one after
+another until you stop them.
 
 ### Math page
 

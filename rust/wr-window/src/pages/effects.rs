@@ -469,7 +469,8 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
         let (ui, state) = (ctx.ui.clone(), state.clone());
         ctx.every(FRAME_SECONDS, move || {
             let Some(app) = ui.upgrade() else { return };
-            if app.global::<App>().get_page() != "effects" {
+            // The Display messages page shows the same preview
+            if !matches!(app.global::<App>().get_page().as_str(), "effects" | "messages") {
                 return;
             }
             let mut s = state.borrow_mut();
