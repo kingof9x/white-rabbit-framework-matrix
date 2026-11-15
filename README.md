@@ -3,18 +3,90 @@
 **One Windows app for everything the Framework Laptop 16 LED Matrix can do.**
 It runs in the system tray, turns the LED panels into a system monitor you
 design yourself, and lets you play games and patterns, choose the startup
-animation and update the firmware, all from the same window.
+animation and update the firmware, all from the same window. The window looks
+and feels like the Windows 11 Settings app, and the part that runs in the
+background is now written in Rust, so it uses a fraction of the memory it used to.
 
 ### ⬇ Downloads
 
 The newest version is on the [Releases](https://github.com/kingof9x/white-rabbit-framework-matrix/releases/latest) page:
 
 - [`WhiteRabbit-setup.exe`](https://github.com/kingof9x/white-rabbit-framework-matrix/releases/latest/download/WhiteRabbit-setup.exe): installer (starts with Windows, Start menu shortcut)
-- [`WhiteRabbit.exe`](https://github.com/kingof9x/white-rabbit-framework-matrix/releases/latest/download/WhiteRabbit.exe): portable app, nothing is installed
+- [`WhiteRabbit.exe`](https://github.com/kingof9x/white-rabbit-framework-matrix/releases/latest/download/WhiteRabbit.exe): portable app, nothing is installed (still all Python, so it doesn't get the memory savings below; use the installer for those)
 - [`ledmatrix.uf2`](https://github.com/kingof9x/white-rabbit-framework-matrix/releases/latest/download/ledmatrix.uf2): LED Matrix firmware with the startup animation setting and the extra Game of Life patterns (the app can flash it for you)
 
 <!-- virus-scan:start -->
 <!-- virus-scan:end -->
+
+## What's new
+
+### A new look
+
+![The Home page in light mode](docs/screenshots/white-rabbit-home.png)
+
+- **A menu down the left side** instead of a row of tabs: Home, System
+  monitor, Games & patterns, Music, Math, Draw, Effects, Startup animation and
+  Settings. Firmware, Keyboard shortcuts and About White Rabbit live under
+  Settings.
+- **A Home page** that shows what each panel is doing right now, with the
+  things you do most in one place: music mode on or off, Identify panels,
+  naming your panels, and giving the panels back to the system monitor.
+- **Windows 11 style:** the window follows Windows' light or dark mode and
+  your accent colour, with rounded cards like the Windows Settings app. Prefer
+  the old look? Pick *Classic* under *Settings > App theme* (you can also force
+  light or dark there). Windows high contrast always uses Classic.
+- **Faster:** pages open straight away when you click them, and the window
+  no longer flashes white when it opens.
+
+![The Home page in dark mode](docs/screenshots/white-rabbit-home-dark.png)
+
+### Much lighter in the background (Rust)
+
+The part of White Rabbit that is always running, the system monitor and the
+tray icon, has been rewritten in [Rust](https://www.rust-lang.org/). It draws
+exactly the same pictures on the panels (every app, music look and effect is
+checked pixel for pixel against the old version), but it needs far less
+memory:
+
+| | Memory in Task Manager |
+|---|---|
+| Before (Python) | about **66 MB** |
+| Now (Rust, 1.4) | about **8 MB** |
+
+*Measured on a Framework Laptop 16 in Task Manager, with the window closed.*
+
+The installer sets this up for you: `WhiteRabbit.exe` is now the Rust monitor
+and tray icon, and the settings window is still the Python app
+(`WhiteRabbitWindow.exe` next to it). The window only uses memory while it is
+open; close it and only the 8 MB part keeps running.
+
+**Coming in 1.5:** the settings window gets rewritten in Rust too, so the whole
+app is Rust and no Python is shipped at all.
+
+**Not in the Rust monitor yet:** the FPS counter and FPS number apps show a
+question mark, and the Weather app uses the location you typed in (or your
+internet address) instead of *Windows Location*. The portable `WhiteRabbit.exe`
+still has both.
+
+### New features since the last README
+
+- **Draw page:** draw your own pictures and animations, or import a PNG or GIF
+  ([more](#draw-page)).
+- **Text app** with three styles: ticker, sideways and stacked
+  ([more](#system-monitor-page-from-led_mon)).
+- **Both panels as one:** side by side, skip the keyboard gap, or mirror, for
+  the Math page and the games ([more](#math-page)).
+- **Panel names** that Identify panels shows on the panels themselves.
+- **Old-TV effect** when the panels turn off and on, and new **animations**
+  (fire, plasma, DNA helix, snowfall, chevrons, bouncing ball).
+- **Plug-in ripple** across the panel from the port you plug something into
+  ([more](#effects-page)).
+- **Falling-sand battery:** charging rains sand in, on battery it drains away.
+- **Calm idle music looks:** when the music stops, music mode shows a quiet
+  version of the look you picked instead of a pulsing dot, and wakes up when
+  the music comes back ([more](#music-page)).
+- **Panels turn off when the laptop screen isn't used**, for example docked with
+  the lid shut.
 
 ## Why one app?
 
@@ -33,7 +105,7 @@ and comes back when you press *Stop* or *Back to system monitor*.
 
 ## Features
 
-### Panels tab: the system monitor (from led_mon)
+### System monitor page (from led_mon)
 
 - **Layout editor** with a live preview: drag apps onto the left and right
   panel, top or bottom half, and set up several pages that take turns.
@@ -44,7 +116,7 @@ and comes back when you press *Stop* or *Back to system monitor*.
 - **Whole-panel apps:** clock, weather, audio visualizer, now playing (the
   cover of whatever is playing, the song name scrolling along the top and a
   small visualizer, across both panels), FPS counter for games, picture
-  (your drawings from the Draw tab, or built-in patterns), text, and
+  (your drawings from the Draw page, or built-in patterns), text, and
   animations (fire, plasma, DNA helix, snowfall, chevrons, bouncing ball).
 - **Text app:** type your own words, with `{time}`, `{battery}` and `{cpu}`
   filled in live. Three styles: *ticker* (upright letters scrolling up),
@@ -57,7 +129,7 @@ and comes back when you press *Stop* or *Back to system monitor*.
 - The panels also turn off when the laptop's own screen isn't in use: docked
   with the lid shut, or Windows set to *Second screen only* (`Win`+`P`). Turn
   this off with *Turn off when laptop screen isn't used* in the tray menu or
-  under the brightness slider in the Panels tab.
+  under the brightness slider on the System monitor page.
 - When the panels turn off or back on (lid, screen, sleep, or *Stop animation*
   in the tray), they do it like an old TV: the picture squeezes into a line,
   then a dot that fades, and the reverse when they come back. Turn this off
@@ -65,23 +137,23 @@ and comes back when you press *Stop* or *Back to system monitor*.
 - Runs in the tray and starts with Windows. Keyboard shortcuts
   (`Ctrl`+`Alt`+`Shift` + `I` / `N` / `F` / `U` / `M`) show the app names, skip to
   the next app, freeze or unfreeze app switching, and turn music mode on or
-  off. Each one can be turned off on the Keyboard shortcuts tab.
+  off. Each one can be turned off under *Settings > Keyboard shortcuts*.
 
-![The Panels tab with the layout editor](docs/screenshots/white-rabbit-panels.png)
+![The System monitor page with the layout editor](docs/screenshots/white-rabbit-panels.png)
 
 ![Some of the monitor apps as they look on a panel](docs/screenshots/panel-apps.png)
 
 *Some of the monitor apps, drawn by the app's own preview code.*
 
-### Startup animation tab
+### Startup animation page
 
 Pick one animation to always show, a random one out of a set you choose, a
 random one out of all of them, or none. The choice is saved on the panel itself,
 so it works even when the app isn't running. Needs the White Rabbit firmware.
 
-![The Startup animation tab](docs/screenshots/white-rabbit-startup.png)
+![The Startup animation page](docs/screenshots/white-rabbit-startup.png)
 
-### Games & patterns tab
+### Games & patterns page
 
 Four games played right on the panels: **Snake**, **Ledris**, **Breakout** and
 **Rabbit run** (dodge the falling rocks, catch the carrots). With both panels
@@ -92,24 +164,24 @@ keyboard; Esc or P pauses, and the game pauses by itself if you click away.
 A 3-2-1 starts each game, the score shows on the panels at the end, and the best
 score for each game is kept.
 
-Also on this tab: Game of Life with 10 extra patterns (R-pentomino, Acorn,
+Also on this page: Game of Life with 10 extra patterns (R-pentomino, Acorn,
 spaceships and more), the firmware's built-in patterns, text, a clock, a
 countdown and a random equalizer.
 
-![The Games & patterns tab](docs/screenshots/white-rabbit-games.png)
+![The Games & patterns page](docs/screenshots/white-rabbit-games.png)
 
 ![The starting position of each extra Game of Life pattern](docs/screenshots/game-of-life-patterns.png)
 
 *Where each extra Game of Life pattern starts on the 9 x 34 matrix.*
 
-### Audio tab
+### Music page
 
 An audio visualizer that moves with what the laptop is playing, or with what a
 microphone hears (pick any microphone Windows has).
 
 - **Music mode** shows the visualizer on both panels until you turn it off.
   Turn it on here, with *Music mode* in the tray menu, or with
-  `Ctrl`+`Alt`+`Shift`+`M`. It uses the look last picked on this tab.
+  `Ctrl`+`Alt`+`Shift`+`M`. It uses the look last picked on this page.
 - **22 looks:** classic, spectrum analyzer, centre out, dots, spectrogram,
   level meter, waveform, mirror waveform, double waveform, radial bars,
   radial fan, radial facing, rings, pulse, sparkle, bonfire, beat tunnel,
@@ -117,6 +189,9 @@ microphone hears (pick any microphone Windows has).
   (the bass pushes ripples through water, the middle notes glow, the treble
   throws sparks). On the radial looks and
   most of the newer ones the left panel is a mirror image of the right one.
+- **When the music stops**, music mode doesn't go dark or show a pulsing dot:
+  it shows a calm, slowly moving version of the look you picked, and comes back
+  to life as soon as it hears music again.
 - **Options:** one 18-bar spectrum across both panels, peak dots, shading,
   upside down, falling speed, sensitivity, and automatic sensitivity.
 - A live preview of both panels and a sound check, which show whether the
@@ -125,14 +200,14 @@ microphone hears (pick any microphone Windows has).
 The same looks and options are on the *Audio visualizer* app in the layout
 editor, so it can also take turns with the other apps.
 
-![The Audio tab with music mode on](docs/screenshots/white-rabbit-audio.png)
+![The Music page](docs/screenshots/white-rabbit-audio.png)
 
 ![All 21 audio visualizer looks, left and right panel](docs/screenshots/audio-visualizer-looks.png)
 
 *21 of the looks playing the same moment of music, drawn by the app's own
 visualizer code (the water look is newer than this picture).*
 
-### Effects tab
+### Effects page
 
 Little extras that play over whatever the panels show.
 
@@ -149,9 +224,9 @@ Little extras that play over whatever the panels show.
 - **Keep every shade when dim:** dark pictures keep their detail at low
   brightness. Needs the newest White Rabbit firmware.
 
-![The Effects tab](docs/screenshots/white-rabbit-effects.png)
+![The Effects page](docs/screenshots/white-rabbit-effects.png)
 
-### Math tab
+### Math page
 
 Graphs and simulations drawn in greyscale on the panels. With both panels
 ticked they work as one 18 x 34 picture. A preview on the right shows the same
@@ -181,16 +256,16 @@ thing, even with no panels connected.
   they touched), *Side by side, skip the keyboard* (the picture carries on
   behind the keyboard so moving things line up across it; the gap is set in
   LED columns, with a gap test to help), or *Mirror* (the left panel shows the
-  right one mirrored). The same choice is on the Games page for Snake,
+  right one mirrored). The same choice is on the Games & patterns page for Snake,
   Breakout and Rabbit run (Ledris always plays side by side).
 
 **Name panels...** at the bottom of the window gives the left and right panels
-names. Identify panels (Panels tab or tray menu) then shows the first five
+names (also on the Home page and under Settings). Identify panels (Home page, System monitor page or tray menu) then shows the first five
 letters of each name on the panel for two seconds before the app names.
 
-![The Math tab](docs/screenshots/white-rabbit-math.png)
+![The Math page](docs/screenshots/white-rabbit-math.png)
 
-### Draw tab
+### Draw page
 
 Draw your own pictures for a panel, one LED at a time, in shades of grey.
 
@@ -209,32 +284,41 @@ Draw your own pictures for a panel, one LED at a time, in shades of grey.
 - **Show on the ticked panels while I draw** shows the drawing on the panels
   as you work.
 
-To keep a drawing on a panel, put the **Picture** app on it in the Panels tab
+To keep a drawing on a panel, put the **Picture** app on it on the System monitor page
 and pick *My drawing: (name)*. Animated drawings play there too. The monitor
 draws about 10 frames a second, so frames shorter than 100 ms play a little
 slower on the panels than in the window.
 
-![The Draw tab](docs/screenshots/white-rabbit-draw.png)
+![The Draw page](docs/screenshots/white-rabbit-draw.png)
 
-### Firmware tab
+### Settings: Firmware
 
 Shows which firmware each panel has, puts a panel into bootloader mode, and
 flashes the bundled firmware: White Rabbit's (startup animation setting, extra
 patterns, dimming that keeps every shade) or Framework's official 0.2.0, or any `.uf2` file you choose.
 
-![The Firmware tab](docs/screenshots/white-rabbit-firmware.png)
+![Settings > Firmware](docs/screenshots/white-rabbit-firmware.png)
 
-### Keyboard shortcuts tab
+### Settings: Keyboard shortcuts
 
 Lists the monitor's keyboard shortcuts and what each one does, with a
 checkbox to turn each shortcut on or off. A shortcut that's off is left free
 for other programs, and the change works straight away without restarting.
 
-![The Keyboard shortcuts tab](docs/screenshots/white-rabbit-shortcuts.png)
+![Settings > Keyboard shortcuts](docs/screenshots/white-rabbit-shortcuts.png)
+
+### Settings
+
+The window's look (follow Windows, light, dark or Classic), panel names, and
+the way in to Firmware, Keyboard shortcuts and About White Rabbit (version,
+updates, credits and the tip jar).
+
+![The Settings page](docs/screenshots/white-rabbit-settings.png)
 
 *Screenshots taken on Linux with simulated panels, so the window looks a little
-different from Windows (the shortcuts show as `Alt` + key there instead of
-`Ctrl`+`Alt`+`Shift` + key).*
+different from Windows: the font is different, the shortcuts show as `Alt` + key
+instead of `Ctrl`+`Alt`+`Shift` + key, and a few pages say they can't reach the
+panels or the microphone because there are none.*
 
 ## Install and use
 
@@ -251,11 +335,11 @@ different from Windows (the shortcuts show as `Alt` + key there instead of
    or drag the icon from the arrow onto the taskbar.
 4. **Coming from led_mon?** Your layout, brightness and weather API key are
    copied from `%APPDATA%\led_mon` the first time White Rabbit starts.
-5. The checkboxes at the bottom of the window choose which panels the
-   Startup animation, Games & patterns and Firmware controls act on. *Back to
+5. The checkboxes at the bottom of the left menu (*Controls act on*) choose
+   which panels the Startup animation, Games & patterns and Firmware controls act on. *Back to
    system monitor* hands borrowed panels back to the monitor.
 6. **Firmware:** the startup animation and the extra patterns need the White
-   Rabbit firmware. On the Firmware tab, tick one panel, pick *White Rabbit
+   Rabbit firmware. Under *Settings > Firmware*, tick one panel, pick *White Rabbit
    firmware*, click *Flash*, then do the same for the other panel.
 
 Something not working? Right-click the tray icon > *Open log*, or run
@@ -263,7 +347,7 @@ Something not working? Right-click the tray icon > *Open log*, or run
 
 ### Good to know
 
-- **Temperatures and fans**: on the Panels tab, click the Temperatures or Fans app on a panel. Its
+- **Temperatures and fans**: on the System monitor page, click the Temperatures or Fans app on a panel. Its
   settings (on the right) choose which sensor each of the three numbers shows and Celsius or Fahrenheit,
   plus, for all panels, where readings come from (*Read from*, saved as `sensor_source` in `settings.json`)
   and how often (*Read every*, `sensor_refresh_seconds`):
@@ -278,7 +362,7 @@ Something not working? Right-click the tray icon > *Open log*, or run
     ([framework-system releases](https://github.com/FrameworkComputer/framework-system/releases)), next to
     `WhiteRabbit.exe` or on PATH. Only works when White Rabbit itself runs as admin.
 
-  The Panels tab shows which source the readings come from right now, and `WhiteRabbit.exe --diagnose`
+  The System monitor page shows which source the readings come from right now, and `WhiteRabbit.exe --diagnose`
   lists what each source gives.
 - **FPS counter** uses Intel's PresentMon, which the installer includes. Windows
   only lets programs read frame timing when the account is in the *Performance
@@ -302,10 +386,11 @@ Something not working? Right-click the tray icon > *Open log*, or run
   has a known security hole, and Windows Defender blocks it and can flag apps that start it.
 - **Weather** needs an API key in `%APPDATA%\WhiteRabbit\.env` (see [`.env-example`](.env-example)).
 - **Where things live:** settings and layout in `%APPDATA%\WhiteRabbit`, the
-  log in `%LOCALAPPDATA%\WhiteRabbit\WhiteRabbit.log`.
+  logs in `%LOCALAPPDATA%\WhiteRabbit` (`WhiteRabbit-monitor.log` for the
+  background part, `WhiteRabbit.log` for the window).
 - **Command line:** `WhiteRabbit.exe --background` starts only the monitor and
   tray icon (that's what runs at login); `--window` only the window;
-  `--window --tab firmware` opens it on a tab.
+  `--window --tab firmware` opens it on a page.
 
 ### Virus scan
 
@@ -338,6 +423,15 @@ python -m PyInstaller white_rabbit.spec --noconfirm    # dist\WhiteRabbit\WhiteR
 On Linux the monitor runs in the console as before (`python main.py`), and
 `python main.py --window` opens the window next to it.
 
+The Rust monitor (the installed `WhiteRabbit.exe`) is in [`rust/`](rust); see
+[rust/README.md](rust/README.md). With [Rust](https://rustup.rs) installed:
+
+```powershell
+cd rust
+cargo test                          # checks every picture against the Python version
+cargo build --release -p wr-monitor # rust\target\release\WhiteRabbit.exe
+```
+
 ## Where it comes from
 
 White Rabbit combines two open source projects, both MIT licensed (see
@@ -364,13 +458,13 @@ The window's look is the [Sun Valley ttk theme](https://github.com/rdbende/Sun-V
 by rdbende (MIT, see [LICENSES/sv-ttk-LICENSE.txt](LICENSES/sv-ttk-LICENSE.txt)), coloured with
 your Windows accent colour.
 
-Most of the Math tab's graphs and simulations come from mariobx's
+Most of the Math page's graphs and simulations come from mariobx's
 [Framework-LED-Matrix](https://github.com/mariobx/Framework-LED-Matrix). That
-project is GPL-3.0 licensed, so no code was copied: the Math tab is written
+project is GPL-3.0 licensed, so no code was copied: the Math page is written
 from scratch from the textbook definitions of each graph and simulation. The
 "More maths" effects are classic math demos, also written from scratch.
 
-The animations, the old-TV effect, the Draw tab, and the mirror, keyboard gap
+The animations, the old-TV effect, the Draw page, and the mirror, keyboard gap
 and panel name ideas come from Deovandski's
 [Framework16 LED Matrix Manager](https://github.com/Deovandski/Deo-s-Framework16-LED-Matrix-Manager)
 (MIT). Only the ideas were used; the code here is written separately.
@@ -378,7 +472,7 @@ and panel name ideas come from Deovandski's
 ## Project status
 
 **Status:** Active  
-**Waiting on:** Developer: run the testing checklist  
-**Notes:** One tray app combining led_mon and the LED Matrix controls. Not released yet. Newest additions: Keyboard shortcuts tab, Open Hardware Monitor finder fixes.  
-**Last updated:** 2026-11-09
+**Waiting on:** Developer: the settings window rewrite in Rust (1.5)  
+**Notes:** One tray app combining led_mon and the LED Matrix controls. 1.4: new Windows 11 look and the background monitor and tray in Rust (about 8 MB instead of 66 MB). Next: the whole app in Rust.  
+**Last updated:** 2026-11-15
 
