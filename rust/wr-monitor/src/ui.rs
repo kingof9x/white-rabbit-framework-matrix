@@ -64,8 +64,8 @@ const ID_LID: usize = 30;
 const ID_SCREEN_UNUSED: usize = 31;
 const ID_QUIT: usize = 40;
 
-/// The shortcuts this monitor handles so far (music mode, M, comes with the music visualizer).
-const HOTKEYS: [char; 4] = ['i', 'n', 'f', 'u'];
+/// The keyboard shortcuts (Ctrl+Alt+Shift + letter); M turns audio mode on or off.
+const HOTKEYS: [char; 5] = ['i', 'n', 'f', 'u', 'm'];
 
 const PBT_APMSUSPEND: usize = 0x0004;
 const PBT_APMRESUMESUSPEND: usize = 0x0007;
@@ -209,7 +209,7 @@ fn show_menu(hwnd: HWND) {
         add(MF_STRING, ID_IDENTIFY, "Identify panels");
         add(MF_STRING, ID_NEXT, "Next app");
         add(MF_STRING | if frozen { MF_CHECKED } else { 0 }, ID_FREEZE, "Freeze app switching");
-        add(MF_STRING | if music { MF_CHECKED } else { 0 }, ID_MUSIC, "Music mode");
+        add(MF_STRING | if music { MF_CHECKED } else { 0 }, ID_MUSIC, "Audio mode");
         add(MF_SEPARATOR, 0, "");
         add(MF_STRING, ID_LHM, "Libre Hardware Monitor");
         add(MF_STRING, ID_FC, "Open Framework Control");
@@ -254,17 +254,7 @@ fn command(hwnd: HWND, id: usize) {
         ID_OPEN => {
             launch::open_window(&["--window"]);
         }
-        ID_MUSIC => {
-            let on = !shared.music_mode.load(Ordering::SeqCst);
-            if on {
-                // As the window's music command does: take back panels lent to the window
-                if let Some(panels) = shared.panels.lock().unwrap().clone() {
-                    panels.hub().release(None);
-                }
-            }
-            shared.set_music_mode(on);
-            shared.redraw.store(true, Ordering::SeqCst);
-        }
+        ID_MUSIC => toggle_music(shared),
         // Finding these apps (and asking where Libre Hardware Monitor is) is the Python app's
         ID_LHM => {
             launch::open_window(&["--open-lhm"]);
@@ -458,8 +448,22 @@ fn hotkey(letter: char) {
         'n' => shared.next_app.store(true, Ordering::SeqCst),
         'f' => shared.frozen.store(true, Ordering::SeqCst),
         'u' => shared.frozen.store(false, Ordering::SeqCst),
+        'm' => toggle_music(shared),
         _ => {}
     }
+}
+
+/// Turns audio (music) mode on or off, for the tray menu and the Ctrl+Alt+Shift+M shortcut.
+fn toggle_music(shared: &Shared) {
+    let on = !shared.music_mode.load(Ordering::SeqCst);
+    if on {
+        // As the window's music command does: take back panels lent to the window
+        if let Some(panels) = shared.panels.lock().unwrap().clone() {
+            panels.hub().release(None);
+        }
+    }
+    shared.set_music_mode(on);
+    shared.redraw.store(true, Ordering::SeqCst);
 }
 
 unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {

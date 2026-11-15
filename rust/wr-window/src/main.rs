@@ -232,6 +232,8 @@ pub fn shoot_action(ui: &AppWindow, _ctx: &Rc<app::Ctx>, action: &str) {
     match action {
         "name-panels" => g.invoke_name_panels(),
         "music-on" => g.set_music_mode(true),
+        // hearing:TEXT shows TEXT under the Audio page's sound check
+        a if a.starts_with("hearing:") => ui.global::<MusicPage>().set_hearing(a[8..].into()),
         // edit:SIDE:PAGE:SLOT selects a slot in the layout editor, e.g. edit:0:2:top
         a if a.starts_with("edit:") => {
             let parts: Vec<&str> = a.split(':').collect();

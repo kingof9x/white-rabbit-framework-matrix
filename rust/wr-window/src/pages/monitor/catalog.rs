@@ -208,7 +208,7 @@ pub static APPS: [AppInfo; 21] = [
             choice("forecast_hour", "Forecast hour", "12", &["0", "3", "6", "9", "12", "15", "18", "21"], &[]),
         ], fixed: "{}", fixed_args: "{\"id_key_override\": [\"forecast\", \"weather_forecast\", \"weather_current\"]}" },
     // Still called "equalizer" in config files, so existing layouts keep working
-    AppInfo { key: "equalizer", label: "Audio visualizer", help: "Moves with the music: what the laptop plays, or what a microphone hears. The Music page shows a preview of each look.", size: Size::Full,
+    AppInfo { key: "equalizer", label: "Audio visualizer", help: "Moves with the music: what the laptop plays, or what a microphone hears. The Audio page shows a preview of each look.", size: Size::Full,
         settings: &[
             choice("input-mode", "Listen to", "\"playback\"", &["\"playback\"", "\"microphone\""], &["What the laptop is playing", "A microphone"]),
             help(s("input-device", "Microphone", Kind::Microphone, "\"\""), "Used when listening to a microphone"),

@@ -47,7 +47,7 @@ export component MusicView inherits VerticalLayout {
     spacing: 12px;
     Card {
         icon: @image-url("../icons/music_note_2.svg");
-        title: "Music mode";
+        title: "Audio mode";
         help: "Shows the audio visualizer on both panels, with the look picked below, until you turn it off. Also in the tray menu, and with " + MusicPage.shortcut + ".";
         HorizontalLayout {
             spacing: 12px;
@@ -108,7 +108,8 @@ export component MusicView inherits VerticalLayout {
                         }
                     }
                 }
-                Hint { text: MusicPage.hearing; }
+                // Room for three lines whatever the sound check says, so the box doesn't change height
+                Hint { text: MusicPage.hearing; min-height: Theme.caption * 4.2; vertical-alignment: top; }
             }
             Group {
                 title: "Look";

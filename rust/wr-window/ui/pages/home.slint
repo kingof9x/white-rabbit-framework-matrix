@@ -26,7 +26,7 @@ export component HomePage inherits VerticalLayout {
     SectionTitle { text: "Quick actions"; }
     Card {
         icon: @image-url("../icons/music_note_2.svg");
-        title: "Music mode";
+        title: "Audio mode";
         help: "Both panels show the audio visualizer.  Ctrl+Alt+Shift+M";
         HorizontalLayout {
             spacing: 12px;
@@ -59,7 +59,7 @@ export component HomePage inherits VerticalLayout {
         help: "Pick what each panel shows: CPU, memory, battery, clock, weather and more."; clicked => { App.page = "monitor"; } }
     Card { link: true; icon: @image-url("../icons/games.svg"); title: "Games & patterns";
         help: "Play Snake, Ledris, Breakout and Rabbit run, or show a pattern or text."; clicked => { App.page = "games"; } }
-    Card { link: true; icon: @image-url("../icons/music_note_2.svg"); title: "Music";
+    Card { link: true; icon: @image-url("../icons/music_note_2.svg"); title: "Audio";
         help: "Choose how the audio visualizer looks and what it listens to."; clicked => { App.page = "music"; } }
     Card { link: true; icon: @image-url("../icons/math_formula.svg"); title: "Math";
         help: "Graphs, the Game of Life and other moving maths across both panels."; clicked => { App.page = "math"; } }
