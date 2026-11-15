@@ -192,7 +192,7 @@ jobs:
             $info = (Get-Item $exe).VersionInfo
             $info | Format-List FileName, FileVersion, ProductVersion, CompanyName, FileDescription, ProductName, LegalCopyright
             if (-not $info.CompanyName -or $info.FileVersion -match '^0\.0\.0') { throw "$exe has blank file details" }
-            if ($info.ProductVersion -ne "${{ steps.version.outputs.version }}") { throw "$exe has version $($info.ProductVersion)" }
+            if ("$($info.ProductVersion)".Trim() -ne "${{ steps.version.outputs.version }}") { throw "$exe has version $($info.ProductVersion)" }
           }
           # Portable: the same files in a zip; unzip anywhere and run WhiteRabbit.exe (nothing is installed)
           Compress-Archive -Path dist\WhiteRabbit\* -DestinationPath dist\WhiteRabbit-portable.zip -Force
