@@ -1,0 +1,244 @@
+// The White Rabbit window: the menu on the left, the page on the right with its title above it, laid
+// out like the Windows 11 Settings app. The bottom of the menu picks which panels the controls act on.
+import { ScrollView, LineEdit, Button } from "std-widgets.slint";
+import { Theme, ThemeSync } from "theme.slint";
+import { App, PanelRow } from "state.slint";
+import { SectionTitle, CheckBox, Hint, Dialog, AccentButton } from "widgets.slint";
+import { HomePage } from "pages/home.slint";
+import { SettingsPage } from "pages/settings.slint";
+
+export { Theme, App, PanelRow }
+
+component NavItem inherits Rectangle {
+    in property <image> icon;
+    in property <string> label;
+    in property <bool> selected;
+    callback clicked;
+    height: 36px;
+    border-radius: Theme.small-radius;
+    background: selected ? Theme.selected : ta.has-hover ? Theme.hover : transparent;
+    accessible-role: tab;
+    accessible-label: label;
+    accessible-item-selected: selected;
+    accessible-action-default => { clicked(); }
+    forward-focus: focus;
+    focus := FocusScope {
+        key-pressed(e) => {
+            if e.text == " " || e.text == "\n" { root.clicked(); return accept; }
+            return reject;
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+    if selected: Rectangle {
+        x: 0;
+        y: (parent.height - self.height) / 2;
+        width: 3px;
+        height: 16px;
+        border-radius: 1.5px;
+        background: Theme.accent;
+    }
+    if focus.has-focus: Rectangle {
+        border-width: 2px;
+        border-color: Theme.text;
+        border-radius: Theme.small-radius;
+    }
+    HorizontalLayout {
+        padding-left: 16px;
+        spacing: 14px;
+        alignment: start;
+        VerticalLayout {
+            alignment: center;
+            Image { source: icon; colorize: Theme.text; width: 16px; height: 16px; }
+        }
+        Text { text: label; color: Theme.text; font-size: Theme.body; vertical-alignment: center; }
+    }
+}
+
+// The app's mark: two LED panels
+component Logo inherits Rectangle {
+    width: 22px;
+    height: 20px;
+    for side in 2: Rectangle {
+        x: side * 12px;
+        width: 9px;
+        height: 20px;
+        border-radius: 2px;
+        border-width: 1px;
+        border-color: Theme.text;
+        for dot in 6: Rectangle {
+            x: 2px + mod(dot, 2) * 3px;
+            y: 3px + floor(dot / 2) * 5px;
+            width: 2px;
+            height: 2px;
+            background: Theme.accent;
+        }
+    }
+}
+
+export component AppWindow inherits Window {
+    title: App.title;
+    icon: @image-url("icons/app.png");
+    preferred-width: 1240px;
+    preferred-height: 860px;
+    min-width: 900px;
+    min-height: 600px;
+    background: Theme.window-bg;
+    default-font-size: Theme.body;
+
+    property <[{key: string, label: string, icon: image}]> nav: [
+        { key: "home", label: "Home", icon: @image-url("icons/home.svg") },
+        { key: "monitor", label: "System monitor", icon: @image-url("icons/desktop.svg") },
+        { key: "games", label: "Games & patterns", icon: @image-url("icons/games.svg") },
+        { key: "music", label: "Music", icon: @image-url("icons/music_note_2.svg") },
+        { key: "math", label: "Math", icon: @image-url("icons/math_formula.svg") },
+        { key: "draw", label: "Draw", icon: @image-url("icons/paint_brush.svg") },
+        { key: "effects", label: "Effects", icon: @image-url("icons/sparkle.svg") },
+        { key: "startup", label: "Startup animation", icon: @image-url("icons/play_circle.svg") },
+        { key: "settings", label: "Settings", icon: @image-url("icons/settings.svg") },
+    ];
+
+    // Firmware, Keyboard shortcuts and About open from Settings
+    function nav-key(p: string) -> string {
+        return p == "firmware" || p == "shortcuts" || p == "about" ? "settings" : p;
+    }
+    function title-of(p: string) -> string {
+        return p == "home" ? "Home" : p == "settings" ? "Settings" : p == "monitor" ? "System monitor"
+            : p == "games" ? "Games & patterns" : p == "music" ? "Music" : p == "math" ? "Math" : p == "draw" ? "Draw"
+            : p == "effects" ? "Effects" : p == "startup" ? "Startup animation" : p == "firmware" ? "Firmware"
+            : p == "shortcuts" ? "Keyboard shortcuts" : p == "about" ? "About White Rabbit" : "";
+    }
+    // Pages that fill the window themselves, instead of scrolling
+    function full-page(p: string) -> bool {
+        return p == "monitor" || p == "draw";
+    }
+
+    property <string> page: App.page;
+    changed page => { App.page-shown(page); }
+
+    ThemeSync { }
+
+    HorizontalLayout {
+        // The menu on the left
+        VerticalLayout {
+            width: 290px;
+            padding: 8px;
+            padding-top: 10px;
+            spacing: 2px;
+            HorizontalLayout {
+                padding: 8px;
+                padding-top: 6px;
+                padding-bottom: 16px;
+                spacing: 12px;
+                alignment: start;
+                Logo { }
+                Text { text: App.title; color: Theme.text2; font-size: Theme.caption; vertical-alignment: center; }
+            }
+            for item in nav: NavItem {
+                icon: item.icon;
+                label: item.label + (item.key == "monitor" && App.layout-dirty ? " *" : "");
+                selected: nav-key(App.page) == item.key;
+                clicked => { App.page = item.key; }
+            }
+            Rectangle { vertical-stretch: 1; }
+            // Which panels the controls act on
+            VerticalLayout {
+                padding-left: 10px;
+                padding-right: 6px;
+                padding-bottom: 6px;
+                vertical-stretch: 0;
+                alignment: end;
+                spacing: 2px;
+                SectionTitle { text: "Controls act on"; }
+                if App.panels.length == 0: Text { text: "No LED Matrix panels found"; color: Theme.error; font-size: Theme.body; }
+                for panel[i] in App.panels: CheckBox {
+                    text: panel.label;
+                    checked: panel.checked;
+                    toggled(on) => { App.panel-checked(i, on); }
+                }
+                Hint { text: App.bar-status; }
+                Rectangle { height: 4px; }
+                Button {
+                    text: "Back to system monitor";
+                    enabled: App.any-borrowed;
+                    clicked => { App.give-back-all(); }
+                }
+            }
+        }
+        // The page on the right, with its title above it
+        VerticalLayout {
+            padding-left: 16px;
+            padding-right: 12px;
+            HorizontalLayout {
+                padding-top: 18px;
+                padding-bottom: 14px;
+                alignment: start;
+                if nav-key(App.page) != App.page: Text {
+                    text: title-of(nav-key(App.page));
+                    color: crumb.has-hover ? Theme.text : Theme.text2;
+                    font-size: Theme.title;
+                    font-weight: 600;
+                    crumb := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { App.page = nav-key(App.page); }
+                    }
+                }
+                if nav-key(App.page) != App.page: Text {
+                    text: "  \u{203a}  ";
+                    color: Theme.text2;
+                    font-size: Theme.title;
+                    font-weight: 600;
+                }
+                Text { text: title-of(App.page); color: Theme.text; font-size: Theme.title; font-weight: 600; }
+            }
+            if !full-page(App.page): ScrollView {
+                vertical-stretch: 1;
+                VerticalLayout {
+                    padding-right: 12px;
+                    padding-bottom: 20px;
+                    alignment: start;
+                    if App.page == "home": HomePage { }
+                    if App.page == "settings": SettingsPage { }
+                }
+            }
+            if full-page(App.page): VerticalLayout {
+                vertical-stretch: 1;
+                padding-right: 12px;
+                padding-bottom: 12px;
+            }
+        }
+    }
+
+    if App.naming: Dialog {
+        title: "Name panels";
+        close => { App.naming = false; }
+        GridLayout {
+            spacing: 8px;
+            Row {
+                Text { text: "Left panel:"; color: Theme.text; font-size: Theme.body; vertical-alignment: center; }
+                left := LineEdit { text: App.left-name; placeholder-text: "Left"; }
+            }
+            Row {
+                Text { text: "Right panel:"; color: Theme.text; font-size: Theme.body; vertical-alignment: center; }
+                right := LineEdit { text: App.right-name; placeholder-text: "Right"; }
+            }
+        }
+        Hint {
+            text: "Identify panels (on the Home page or in the tray menu) shows the first 5 letters on the panel itself. Leave a name empty to go back to plain left and right.";
+        }
+        HorizontalLayout {
+            alignment: end;
+            spacing: 8px;
+            Button { text: "Cancel"; clicked => { App.naming = false; } }
+            AccentButton {
+                text: "Save and show";
+                clicked => {
+                    App.naming = false;
+                    App.save-names(left.text, right.text);
+                }
+            }
+        }
+    }
+}

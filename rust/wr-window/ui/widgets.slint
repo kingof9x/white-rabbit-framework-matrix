@@ -1,0 +1,371 @@
+// The window's building blocks, in the style of the Windows 11 Settings app: cards with an icon, a title
+// and a line of help, and check boxes, switches, radio buttons and sliders in the accent colour.
+import { Theme } from "theme.slint";
+import { Button } from "std-widgets.slint";
+export { Button }
+
+export component SectionTitle inherits Text {
+    color: Theme.text;
+    font-size: Theme.body;
+    font-weight: 600;
+    wrap: word-wrap;
+}
+
+export component Hint inherits Text {
+    color: Theme.text2;
+    font-size: Theme.caption;
+    wrap: word-wrap;
+}
+
+export component Body inherits Text {
+    color: Theme.text;
+    font-size: Theme.body;
+    wrap: word-wrap;
+}
+
+export component Icon inherits Image {
+    width: 20px;
+    height: 20px;
+    colorize: Theme.text;
+}
+
+// One setting: icon, title and help on the left, its control (the children) on the right.
+// link: the whole card opens another page, with a > at the right end.
+export component Card inherits Rectangle {
+    in property <image> icon;
+    in property <string> title;
+    in property <string> help;
+    in property <bool> link;
+    callback clicked;
+    min-height: 68px;
+    border-radius: Theme.radius;
+    border-width: 1px;
+    border-color: Theme.card-border;
+    background: link && ta.has-hover ? Theme.card-hover : Theme.card;
+    accessible-role: button;
+    accessible-label: title;
+    accessible-description: help;
+    accessible-action-default => { if link { clicked(); } }
+    ta := TouchArea {
+        enabled: link;
+        mouse-cursor: link ? pointer : default;
+        clicked => { root.clicked(); }
+    }
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        padding-top: 12px;
+        padding-bottom: 12px;
+        spacing: 16px;
+        if icon.width > 0: VerticalLayout {
+            alignment: center;
+            Icon { source: icon; }
+        }
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 1;
+            spacing: 1px;
+            Text { text: title; color: Theme.text; font-size: Theme.body; wrap: word-wrap; }
+            if help != "": Text { text: help; color: Theme.text2; font-size: Theme.caption; wrap: word-wrap; }
+        }
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 0;
+            @children
+        }
+        if link: VerticalLayout {
+            alignment: center;
+            Image { source: @image-url("icons/chevron_right.svg"); colorize: Theme.text2; width: 16px; height: 16px; }
+        }
+    }
+}
+
+// A card holding anything: a title and help at the top, then the children under them.
+export component Group inherits Rectangle {
+    in property <string> title;
+    in property <string> help;
+    in property <length> spacing: 8px;
+    border-radius: Theme.radius;
+    border-width: 1px;
+    border-color: Theme.card-border;
+    background: Theme.card;
+    VerticalLayout {
+        padding: 16px;
+        spacing: root.spacing;
+        if title != "": Text { text: title; color: Theme.text; font-size: Theme.body; font-weight: 600; wrap: word-wrap; }
+        if help != "": Text { text: help; color: Theme.text2; font-size: Theme.caption; wrap: word-wrap; }
+        @children
+    }
+}
+
+export component CheckBox inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    in-out property <bool> checked;
+    callback toggled(bool);
+    min-height: 28px;
+    min-width: box.width + (text == "" ? 0 : label.preferred-width + 10px);
+    accessible-role: checkbox;
+    accessible-checkable: true;
+    accessible-checked: checked;
+    accessible-label: text;
+    accessible-enabled: enabled;
+    accessible-action-default => { ta.clicked(); }
+    forward-focus: focus;
+    focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(e) => {
+            if e.text == " " { ta.clicked(); return accept; }
+            return reject;
+        }
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        clicked => {
+            checked = !checked;
+            root.toggled(checked);
+        }
+    }
+    box := Rectangle {
+        x: 0;
+        y: (parent.height - self.height) / 2;
+        width: 20px;
+        height: 20px;
+        border-radius: Theme.small-radius;
+        background: !enabled ? Theme.hover : checked ? Theme.accent : ta.has-hover ? Theme.hover : transparent;
+        border-width: checked && enabled ? 0 : 1px;
+        border-color: focus.has-focus ? Theme.accent : Theme.text2;
+        if checked: Path {
+            width: 12px;
+            height: 12px;
+            x: 4px;
+            y: 4px;
+            viewbox-width: 12;
+            viewbox-height: 12;
+            commands: "M 1.5 6.5 L 4.5 9.5 L 10.5 2.5";
+            stroke: enabled ? Theme.on-accent : Theme.text3;
+            stroke-width: 1.6px;
+        }
+    }
+    label := Text {
+        x: box.width + 10px;
+        width: parent.width - self.x;
+        text: root.text;
+        color: enabled ? Theme.text : Theme.text3;
+        font-size: Theme.body;
+        vertical-alignment: center;
+        wrap: word-wrap;
+    }
+}
+
+export component RadioButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    in property <bool> checked;
+    callback clicked;
+    min-height: 28px;
+    min-width: dot.width + label.preferred-width + 10px;
+    accessible-role: checkbox;
+    accessible-checkable: true;
+    accessible-checked: checked;
+    accessible-label: text;
+    accessible-action-default => { if enabled { clicked(); } }
+    ta := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+    dot := Rectangle {
+        x: 0;
+        y: (parent.height - self.height) / 2;
+        width: 20px;
+        height: 20px;
+        border-radius: 10px;
+        background: checked && enabled ? Theme.accent : ta.has-hover ? Theme.hover : transparent;
+        border-width: checked && enabled ? 0 : 1px;
+        border-color: Theme.text2;
+        if checked: Rectangle {
+            width: 8px;
+            height: 8px;
+            border-radius: 4px;
+            background: enabled ? Theme.on-accent : Theme.text3;
+        }
+    }
+    label := Text {
+        x: dot.width + 10px;
+        width: parent.width - self.x;
+        text: root.text;
+        color: enabled ? Theme.text : Theme.text3;
+        font-size: Theme.body;
+        vertical-alignment: center;
+        wrap: word-wrap;
+    }
+}
+
+export component Switch inherits Rectangle {
+    in property <bool> enabled: true;
+    in-out property <bool> checked;
+    callback toggled(bool);
+    width: 40px;
+    height: 20px;
+    border-radius: 10px;
+    background: checked && enabled ? Theme.accent : transparent;
+    border-width: checked && enabled ? 0 : 1px;
+    border-color: Theme.text2;
+    accessible-role: switch;
+    accessible-checkable: true;
+    accessible-checked: checked;
+    accessible-action-default => { ta.clicked(); }
+    ta := TouchArea {
+        enabled: root.enabled;
+        clicked => {
+            checked = !checked;
+            root.toggled(checked);
+        }
+    }
+    Rectangle {
+        width: 12px;
+        height: 12px;
+        border-radius: 6px;
+        y: 4px;
+        x: checked ? 24px : 4px;
+        background: checked && enabled ? Theme.on-accent : Theme.text2;
+        animate x { duration: 120ms; }
+    }
+}
+
+// The main button of a page, in the accent colour.
+export component AccentButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    callback clicked;
+    min-width: label.preferred-width + 32px;
+    height: 32px;
+    border-radius: Theme.small-radius;
+    background: !enabled ? Theme.hover : ta.pressed ? Theme.accent.darker(0.15) : ta.has-hover ? Theme.accent.brighter(0.08) : Theme.accent;
+    accessible-role: button;
+    accessible-label: text;
+    accessible-enabled: enabled;
+    accessible-action-default => { if enabled { clicked(); } }
+    ta := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+    label := Text {
+        text: root.text;
+        color: enabled ? Theme.on-accent : Theme.text3;
+        font-size: Theme.body;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+// A slider in the accent colour. Whole numbers from minimum to maximum.
+export component Slider inherits Rectangle {
+    in property <float> minimum: 0;
+    in property <float> maximum: 100;
+    in property <float> step: 1;
+    in property <bool> enabled: true;
+    in-out property <float> value;
+    // While dragging; released when let go
+    callback moved(float);
+    callback released(float);
+    min-width: 120px;
+    height: 28px;
+    accessible-role: slider;
+    accessible-value: value;
+    accessible-value-minimum: minimum;
+    accessible-value-maximum: maximum;
+    accessible-value-step: step;
+    property <float> ratio: maximum > minimum ? (value - minimum) / (maximum - minimum) : 0;
+    function set-from(x: length) {
+        root.value = clamp(round((minimum + (x - 10px) / max(1px, root.width - 20px) * (maximum - minimum)) / step) * step, minimum, maximum);
+        root.moved(root.value);
+    }
+    Rectangle {
+        x: 10px;
+        width: parent.width - 20px;
+        height: 4px;
+        border-radius: 2px;
+        background: Theme.text3;
+    }
+    Rectangle {
+        x: 10px;
+        width: (parent.width - 20px) * ratio;
+        height: 4px;
+        border-radius: 2px;
+        background: enabled ? Theme.accent : Theme.text3;
+    }
+    Rectangle {
+        x: 10px + (parent.width - 20px) * ratio - 10px;
+        width: 20px;
+        height: 20px;
+        border-radius: 10px;
+        background: Theme.control;
+        border-width: 1px;
+        border-color: Theme.control-border;
+        Rectangle {
+            width: ta.pressed ? 10px : ta.has-hover ? 14px : 12px;
+            height: self.width;
+            border-radius: self.width / 2;
+            background: enabled ? Theme.accent : Theme.text3;
+        }
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                root.set-from(self.mouse-x);
+            }
+            if e.kind == PointerEventKind.up && e.button == PointerEventButton.left {
+                root.released(root.value);
+            }
+        }
+        moved => {
+            if self.pressed { root.set-from(self.mouse-x); }
+        }
+    }
+}
+
+// A page's status line: what just happened.
+export component Status inherits Text {
+    color: Theme.text2;
+    font-size: Theme.caption;
+    wrap: word-wrap;
+}
+
+// The LED panels as a picture (drawn by the Rust side), kept in proportion.
+export component LedImage inherits Image {
+    image-fit: contain;
+    image-rendering: smooth;
+}
+
+// A dialog over the window: a dimmed background and a card in the middle.
+export component Dialog inherits Rectangle {
+    in property <string> title;
+    in property <length> card-width: 420px;
+    callback close;
+    background: #00000060;
+    TouchArea { }
+    FocusScope {
+        key-pressed(e) => {
+            if e.text == Key.Escape { root.close(); return accept; }
+            return reject;
+        }
+    }
+    Rectangle {
+        width: min(root.width - 40px, card-width);
+        height: inner.preferred-height;
+        border-radius: Theme.classic ? 0 : 8px;
+        background: Theme.card;
+        border-width: 1px;
+        border-color: Theme.card-border;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: #00000040;
+        inner := VerticalLayout {
+            padding: 24px;
+            spacing: 12px;
+            Text { text: title; color: Theme.text; font-size: Theme.subtitle; font-weight: 600; }
+            @children
+        }
+    }
+}

@@ -1,0 +1,39 @@
+// Settings: the app's own settings, and the pages used less often.
+import { App } from "../state.slint";
+import { Card, SectionTitle, Button } from "../widgets.slint";
+import { ComboBox } from "std-widgets.slint";
+
+export component SettingsPage inherits VerticalLayout {
+    spacing: 4px;
+    SectionTitle { text: "Appearance"; }
+    Card {
+        icon: @image-url("../icons/dark_theme.svg");
+        title: "App theme";
+        help: "Follows Windows' light or dark mode and accent colour. Classic is the plain Windows look White Rabbit used to have; Windows high contrast always uses it.";
+        ComboBox {
+            width: 230px;
+            model: ["Use my Windows setting", "Light", "Dark", "Classic"];
+            current-index: App.theme-choice;
+            selected => {
+                App.theme-choice = self.current-index;
+                App.theme-chosen(self.current-index);
+            }
+        }
+    }
+    Rectangle { height: 14px; }
+    SectionTitle { text: "Panels"; }
+    Card {
+        icon: @image-url("../icons/rename.svg");
+        title: "Panel names";
+        help: "Give the left and right panels names of your own.";
+        Button { text: "Name panels..."; clicked => { App.name-panels(); } }
+    }
+    Card { link: true; icon: @image-url("../icons/developer_board.svg"); title: "Firmware";
+        help: "See the firmware on each panel, and install the White Rabbit firmware or Framework's."; clicked => { App.page = "firmware"; } }
+    Rectangle { height: 14px; }
+    SectionTitle { text: "App"; }
+    Card { link: true; icon: @image-url("../icons/keyboard.svg"); title: "Keyboard shortcuts";
+        help: "Shortcuts that work anywhere in Windows."; clicked => { App.page = "shortcuts"; } }
+    Card { link: true; icon: @image-url("../icons/info.svg"); title: "About White Rabbit";
+        help: "Version, updates, credits and the tip jar."; clicked => { App.page = "about"; } }
+}

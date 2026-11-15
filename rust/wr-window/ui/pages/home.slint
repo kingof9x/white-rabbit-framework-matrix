@@ -1,0 +1,73 @@
+// Home: what the panels are doing, and the things done most often.
+import { Theme } from "../theme.slint";
+import { App } from "../state.slint";
+import { Card, SectionTitle, Switch, Status, Button } from "../widgets.slint";
+
+export component HomePage inherits VerticalLayout {
+    spacing: 4px;
+    SectionTitle { text: "Your panels"; }
+    if App.panels.length == 0: Card {
+        icon: @image-url("../icons/grid.svg");
+        title: "No LED Matrix panels found";
+        help: "Check that the panels are in place, then open White Rabbit again.";
+    }
+    for panel in App.panels: Card {
+        icon: @image-url("../icons/grid.svg");
+        title: panel.label;
+        help: panel.doing;
+    }
+    Card {
+        icon: @image-url("../icons/rename.svg");
+        title: "Name your panels";
+        help: "Identify panels shows the names on the panels themselves.";
+        Button { text: "Name panels..."; clicked => { App.name-panels(); } }
+    }
+    Rectangle { height: 14px; }
+    SectionTitle { text: "Quick actions"; }
+    Card {
+        icon: @image-url("../icons/music_note_2.svg");
+        title: "Music mode";
+        help: "Both panels show the audio visualizer.  Ctrl+Alt+Shift+M";
+        HorizontalLayout {
+            spacing: 12px;
+            alignment: end;
+            Text { text: App.music-mode ? "On" : "Off"; color: Theme.text; font-size: Theme.body; vertical-alignment: center; }
+            VerticalLayout {
+                alignment: center;
+                Switch {
+                    checked: App.music-mode;
+                    toggled(on) => { App.music-toggled(on); }
+                }
+            }
+        }
+    }
+    Card {
+        icon: @image-url("../icons/target_arrow.svg");
+        title: "Identify panels";
+        help: "Shows each panel's name on it, so you know which is which.";
+        Button { text: "Identify"; clicked => { App.identify(); } }
+    }
+    Card {
+        icon: @image-url("../icons/arrow_undo.svg");
+        title: "Back to the system monitor";
+        help: "Stops a game, pattern or Math picture and lets the monitor draw again.";
+        Button { text: "Give the panels back"; enabled: App.any-borrowed; clicked => { App.give-back-all(); } }
+    }
+    Rectangle { height: 14px; }
+    SectionTitle { text: "Make the panels yours"; }
+    Card { link: true; icon: @image-url("../icons/desktop.svg"); title: "System monitor";
+        help: "Pick what each panel shows: CPU, memory, battery, clock, weather and more."; clicked => { App.page = "monitor"; } }
+    Card { link: true; icon: @image-url("../icons/games.svg"); title: "Games & patterns";
+        help: "Play Snake, Ledris, Breakout and Rabbit run, or show a pattern or text."; clicked => { App.page = "games"; } }
+    Card { link: true; icon: @image-url("../icons/music_note_2.svg"); title: "Music";
+        help: "Choose how the audio visualizer looks and what it listens to."; clicked => { App.page = "music"; } }
+    Card { link: true; icon: @image-url("../icons/math_formula.svg"); title: "Math";
+        help: "Graphs, the Game of Life and other moving maths across both panels."; clicked => { App.page = "math"; } }
+    Card { link: true; icon: @image-url("../icons/paint_brush.svg"); title: "Draw";
+        help: "Draw, animate or import a picture for a panel."; clicked => { App.page = "draw"; } }
+    Card { link: true; icon: @image-url("../icons/sparkle.svg"); title: "Effects";
+        help: "Ripples when something is plugged in, sliding between apps and more."; clicked => { App.page = "effects"; } }
+    Card { link: true; icon: @image-url("../icons/play_circle.svg"); title: "Startup animation";
+        help: "What the panels play when the laptop turns on."; clicked => { App.page = "startup"; } }
+    if App.home-status != "": Status { text: App.home-status; }
+}
