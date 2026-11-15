@@ -84,6 +84,9 @@ export component EffectsView inherits HorizontalLayout {
                 CheckBox { text: "the charger"; enabled: EffectsPage.plug-animation; checked <=> EffectsPage.plug-charger; toggled => { EffectsPage.changed(); } }
                 CheckBox { text: "headphones (audio card)"; enabled: EffectsPage.plug-animation; checked <=> EffectsPage.plug-headphones; toggled => { EffectsPage.changed(); } }
                 CheckBox { text: "every other USB device"; enabled: EffectsPage.plug-animation; checked <=> EffectsPage.plug-usb; toggled => { EffectsPage.changed(); } }
+            }
+            Row {
+                padding-left: 38px;
                 CheckBox { text: "screens (HDMI, DisplayPort)"; enabled: EffectsPage.plug-animation; checked <=> EffectsPage.plug-displays; toggled => { EffectsPage.changed(); } }
             }
             Row {
