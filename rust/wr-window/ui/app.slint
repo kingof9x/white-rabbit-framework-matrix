@@ -6,8 +6,11 @@ import { App, PanelRow } from "state.slint";
 import { SectionTitle, CheckBox, Hint, Dialog, AccentButton } from "widgets.slint";
 import { HomePage } from "pages/home.slint";
 import { SettingsPage } from "pages/settings.slint";
+import { FirmwarePage, FirmwareView } from "pages/firmware.slint";
+import { ShortcutsPage, ShortcutsView, ShortcutRow } from "pages/shortcuts.slint";
+import { AboutPage, AboutView, Credit } from "pages/about.slint";
 
-export { Theme, App, PanelRow }
+export { Theme, App, PanelRow, FirmwarePage, ShortcutsPage, ShortcutRow, AboutPage, Credit }
 
 component NavItem inherits Rectangle {
     in property <image> icon;
@@ -201,6 +204,9 @@ export component AppWindow inherits Window {
                     alignment: start;
                     if App.page == "home": HomePage { }
                     if App.page == "settings": SettingsPage { }
+                    if App.page == "firmware": FirmwareView { }
+                    if App.page == "shortcuts": ShortcutsView { }
+                    if App.page == "about": AboutView { }
                 }
             }
             if full-page(App.page): VerticalLayout {

@@ -14,11 +14,15 @@ slint::include_modules!();
 
 mod app;
 mod commands;
+mod dialogs;
+mod external;
 mod font;
 mod jobs;
 mod link;
 mod panels;
+mod pages;
 mod paths;
+mod report;
 mod settings;
 mod shoot;
 mod theme;
@@ -137,6 +141,7 @@ pub fn build(start: &str) -> (AppWindow, Rc<app::Ctx>) {
     theme::apply(&ui, &choice, &theme::read_windows());
     let ctx = app::Ctx::new(&ui);
     app::wire(&ctx, &ui);
+    pages::wire(&ctx, &ui);
     ctx.update_bar(&ui);
     g.set_page(start.into());
     ctx.refresh_modules();
@@ -193,6 +198,15 @@ fn main() {
     wr_core::info!("White Rabbit window {} starting: {}", version(), args.join(" "));
     if args.iter().any(|a| a == "--diagnose" || a == "--list-apps") {
         attach_console();
+        report::run(&args);
+        return;
+    }
+    // The tray's Libre Hardware Monitor and Framework Control items
+    for (flag, which) in [("--find-lhm", "find-lhm"), ("--open-lhm", "lhm"), ("--open-framework-control", "fc")] {
+        if args.iter().any(|a| a == flag) {
+            external::open_from_tray(which);
+            return;
+        }
     }
     run_window(&args);
 }
