@@ -1,4 +1,4 @@
-//! Effects (`effects_tab.py`): the plug ripple, the text line, sliding between apps and dimming. The
+//! Plug animation (`effects_tab.py`'s Effects): the plug animations, the text line, sliding between apps and dimming. The
 //! monitor plays them; this page saves the settings in settings.json, asks the monitor to reload them,
 //! and plays the same effects (wr-core's) in its preview. Also "Teach White Rabbit my ports".
 
@@ -9,8 +9,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde_json::{json, Map, Value};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use wr_core::drawing;
-use wr_core::effects::{position_label, Effects, EffectsSettings, Side, Spot, Transition};
+use wr_core::effects::{position_label, Effects, EffectsSettings, Side, Spot, Transition, DRAIN, RIPPLE};
 use wr_core::grid::{Grid, HEIGHT, WIDTH};
+use wr_core::plug_looks::Look;
 
 use crate::app::Ctx;
 use crate::{link, preview, settings, App, AppWindow, EffectsPage};
@@ -106,6 +107,27 @@ fn page_state() -> Shared {
 /// The vertical messages' letter styles, as the Letters list shows them.
 const VERTICAL_STYLES: [&str; 3] = ["ticker", "sideways", "stacked"];
 
+/// The unplug animations in the list's order: the drain first, then the [`Look`]s.
+fn unplug_keys() -> Vec<String> {
+    std::iter::once(DRAIN.to_string()).chain(Look::ALL.iter().map(|l| l.key().to_string())).collect()
+}
+
+/// The plug-in animations in the list's order: the ripple first, then the [`Look`]s.
+fn plug_keys() -> Vec<String> {
+    std::iter::once(RIPPLE.to_string()).chain(Look::ALL.iter().map(|l| l.key().to_string())).collect()
+}
+
+/// The key at a list position, `fallback` when nothing sensible is picked.
+fn pick(keys: &[String], index: i32, fallback: &str) -> String {
+    usize::try_from(index).ok().and_then(|i| keys.get(i)).cloned().unwrap_or_else(|| fallback.to_string())
+}
+
+fn look_labels(first: &str) -> ModelRc<SharedString> {
+    let labels: Vec<SharedString> =
+        std::iter::once(first.into()).chain(Look::ALL.iter().map(|l| l.label().into())).collect();
+    ModelRc::new(VecModel::from(labels))
+}
+
 fn load_settings() -> EffectsSettings {
     EffectsSettings::from_json(&settings::get("effects").unwrap_or(Value::Null))
 }
@@ -127,6 +149,8 @@ fn show_settings(app: &AppWindow, s: &EffectsSettings) {
     page.set_slide(s.slide);
     page.set_fade(s.fade);
     page.set_panels_together(s.panels_together);
+    page.set_unplug_look(unplug_keys().iter().position(|k| *k == s.unplug_look).unwrap_or(0) as i32);
+    page.set_plug_look(plug_keys().iter().position(|k| *k == s.plug_look).unwrap_or(0) as i32);
     page.set_pinned(s.show_messages);
     page.set_vertical_left(s.vertical_left.clone().into());
     page.set_vertical_right(s.vertical_right.clone().into());
@@ -301,6 +325,8 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
     page.set_positions(ModelRc::new(VecModel::from(labels)));
     page.set_try_position(positions().iter().position(|p| p == "right-middle").unwrap_or(0) as i32);
     page.set_fix_position(-1);
+    page.set_unplug_looks(look_labels("Drain (original)"));
+    page.set_plug_looks(look_labels("Water ripple (original)"));
     show_settings(app, &settings);
     page.set_preview(preview::render(&[preview::dark(), preview::dark()], 2));
 
@@ -328,6 +354,8 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
             new.slide = page.get_slide();
             new.fade = page.get_fade();
             new.panels_together = page.get_panels_together();
+            new.unplug_look = pick(&unplug_keys(), page.get_unplug_look(), DRAIN);
+            new.plug_look = pick(&plug_keys(), page.get_plug_look(), RIPPLE);
             new.messages = page.get_messages().iter().map(|m| m.trim().to_string()).filter(|m| !m.is_empty()).collect();
             new.show_messages = page.get_pinned() && !new.messages.is_empty();
             new.vertical_left = page.get_vertical_left().trim().to_string();

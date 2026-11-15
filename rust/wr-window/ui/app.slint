@@ -106,7 +106,7 @@ export component AppWindow inherits Window {
         { key: "music", label: "Audio", icon: @image-url("icons/music_note_2.svg") },
         { key: "math", label: "Math", icon: @image-url("icons/math_formula.svg") },
         { key: "draw", label: "Draw", icon: @image-url("icons/paint_brush.svg") },
-        { key: "effects", label: "Effects", icon: @image-url("icons/sparkle.svg") },
+        { key: "effects", label: "Plug animation", icon: @image-url("icons/sparkle.svg") },
         { key: "messages", label: "Display messages", icon: @image-url("icons/text_line.svg") },
         { key: "startup", label: "Startup animation", icon: @image-url("icons/play_circle.svg") },
         { key: "settings", label: "Settings", icon: @image-url("icons/settings.svg") },
@@ -119,7 +119,7 @@ export component AppWindow inherits Window {
     function title-of(p: string) -> string {
         return p == "home" ? "Home" : p == "settings" ? "Settings" : p == "monitor" ? "System monitor"
             : p == "games" ? "Games & patterns" : p == "music" ? "Audio" : p == "math" ? "Math" : p == "draw" ? "Draw"
-            : p == "effects" ? "Effects" : p == "messages" ? "Display messages" : p == "startup" ? "Startup animation" : p == "firmware" ? "Firmware"
+            : p == "effects" ? "Plug animation" : p == "messages" ? "Display messages" : p == "startup" ? "Startup animation" : p == "firmware" ? "Firmware"
             : p == "shortcuts" ? "Keyboard shortcuts" : p == "about" ? "About White Rabbit" : "";
     }
     // Pages that fill the window themselves, instead of scrolling
