@@ -31,7 +31,7 @@ pub fn log_dir() -> PathBuf {
 }
 
 pub fn log_file() -> PathBuf {
-    log_dir().join("WhiteRabbit-rust-test.log")
+    log_dir().join("WhiteRabbit-monitor.log")
 }
 
 /// The control channel's key, which the window reads to talk to the monitor (`led_mon/control.py`).

@@ -1,11 +1,12 @@
-//! White Rabbit's monitor in Rust (test build): finds the LED panels, shows the layout's apps on them,
-//! and puts an icon in the system tray. Windows only for now; the Python monitor stays for Linux.
+//! White Rabbit's monitor in Rust (WhiteRabbit.exe): finds the LED panels, shows the layout's apps on them,
+//! and puts an icon in the system tray. The window is the Python app, WhiteRabbitWindow.exe, which it opens. Windows only for now; the Python monitor stays for Linux.
 
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 #![cfg_attr(not(windows), allow(dead_code))]
 
 mod control;
 mod icon;
+mod launch;
 mod monitor;
 mod music;
 mod paths;
@@ -21,6 +22,8 @@ mod gpu;
 mod media;
 #[cfg(windows)]
 mod sensors;
+#[cfg(windows)]
+mod startup;
 #[cfg(windows)]
 mod thermal;
 #[cfg(windows)]

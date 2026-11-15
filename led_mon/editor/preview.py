@@ -222,6 +222,5 @@ def identify():
 
 
 def start_monitor(config_file=None):
-    # --background: just the monitor and tray icon, no second window
-    args = ["--background"] + (["--config-file", config_file] if config_file else [])
-    platform_utils.launch_self(*args)
+    # Just the monitor and tray icon, no second window
+    platform_utils.launch_monitor(config_file)

@@ -3,7 +3,8 @@
 ;   iscc /DAppVersion=0.1.0 installer\white_rabbit.iss
 ; Output: dist\WhiteRabbit-setup.exe (same name in every release, so download links keep working)
 ;
-; The installed app is the same as the portable exe, except that it starts when the user logs in.
+; The installed app: WhiteRabbit.exe is the Rust monitor and tray icon (rust/), copied into dist\WhiteRabbit\
+; by the build, and WhiteRabbitWindow.exe the Python window it opens. It starts when the user logs in.
 
 #ifndef AppVersion
   #define AppVersion "0.0.0"
@@ -39,7 +40,7 @@ PrivilegesRequired=lowest
 OutputDir=..\dist
 OutputBaseFilename=WhiteRabbit-setup
 SetupIconFile=..\build\WhiteRabbit.ico
-UninstallDisplayIcon={app}\WhiteRabbit.exe
+UninstallDisplayIcon={app}\WhiteRabbitWindow.exe
 UninstallDisplayName=White Rabbit
 Compression=lzma2
 SolidCompression=yes
@@ -54,7 +55,8 @@ AppMutex=WhiteRabbit_single_instance,WhiteRabbit_window
 Source: "..\dist\WhiteRabbit\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\White Rabbit"; Filename: "{app}\WhiteRabbit.exe"
+; The Rust exe has no icon of its own yet, so the shortcut shows the window exe's
+Name: "{group}\White Rabbit"; Filename: "{app}\WhiteRabbit.exe"; IconFilename: "{app}\WhiteRabbitWindow.exe"
 Name: "{group}\Uninstall White Rabbit"; Filename: "{uninstallexe}"
 
 [Registry]

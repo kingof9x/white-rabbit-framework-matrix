@@ -91,8 +91,24 @@ jobs:
           Copy-Item res\releases\white-rabbit\ledmatrix.uf2 dist\ledmatrix.uf2
           Get-ChildItem -Recurse res\releases -File | Format-Table FullName, Length
 
+      # The installed app: WhiteRabbit.exe is the Rust monitor and tray icon (rust/), and the Python app is
+      # the window, WhiteRabbitWindow.exe, next to it. The portable exe below stays all Python.
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: Build the Rust monitor
+        working-directory: rust
+        run: cargo build --release -p wr-monitor
+
       - name: Build one-dir (for the installer)
-        run: python -m PyInstaller white_rabbit.spec --noconfirm --clean --workpath build\onedir
+        shell: pwsh
+        run: |
+          $env:WHITE_RABBIT_EXE_NAME = "WhiteRabbitWindow"
+          python -m PyInstaller white_rabbit.spec --noconfirm --clean --workpath build\onedir
+          Copy-Item rust\target\release\WhiteRabbit.exe dist\WhiteRabbit\WhiteRabbit.exe
+          Get-ChildItem dist\WhiteRabbit -File | Format-Table Name, Length
 
       # The fps app runs Intel's PresentMon (MIT licence). The installer ships it next to WhiteRabbit.exe;
       # it isn't packed inside the portable exe, since an exe hidden inside another looks suspicious to scanners.
@@ -123,7 +139,7 @@ jobs:
       - name: Smoke test (--list-apps, no panels needed)
         shell: pwsh
         run: |
-          foreach ($exe in @("dist\WhiteRabbit.exe", "dist\WhiteRabbit\WhiteRabbit.exe")) {
+          foreach ($exe in @("dist\WhiteRabbit.exe", "dist\WhiteRabbit\WhiteRabbitWindow.exe")) {
             Write-Host "== $exe --list-apps"
             # The exe is windowless, so start it explicitly and wait for its exit code
             $p = Start-Process -FilePath $exe -ArgumentList "--list-apps" -PassThru -NoNewWindow `
@@ -141,7 +157,7 @@ jobs:
           $env:APPDATA = "$PWD\smoke-appdata"
           $env:LOCALAPPDATA = "$PWD\smoke-appdata"
           # The second run opens the Audio tab, whose preview listens to the sound (the runner has no sound card)
-          foreach ($exe in @("dist\WhiteRabbit.exe", "dist\WhiteRabbit\WhiteRabbit.exe")) {
+          foreach ($exe in @("dist\WhiteRabbit.exe", "dist\WhiteRabbit\WhiteRabbitWindow.exe")) {
             foreach ($arguments in @("--window", "--window --tab audio")) {
               Write-Host "== $exe $arguments"
               $p = Start-Process -FilePath $exe -ArgumentList $arguments -PassThru
@@ -251,6 +267,7 @@ jobs:
             $info | Format-List FileName, FileVersion, ProductVersion, CompanyName, FileDescription, ProductName, LegalCopyright
             if (-not $info.CompanyName -or $info.FileVersion -match '^0\.0\.0') { throw "$exe has blank file details" }
           }
+          if (-not (Test-Path dist\WhiteRabbit\WhiteRabbit.exe)) { throw "The Rust monitor isn't in the installed app" }
 
       - name: Upload portable exe
         uses: actions/upload-artifact@v4
@@ -276,8 +293,8 @@ jobs:
           name: White Rabbit ${{ steps.version.outputs.version }}
           target_commitish: ${{ github.sha }}
           body: |
-            - `WhiteRabbit-setup.exe`: installer (starts with Windows, Start menu shortcut)
-            - `WhiteRabbit.exe`: portable app, nothing is installed
+            - `WhiteRabbit-setup.exe`: installer (starts with Windows, Start menu shortcut). Its panel monitor and tray icon are the new, lighter Rust program
+            - `WhiteRabbit.exe`: portable app, nothing is installed (all Python)
             - `ledmatrix.uf2`: LED Matrix firmware with the startup animation setting and the extra Game of Life patterns (the app's Firmware tab can flash it too)
           generate_release_notes: true
           make_latest: "true"

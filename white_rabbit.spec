@@ -3,6 +3,9 @@
 #
 #   pyinstaller white_rabbit.spec                              one-dir build: dist/WhiteRabbit/
 #   WHITE_RABBIT_ONEFILE=1 pyinstaller white_rabbit.spec       one-file build: dist/WhiteRabbit(.exe)  (portable exe on Windows)
+#
+# WHITE_RABBIT_EXE_NAME names the exe (default WhiteRabbit). The Windows installer's one-dir build uses
+# WhiteRabbitWindow: there WhiteRabbit.exe is the Rust monitor (rust/), which opens this window.
 
 import os
 import sys
@@ -10,6 +13,7 @@ from PyInstaller.utils.hooks import collect_data_files
 
 IS_WINDOWS = sys.platform == 'win32'
 ONEFILE = os.environ.get('WHITE_RABBIT_ONEFILE', '') not in ('', '0')
+EXE_NAME = os.environ.get('WHITE_RABBIT_EXE_NAME', '').strip() or 'WhiteRabbit'
 
 datas = [
     (os.path.join('led_mon', 'plugins'), os.path.join('led_mon', 'plugins')),
@@ -93,9 +97,9 @@ if IS_WINDOWS:
                 # Windows shows this name in Settings' list of tray icons and in Task Manager
                 StringStruct('FileDescription', 'White Rabbit'),
                 StringStruct('FileVersion', app_version),
-                StringStruct('InternalName', 'WhiteRabbit'),
+                StringStruct('InternalName', EXE_NAME),
                 StringStruct('LegalCopyright', 'MIT License'),
-                StringStruct('OriginalFilename', 'WhiteRabbit.exe'),
+                StringStruct('OriginalFilename', EXE_NAME + '.exe'),
                 StringStruct('ProductName', 'White Rabbit'),
                 StringStruct('ProductVersion', app_version),
             ])]),
@@ -124,7 +128,7 @@ a = Analysis(
 pyz = PYZ(a.pure)
 
 exe_options = dict(
-    name='WhiteRabbit',
+    name=EXE_NAME,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

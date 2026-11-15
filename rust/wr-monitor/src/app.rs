@@ -11,6 +11,7 @@ use wr_panel::ports::{discover, Pins};
 
 use crate::control::bridge::{pid_alive, Bridge};
 use crate::control::commands::Commands;
+use crate::launch::{self, Start};
 use crate::monitor::{log_panics, pins_of, LayoutSource, Monitor, Shared};
 use crate::sensors::{ScreenBrightness, WindowsReadings};
 use crate::{paths, ui};
@@ -24,14 +25,26 @@ use wr_panel::winports::WindowsPorts;
 pub fn run() -> i32 {
     wr_core::log::init(paths::log_file());
     log_panics();
-    info!("White Rabbit Rust test build {} starting", env!("CARGO_PKG_VERSION"));
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let start = launch::start_from(&args);
+    if let Start::Window(args) = &start {
+        // The window, its layout editor and the reports are the Python app's
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        launch::open_window(&args);
+        return 0;
+    }
 
     if !ui::single_instance() {
-        info!("White Rabbit is already running");
-        ui::show_error(
-            "White Rabbit is already running. Quit it from its tray icon first, then start the Rust test build.",
-        );
+        // Opening the app again while it runs shows the window
+        if start == Start::MonitorAndWindow {
+            launch::open_window(&["--window"]);
+        }
         return 0;
+    }
+    info!("White Rabbit monitor starting");
+    if start == Start::MonitorAndWindow {
+        // The window waits until the monitor answers on the control channel
+        launch::open_window(&["--window", "--wait-for-monitor"]);
     }
 
     let source = LayoutSource::locate();

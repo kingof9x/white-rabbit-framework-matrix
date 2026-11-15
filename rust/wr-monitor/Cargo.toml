@@ -4,10 +4,10 @@ version = "0.0.0"
 edition = "2021"
 license = "MIT"
 publish = false
-description = "White Rabbit's panel monitor and tray icon, in Rust (test build)"
+description = "White Rabbit's panel monitor and tray icon, in Rust (WhiteRabbit.exe; the window is the Python app)"
 
 [[bin]]
-name = "WhiteRabbit-rust-test"
+name = "WhiteRabbit"
 path = "src/main.rs"
 
 [dependencies]

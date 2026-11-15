@@ -36,8 +36,8 @@ use wr_core::settings::{save_key, Settings};
 
 use crate::control::commands::UiRequest;
 use crate::monitor::Shared;
-use crate::paths;
 use crate::power::{builtin_screen_unused, PowerEvent, PowerState};
+use crate::{launch, paths, startup};
 use wr_core::{info, warn};
 use wr_panel::winports::wide;
 
@@ -47,7 +47,10 @@ const WM_CONTROL: u32 = WM_APP + 2;
 const TRAY_ID: u32 = 1;
 
 // Menu item ids
+const ID_OPEN: usize = 5;
 const ID_ANIMATION: usize = 10;
+const ID_MUSIC: usize = 14;
+const ID_STARTUP: usize = 32;
 const ID_IDENTIFY: usize = 11;
 const ID_NEXT: usize = 12;
 const ID_FREEZE: usize = 13;
@@ -93,7 +96,7 @@ pub fn single_instance() -> bool {
 
 pub fn show_error(message: &str) {
     let text = wide(message);
-    let title = wide("White Rabbit (Rust test)");
+    let title = wide("White Rabbit");
     // SAFETY: plain message box.
     unsafe {
         MessageBoxW(null_mut(), text.as_ptr(), title.as_ptr(), MB_OK | MB_ICONWARNING);
@@ -135,9 +138,9 @@ fn make_icon(lit: bool) -> HICON {
 
 fn tooltip(paused: bool) -> String {
     if paused {
-        "White Rabbit (Rust test) - stopped".into()
+        "White Rabbit (stopped)".into()
     } else {
-        "White Rabbit (Rust test)".into()
+        "White Rabbit".into()
     }
 }
 
@@ -182,6 +185,7 @@ fn show_menu(hwnd: HWND) {
     let shared = &ui.shared;
     let paused = shared.paused.load(Ordering::SeqCst);
     let frozen = shared.frozen.load(Ordering::SeqCst);
+    let music = shared.music_mode.load(Ordering::SeqCst);
     let (lid, screen_unused) = {
         let settings = shared.settings.lock().unwrap();
         (settings.turn_off_with_lid, settings.turn_off_when_screen_unused)
@@ -195,12 +199,14 @@ fn show_menu(hwnd: HWND) {
             AppendMenuW(menu, flags, id, t.as_ptr());
             texts.push(t);
         };
-        add(MF_STRING | MF_GRAYED, 0, "White Rabbit, Rust test build");
+        add(MF_STRING, ID_OPEN, "Open White Rabbit...");
+        SetMenuDefaultItem(menu, ID_OPEN as u32, 0);
         add(MF_SEPARATOR, 0, "");
         add(MF_STRING, ID_ANIMATION, if paused { "Start animation" } else { "Stop animation" });
         add(MF_STRING, ID_IDENTIFY, "Identify panels");
         add(MF_STRING, ID_NEXT, "Next app");
         add(MF_STRING | if frozen { MF_CHECKED } else { 0 }, ID_FREEZE, "Freeze app switching");
+        add(MF_STRING | if music { MF_CHECKED } else { 0 }, ID_MUSIC, "Music mode");
         add(MF_SEPARATOR, 0, "");
         add(MF_STRING, ID_FOLDER, "Open config folder");
         add(MF_STRING, ID_LOG, "Open log");
@@ -212,6 +218,7 @@ fn show_menu(hwnd: HWND) {
             ID_SCREEN_UNUSED,
             "Turn off when laptop screen isn't used",
         );
+        add(MF_STRING | if startup::is_enabled() { MF_CHECKED } else { 0 }, ID_STARTUP, "Start with Windows");
         add(MF_SEPARATOR, 0, "");
         add(MF_STRING, ID_QUIT, "Quit");
         let mut pt = POINT { x: 0, y: 0 };
@@ -236,6 +243,25 @@ fn command(hwnd: HWND, id: usize) {
             shared.paused.store(paused, Ordering::SeqCst);
             info!("Animation {}", if paused { "stopped" } else { "started" });
             update_tray(hwnd, NIM_MODIFY);
+        }
+        ID_OPEN => {
+            launch::open_window(&["--window"]);
+        }
+        ID_MUSIC => {
+            let on = !shared.music_mode.load(Ordering::SeqCst);
+            if on {
+                // As the window's music command does: take back panels lent to the window
+                if let Some(panels) = shared.panels.lock().unwrap().clone() {
+                    panels.hub().release(None);
+                }
+            }
+            shared.set_music_mode(on);
+            shared.redraw.store(true, Ordering::SeqCst);
+        }
+        ID_STARTUP => {
+            let enabled = !startup::is_enabled();
+            startup::set_enabled(enabled);
+            info!("Start with Windows {}", if enabled { "on" } else { "off" });
         }
         ID_IDENTIFY => shared.identify(3.0),
         ID_NEXT => shared.next_app.store(true, Ordering::SeqCst),
@@ -419,7 +445,10 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
     match msg {
         WM_TRAY => {
             let event = (lparam & 0xFFFF) as u32;
-            if event == WM_RBUTTONUP || event == WM_LBUTTONUP || event == WM_CONTEXTMENU {
+            if event == WM_LBUTTONUP {
+                // A click opens the window, like the Python tray's default item; right-click shows the menu
+                launch::open_window(&["--window"]);
+            } else if event == WM_RBUTTONUP || event == WM_CONTEXTMENU {
                 show_menu(hwnd);
             }
             0
