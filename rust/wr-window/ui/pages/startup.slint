@@ -1,0 +1,79 @@
+// Startup animation: what the panels show when the laptop turns on. Saved on the panels themselves.
+import { Theme } from "../theme.slint";
+import { Group, Hint, Status, AccentButton, RadioButton, CheckBox } from "../widgets.slint";
+import { ComboBox } from "std-widgets.slint";
+
+export global StartupPage {
+    in property <[string]> names;
+    in-out property <[bool]> picked;
+    // As the firmware numbers them: 0 random from all, 1 always one, 2 random from the picked ones, 3 none
+    in-out property <int> mode;
+    in-out property <int> animation;
+    in property <bool> supported;
+    in property <string> status: "Reading the panels...";
+    callback picked-changed(int, bool);
+    callback save();
+}
+
+export component StartupView inherits VerticalLayout {
+    spacing: 12px;
+    Group {
+        title: "Startup animation";
+        help: "Saved on the panels themselves, so it works even when White Rabbit isn't running. Needs the White Rabbit firmware (Settings > Firmware). The last six, from Rabbit hole to Campfire, need the newest version of it.";
+        RadioButton {
+            text: "Random: a different one every time";
+            enabled: StartupPage.supported;
+            checked: StartupPage.mode == 0;
+            clicked => { StartupPage.mode = 0; }
+        }
+        RadioButton {
+            text: "Always this one:";
+            enabled: StartupPage.supported;
+            checked: StartupPage.mode == 1;
+            clicked => { StartupPage.mode = 1; }
+        }
+        HorizontalLayout {
+            padding-left: 28px;
+            alignment: start;
+            ComboBox {
+                width: 320px;
+                enabled: StartupPage.supported && StartupPage.mode == 1;
+                model: StartupPage.names;
+                current-index: StartupPage.animation;
+                selected => { StartupPage.animation = self.current-index; }
+            }
+        }
+        RadioButton {
+            text: "Random out of these:";
+            enabled: StartupPage.supported;
+            checked: StartupPage.mode == 2;
+            clicked => { StartupPage.mode = 2; }
+        }
+        GridLayout {
+            padding-left: 24px;
+            spacing-horizontal: 2px;
+            spacing-vertical: 2px;
+            for name[i] in StartupPage.names: CheckBox {
+                row: floor(i / 3);
+                col: mod(i, 3);
+                text: name;
+                enabled: StartupPage.supported && StartupPage.mode == 2;
+                checked: StartupPage.picked[i];
+                toggled(on) => { StartupPage.picked-changed(i, on); }
+            }
+        }
+        RadioButton {
+            text: "None: the panels stay dark until an app uses them";
+            enabled: StartupPage.supported;
+            checked: StartupPage.mode == 3;
+            clicked => { StartupPage.mode = 3; }
+        }
+        HorizontalLayout {
+            padding-top: 6px;
+            spacing: 12px;
+            alignment: start;
+            AccentButton { text: "Save"; enabled: StartupPage.supported; clicked => { StartupPage.save(); } }
+            VerticalLayout { alignment: center; Status { text: StartupPage.status; } }
+        }
+    }
+}

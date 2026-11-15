@@ -9,8 +9,11 @@ import { SettingsPage } from "pages/settings.slint";
 import { FirmwarePage, FirmwareView } from "pages/firmware.slint";
 import { ShortcutsPage, ShortcutsView, ShortcutRow } from "pages/shortcuts.slint";
 import { AboutPage, AboutView, Credit } from "pages/about.slint";
+import { StartupPage, StartupView } from "pages/startup.slint";
+import { MusicPage, MusicView } from "pages/music.slint";
+import { EffectsPage, EffectsView, TeachDialog } from "pages/effects.slint";
 
-export { Theme, App, PanelRow, FirmwarePage, ShortcutsPage, ShortcutRow, AboutPage, Credit }
+export { Theme, App, PanelRow, MusicPage, StartupPage, EffectsPage, FirmwarePage, ShortcutsPage, ShortcutRow, AboutPage, Credit }
 
 component NavItem inherits Rectangle {
     in property <image> icon;
@@ -207,6 +210,9 @@ export component AppWindow inherits Window {
                     if App.page == "firmware": FirmwareView { }
                     if App.page == "shortcuts": ShortcutsView { }
                     if App.page == "about": AboutView { }
+                    if App.page == "startup": StartupView { }
+                    if App.page == "effects": EffectsView { }
+                    if App.page == "music": MusicView { }
                 }
             }
             if full-page(App.page): VerticalLayout {
@@ -216,6 +222,8 @@ export component AppWindow inherits Window {
             }
         }
     }
+
+    if EffectsPage.teaching: TeachDialog { }
 
     if App.naming: Dialog {
         title: "Name panels";

@@ -22,6 +22,7 @@ mod link;
 mod panels;
 mod pages;
 mod paths;
+mod preview;
 mod report;
 mod settings;
 mod shoot;
