@@ -27,6 +27,7 @@ mod report;
 mod settings;
 mod shoot;
 mod theme;
+mod winapps;
 
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -174,6 +175,7 @@ fn run_window(args: &[String]) {
     let close_ctx = ctx.clone();
     ui.window().on_close_requested(move || {
         jobs::stop_all();
+        pages::monitor::editor::apply_on_close();
         let borrowed: Vec<_> =
             close_ctx.panels().into_iter().filter(|p| close_ctx.lender.is_borrowed(&p.device)).collect();
         if !borrowed.is_empty() {
@@ -218,6 +220,17 @@ pub fn shoot_action(ui: &AppWindow, _ctx: &Rc<app::Ctx>, action: &str) {
     match action {
         "name-panels" => g.invoke_name_panels(),
         "music-on" => g.set_music_mode(true),
+        // edit:SIDE:PAGE:SLOT selects a slot in the layout editor, e.g. edit:0:2:top
+        a if a.starts_with("edit:") => {
+            let parts: Vec<&str> = a.split(':').collect();
+            if let [_, side, page, slot] = parts[..] {
+                let e = ui.global::<EditorPage>();
+                e.invoke_page_chosen(side.parse().unwrap_or(0), page.parse().unwrap_or(0));
+                e.invoke_slot_clicked(side.parse().unwrap_or(0), slot.into());
+            }
+        }
+        // teach: the Effects page's port teacher
+        "teach" => ui.global::<EffectsPage>().invoke_teach(),
         _ => wr_core::warn!("Unknown screenshot action {action}"),
     }
 }

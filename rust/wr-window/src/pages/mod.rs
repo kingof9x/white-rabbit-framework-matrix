@@ -18,6 +18,7 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
     startup::wire(ctx, app);
     effects::wire(ctx, app);
     music::wire(ctx, app);
+    monitor::editor::wire(ctx, app);
     shortcuts::wire(ctx, app);
     about::wire(ctx, app);
 }

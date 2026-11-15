@@ -21,10 +21,16 @@ pub fn dark() -> Levels {
 
 /// A panel picture (0-255) as levels.
 pub fn levels(grid: &Grid) -> Levels {
+    levels_of(grid, 255.0)
+}
+
+/// A panel picture as levels, `full` being the value shown at full brightness (the layout editor uses
+/// 160, the brightest app pixels).
+pub fn levels_of(grid: &Grid, full: f64) -> Levels {
     let mut out = dark();
     for (x, col) in out.iter_mut().enumerate() {
         for (y, v) in col.iter_mut().enumerate() {
-            *v = (grid.get(x, y) as f64 / 255.0).clamp(0.0, 1.0);
+            *v = (grid.get(x, y) as f64 / full).clamp(0.0, 1.0);
         }
     }
     out
@@ -40,15 +46,38 @@ pub fn led_color(level: f64) -> [u8; 3] {
     c
 }
 
+/// How the LEDs are spaced: the pages' previews, or the layout editor's bigger panels.
+#[derive(Clone, Copy)]
+pub struct Style {
+    pub dot: f64,
+    pub step: usize,
+    pub margin: usize,
+    pub gap: usize,
+}
+
+pub const SMALL: Style = Style { dot: DOT, step: STEP, margin: MARGIN, gap: PANEL_GAP };
+/// The layout editor's panel: 9 point LEDs, 2 points apart
+pub const LARGE: Style = Style { dot: 9.0, step: 11, margin: 10, gap: PANEL_GAP };
+
 /// Size in pixels of a preview of `count` panels side by side, at scale 1.
 pub fn size(count: usize) -> (usize, usize) {
+    size_of(count, SMALL)
+}
+
+pub fn size_of(count: usize, style: Style) -> (usize, usize) {
     let count = count.max(1);
-    (2 * MARGIN + count * WIDTH * STEP + (count - 1) * PANEL_GAP, 2 * MARGIN + HEIGHT * STEP)
+    let (step, margin) = (style.step, style.margin);
+    (2 * margin + count * WIDTH * step + (count - 1) * style.gap, 2 * margin + HEIGHT * step)
 }
 
 /// Panels side by side, `scale` pixels per point (2 looks sharp on most laptop screens).
 pub fn render(panels: &[Levels], scale: usize) -> Image {
-    let (w, h) = size(panels.len());
+    render_styled(panels, scale, SMALL)
+}
+
+pub fn render_styled(panels: &[Levels], scale: usize, style: Style) -> Image {
+    let Style { dot, step, margin, gap } = style;
+    let (w, h) = size_of(panels.len(), style);
     let (w, h) = (w * scale, h * scale);
     let mut buffer = SharedPixelBuffer::<Rgba8Pixel>::new(w as u32, h as u32);
     let pixels = buffer.make_mut_bytes();
@@ -56,15 +85,15 @@ pub fn render(panels: &[Levels], scale: usize) -> Image {
         px.copy_from_slice(&[BACKGROUND[0], BACKGROUND[1], BACKGROUND[2], 255]);
     }
     let s = scale as f64;
-    let radius = DOT * s / 2.0;
-    let span = (DOT * s).ceil() as usize + 1;
+    let radius = dot * s / 2.0;
+    let span = (dot * s).ceil() as usize + 1;
     for (p, panel) in panels.iter().enumerate() {
-        let x0 = MARGIN + p * (WIDTH * STEP + PANEL_GAP);
+        let x0 = margin + p * (WIDTH * step + gap);
         for (x, col) in panel.iter().enumerate() {
             for (y, level) in col.iter().enumerate() {
                 let color = led_color(*level);
-                let left = (x0 + x * STEP) * scale;
-                let top = (MARGIN + y * STEP) * scale;
+                let left = (x0 + x * step) * scale;
+                let top = (margin + y * step) * scale;
                 let (cx, cy) = (left as f64 + radius, top as f64 + radius);
                 for py in top..(top + span).min(h) {
                     for px in left..(left + span).min(w) {

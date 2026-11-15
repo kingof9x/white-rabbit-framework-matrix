@@ -6175,6 +6175,7 @@ dependencies = [
  "sha2",
  "slint",
  "slint-build",
+ "sysinfo",
  "ureq",
  "windows-sys 0.60.2",
  "wr-core",

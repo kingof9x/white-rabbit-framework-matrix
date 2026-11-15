@@ -1,0 +1,421 @@
+// System monitor: the layout editor. Apps on the left, the two panels with their pages in the middle,
+// the selected app's settings on the right, and the buttons that apply the layout below.
+// Drag an app onto a panel, or select a slot and double-click an app.
+import { Theme } from "../theme.slint";
+import { App } from "../state.slint";
+import { Group, Hint, Body, Status, CheckBox, Slider, AccentButton, Button, SectionTitle } from "../widgets.slint";
+import { ComboBox, LineEdit, ScrollView, ListView } from "std-widgets.slint";
+
+export struct AppRow {
+    key: string,
+    label: string,
+    // "Half panel" or "Whole panel"
+    size: string,
+}
+
+export struct PanelEdit {
+    title: string,
+    ports: [string],
+    port: int,
+    pages: [string],
+    page: int,
+    duration: string,
+    image: image,
+    // The selected page has a whole-panel app
+    full: bool,
+    top-empty: bool,
+    bottom-empty: bool,
+    // "top", "bottom", "full", or "" when the selection is on the other panel
+    selected: string,
+}
+
+// One line of the settings form. kind: bool, choice, text, heading, help, status, button
+export struct Field {
+    kind: string,
+    label: string,
+    help: string,
+    checked: bool,
+    options: [string],
+    index: int,
+    text: string,
+}
+
+export global EditorPage {
+    in property <[AppRow]> apps;
+    in-out property <int> chosen-app: -1;
+    in property <string> app-help: "Drag an app onto a panel. Half-panel apps go in the top or bottom half; whole-panel apps fill the page.";
+    in property <PanelEdit> left;
+    in property <PanelEdit> right;
+    in property <string> settings-title: "No app selected";
+    in property <string> settings-help: "Drag an app from the list on the left onto a panel, or select a slot and double-click an app.";
+    in property <[Field]> fields;
+    in-out property <bool> follow-screen: true;
+    in-out property <float> brightness: 100;
+    in-out property <bool> off-with-lid: true;
+    in-out property <bool> off-when-unused: true;
+    in property <bool> show-power: true;
+    in property <string> status;
+    in-out property <int> send-target;
+    in property <[string]> presets: ["Classic monitor"];
+
+    callback app-chosen(int);
+    // An app (by its row) dropped on a panel (0 left, 1 right) in a slot ("top", "bottom")
+    callback place(int, int, string);
+    // Double-clicked: into the selected slot
+    callback place-selected(int);
+    callback slot-clicked(int, string);
+    callback page-chosen(int, int);
+    callback duration-edited(int, string);
+    callback add-page(int);
+    callback remove-page(int);
+    callback move-page(int, int);
+    callback clear-slot(int);
+    callback port-chosen(int, int);
+    callback field-toggled(int, bool);
+    callback field-chosen(int, int);
+    callback field-edited(int, string);
+    callback field-button(int);
+    callback brightness-changed(bool, float);
+    callback power-changed(string, bool);
+    callback identify();
+    callback swap();
+    callback send-preview();
+    callback resume();
+    callback apply();
+    callback revert();
+    callback preset(int);
+    callback start-monitor();
+}
+
+component Label inherits Text {
+    color: Theme.text;
+    font-size: Theme.body;
+    vertical-alignment: center;
+}
+
+// A dashed-looking outline of a slot on the panel picture
+component SlotOutline inherits Rectangle {
+    in property <bool> selected;
+    in property <bool> drop;
+    in property <string> hint;
+    border-width: selected || drop ? 2px : 1px;
+    border-color: drop ? #7bd88f : selected ? #4c9aff : #5a5a5a;
+    border-radius: 3px;
+    if hint != "": Text {
+        text: hint;
+        color: #b0b0b0;
+        font-size: Theme.caption;
+        wrap: word-wrap;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        width: parent.width - 12px;
+    }
+}
+
+export component PanelView inherits VerticalLayout {
+    in property <PanelEdit> panel;
+    in property <int> side;
+    // Where a dragged app would go now ("top", "bottom", "full"), or ""
+    in property <string> drop-hint;
+    out property <length> canvas-x: canvas.absolute-position.x;
+    out property <length> canvas-y: canvas.absolute-position.y;
+    out property <length> canvas-w: canvas.width;
+    out property <length> canvas-h: canvas.height;
+    spacing: 6px;
+    width: 196px;
+    alignment: start;
+
+    Text { text: panel.title; color: Theme.text; font-size: Theme.body; font-weight: 600; }
+    ComboBox {
+        model: panel.ports;
+        current-index: panel.port;
+        selected => { EditorPage.port-chosen(side, self.current-index); }
+    }
+    HorizontalLayout {
+        alignment: center;
+        canvas := Rectangle {
+            width: 119px;
+            height: 394px;
+            background: #111111;
+            border-radius: 4px;
+            Image { source: panel.image; width: parent.width; height: parent.height; }
+            // Where the halves are: the boundary is between rows 16 and 17
+            property <length> middle: (10px + 16.5 * 11px) - 1px;
+            if panel.full || drop-hint == "full": SlotOutline {
+                x: 3px; y: 3px; width: parent.width - 6px; height: parent.height - 6px;
+                selected: panel.selected != "";
+                drop: drop-hint != "";
+            }
+            if !panel.full && drop-hint != "full": SlotOutline {
+                x: 3px; y: 3px; width: parent.width - 6px; height: middle - 3px;
+                selected: panel.selected == "top";
+                drop: drop-hint == "top";
+                hint: panel.top-empty ? "Drop an app here" : "";
+            }
+            if !panel.full && drop-hint != "full": SlotOutline {
+                x: 3px; y: middle; width: parent.width - 6px; height: parent.height - middle - 3px;
+                selected: panel.selected == "bottom";
+                drop: drop-hint == "bottom";
+                hint: panel.bottom-empty ? "Drop an app here" : "";
+            }
+            TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    EditorPage.slot-clicked(side, panel.full ? "full" : self.mouse-y < parent.middle ? "top" : "bottom");
+                }
+            }
+        }
+    }
+    Text { text: "Pages (shown in turn)"; color: Theme.text2; font-size: Theme.caption; }
+    Rectangle {
+        height: 104px;
+        border-width: 1px;
+        border-color: Theme.control-border;
+        border-radius: Theme.small-radius;
+        background: Theme.control;
+        ListView {
+            for line[i] in panel.pages: Rectangle {
+                height: 24px;
+                background: i == panel.page ? Theme.selected : row-ta.has-hover ? Theme.hover : transparent;
+                row-ta := TouchArea { clicked => { EditorPage.page-chosen(side, i); } }
+                Text {
+                    x: 6px;
+                    width: parent.width - 12px;
+                    text: line;
+                    color: Theme.text;
+                    font-size: Theme.caption;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+        }
+    }
+    HorizontalLayout {
+        spacing: 3px;
+        Button { text: "Add"; width: 48px; clicked => { EditorPage.add-page(side); } }
+        Button { text: "Remove"; width: 72px; clicked => { EditorPage.remove-page(side); } }
+        Button { text: "▲"; width: 34px; accessible-label: "Move page up"; clicked => { EditorPage.move-page(side, -1); } }
+        Button { text: "▼"; width: 34px; accessible-label: "Move page down"; clicked => { EditorPage.move-page(side, 1); } }
+    }
+    HorizontalLayout {
+        spacing: 6px;
+        Label { text: "Show for"; font-size: Theme.caption; }
+        LineEdit {
+            width: 60px;
+            text: panel.duration;
+            input-type: number;
+            edited(t) => { EditorPage.duration-edited(side, t); }
+        }
+        Label { text: "seconds"; font-size: Theme.caption; }
+    }
+    HorizontalLayout {
+        alignment: start;
+        Button { text: "Clear selected slot"; clicked => { EditorPage.clear-slot(side); } }
+    }
+}
+
+component FieldView inherits VerticalLayout {
+    in property <Field> field;
+    in property <int> index;
+    spacing: 2px;
+    if field.kind == "heading": Text { text: field.label; color: Theme.text; font-size: Theme.body; font-weight: 600; wrap: word-wrap; }
+    if field.kind == "bool": CheckBox {
+        text: field.label;
+        checked: field.checked;
+        toggled(on) => { EditorPage.field-toggled(index, on); }
+    }
+    if field.kind == "choice" || field.kind == "text": Text { text: field.label; color: Theme.text; font-size: Theme.body; wrap: word-wrap; }
+    if field.kind == "choice": ComboBox {
+        model: field.options;
+        current-index: field.index;
+        selected => { EditorPage.field-chosen(index, self.current-index); }
+    }
+    if field.kind == "text": LineEdit {
+        text: field.text;
+        edited(t) => { EditorPage.field-edited(index, t); }
+    }
+    if field.kind == "button": HorizontalLayout {
+        alignment: start;
+        Button { text: field.label; clicked => { EditorPage.field-button(index); } }
+    }
+    if field.kind == "status": Status { text: field.text; }
+    if field.help != "": Hint { text: field.help; }
+}
+
+export component EditorView inherits Rectangle {
+    // Dragging an app from the list
+    property <int> drag-row: -1;
+    property <bool> dragging;
+    property <length> drag-x;
+    property <length> drag-y;
+    property <length> press-x;
+    property <length> press-y;
+
+    function over(x: length, y: length, w: length, h: length) -> bool {
+        return dragging && drag-x >= x && drag-x < x + w && drag-y >= y && drag-y < y + h;
+    }
+    function slot-at(p: PanelEdit, top: length, h: length, full: bool) -> string {
+        return full ? "full" : drag-y - top < (10px + 16.5 * 11px) ? "top" : "bottom";
+    }
+    property <bool> drag-full: drag-row >= 0 && drag-row < EditorPage.apps.length && EditorPage.apps[drag-row].size == "Whole panel";
+    property <string> left-hint: over(left.canvas-x, left.canvas-y, left.canvas-w, left.canvas-h) ? slot-at(EditorPage.left, left.canvas-y, left.canvas-h, drag-full) : "";
+    property <string> right-hint: over(right.canvas-x, right.canvas-y, right.canvas-w, right.canvas-h) ? slot-at(EditorPage.right, right.canvas-y, right.canvas-h, drag-full) : "";
+
+    VerticalLayout {
+    spacing: 8px;
+    HorizontalLayout {
+        vertical-stretch: 1;
+        spacing: 14px;
+        // The apps, brightness and turning off
+        VerticalLayout {
+            width: 196px;
+            spacing: 6px;
+            SectionTitle { text: "Apps"; vertical-stretch: 0; }
+            Rectangle {
+                vertical-stretch: 1;
+                min-height: 160px;
+                border-width: 1px;
+                border-color: Theme.control-border;
+                border-radius: Theme.small-radius;
+                background: Theme.control;
+                ListView {
+                    for row[i] in EditorPage.apps: Rectangle {
+                        height: 30px;
+                        background: i == EditorPage.chosen-app ? Theme.selected : app-ta.has-hover ? Theme.hover : transparent;
+                        app-ta := TouchArea {
+                            mouse-cursor: dragging ? grabbing : grab;
+                            pointer-event(e) => {
+                                if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                                    drag-row = i;
+                                    press-x = self.absolute-position.x + self.mouse-x;
+                                    press-y = self.absolute-position.y + self.mouse-y;
+                                    EditorPage.chosen-app = i;
+                                    EditorPage.app-chosen(i);
+                                }
+                                if e.kind == PointerEventKind.up && e.button == PointerEventButton.left {
+                                    if dragging {
+                                        if left-hint != "" { EditorPage.place(i, 0, left-hint); }
+                                        if right-hint != "" { EditorPage.place(i, 1, right-hint); }
+                                    }
+                                    dragging = false;
+                                    drag-row = -1;
+                                }
+                            }
+                            moved => {
+                                drag-x = self.absolute-position.x + self.mouse-x;
+                                drag-y = self.absolute-position.y + self.mouse-y;
+                                if self.pressed && !dragging && abs(drag-x - press-x) + abs(drag-y - press-y) > 6px {
+                                    dragging = true;
+                                }
+                            }
+                            double-clicked => { EditorPage.place-selected(i); }
+                        }
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            Text { text: row.label; color: Theme.text; font-size: Theme.body; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                            Text { text: row.size; color: Theme.text2; font-size: Theme.caption; vertical-alignment: center; }
+                        }
+                    }
+                }
+            }
+ VerticalLayout {
+            vertical-stretch: 0;
+            spacing: 6px;
+            Hint { text: EditorPage.app-help; }
+            Rectangle { height: 6px; }
+            HorizontalLayout {
+                Text { text: "Brightness"; color: Theme.text; font-size: Theme.body; horizontal-stretch: 1; }
+                Text { text: EditorPage.follow-screen ? "Auto" : round(EditorPage.brightness) + "%"; color: Theme.text2; font-size: Theme.body; }
+            }
+            Slider {
+                minimum: 0;
+                maximum: 100;
+                value <=> EditorPage.brightness;
+                moved => {
+                    EditorPage.follow-screen = false;
+                    EditorPage.brightness-changed(false, EditorPage.brightness);
+                }
+            }
+            CheckBox {
+                text: "Follow screen brightness";
+                checked <=> EditorPage.follow-screen;
+                toggled(on) => { EditorPage.brightness-changed(on, EditorPage.brightness); }
+            }
+            if EditorPage.show-power: CheckBox {
+                text: "Turn off when lid closes";
+                checked <=> EditorPage.off-with-lid;
+                toggled(on) => { EditorPage.power-changed("turn_off_with_lid", on); }
+            }
+            if EditorPage.show-power: CheckBox {
+                text: "Turn off when docked";
+                checked <=> EditorPage.off-when-unused;
+                toggled(on) => { EditorPage.power-changed("turn_off_when_screen_unused", on); }
+            }
+            if EditorPage.show-power: Hint { text: "When the laptop's own screen isn't used: docked, or Windows set to second screen only."; }
+        }
+        }
+        left := PanelView { panel: EditorPage.left; side: 0; drop-hint: root.left-hint; }
+        right := PanelView { panel: EditorPage.right; side: 1; drop-hint: root.right-hint; }
+        // The selected app's settings
+        VerticalLayout {
+            horizontal-stretch: 1;
+            min-width: 200px;
+            spacing: 4px;
+            Text { text: EditorPage.settings-title; color: Theme.text; font-size: Theme.body-large; font-weight: 600; wrap: word-wrap; }
+            Hint { text: EditorPage.settings-help; }
+            Rectangle { height: 4px; }
+            ScrollView {
+                vertical-stretch: 1;
+                VerticalLayout {
+                    alignment: start;
+                    spacing: 10px;
+                    padding-right: 10px;
+                    for field[i] in EditorPage.fields: FieldView { field: field; index: i; }
+                }
+            }
+        }
+    }
+    // Saving and showing
+    Rectangle { height: 1px; background: Theme.card-border; }
+    HorizontalLayout {
+        spacing: 6px;
+        Button { text: "Identify panels"; clicked => { EditorPage.identify(); } }
+        Button { text: "Swap left and right"; clicked => { EditorPage.swap(); } }
+        VerticalLayout { alignment: center; Text { text: "  Send preview to"; color: Theme.text; font-size: Theme.body; } }
+        ComboBox {
+            width: 140px;
+            model: ["Both panels", "Left panel", "Right panel"];
+            current-index <=> EditorPage.send-target;
+        }
+        Button { text: "Send preview"; clicked => { EditorPage.send-preview(); } }
+        Button { text: "Resume monitor"; enabled: App.monitor-running; clicked => { EditorPage.resume(); } }
+        Rectangle { horizontal-stretch: 1; }
+    }
+    HorizontalLayout {
+        spacing: 6px;
+        VerticalLayout { alignment: center; horizontal-stretch: 1; Status { text: EditorPage.status; } }
+        if !App.monitor-running: Button { text: "Start monitor"; clicked => { EditorPage.start-monitor(); } }
+        Button { text: "Classic layout"; clicked => { EditorPage.preset(0); } }
+        Button { text: "Revert"; clicked => { EditorPage.revert(); } }
+        AccentButton { text: "Apply to panels"; clicked => { EditorPage.apply(); } }
+    }
+    }
+
+    // The app being dragged
+    if dragging && drag-row >= 0: Rectangle {
+        x: drag-x - root.absolute-position.x + 12px;
+        y: drag-y - root.absolute-position.y + 8px;
+        width: drag-label.preferred-width + 16px;
+        height: 24px;
+        background: Theme.accent;
+        border-radius: 4px;
+        drag-label := Text {
+            text: EditorPage.apps[drag-row].label;
+            color: Theme.on-accent;
+            font-size: Theme.body;
+            vertical-alignment: center;
+            horizontal-alignment: center;
+        }
+    }
+}
