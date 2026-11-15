@@ -113,6 +113,9 @@ fn show_settings(app: &AppWindow, s: &EffectsSettings) {
     page.set_plug_charger(s.plug_charger);
     page.set_plug_headphones(s.plug_headphones);
     page.set_plug_usb(s.plug_usb);
+    page.set_plug_displays(s.plug_displays);
+    page.set_plug_left(s.plug_left);
+    page.set_plug_right(s.plug_right);
     page.set_text_line(s.text_line);
     page.set_text_song(s.text_song);
     page.set_text_charger(s.text_charger);
@@ -307,6 +310,9 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
             new.plug_charger = page.get_plug_charger();
             new.plug_headphones = page.get_plug_headphones();
             new.plug_usb = page.get_plug_usb();
+            new.plug_displays = page.get_plug_displays();
+            new.plug_left = page.get_plug_left();
+            new.plug_right = page.get_plug_right();
             new.text_line = page.get_text_line();
             new.text_song = page.get_text_song();
             new.text_charger = page.get_text_charger();

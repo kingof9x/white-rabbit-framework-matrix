@@ -204,12 +204,14 @@ visualizer code (the water look is newer than this picture).*
 
 Little extras that play over whatever the panels show.
 
-- **Plug-in ripple:** plug in the charger, headphones or any USB device and a
+- **Plug-in ripple:** plug in the charger, headphones, a screen (HDMI or
+  DisplayPort) or any USB device and a
   ripple runs across the panel from that port's side. Unplug it and the
   picture drains out through the port. *Try it* buttons show it without
   plugging anything in, and if White Rabbit guesses the wrong port you can
   tell it the right one; it remembers. If your two panels sit next to each
   other, tick the box and the unplug drains both as one picture.
+  You can turn the effect off for the ports on one side of the laptop.
 - **Text line:** a line of small letters scrolls across the top of both
   panels when a new song starts, the charger goes in or out, or the battery is
   low, or with your own messages, which can keep going round one after

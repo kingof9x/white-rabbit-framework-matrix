@@ -126,6 +126,14 @@ pub struct EffectsSettings {
     pub plug_charger: bool,
     pub plug_headphones: bool,
     pub plug_usb: bool,
+    /// Screens plugged into an HDMI or DisplayPort card. Not in the Python app: only saved when off.
+    #[serde(skip_serializing_if = "is_true")]
+    pub plug_displays: bool,
+    /// The ports on each side of the laptop (a port we can't place always plays). Only saved when off.
+    #[serde(skip_serializing_if = "is_true")]
+    pub plug_left: bool,
+    #[serde(skip_serializing_if = "is_true")]
+    pub plug_right: bool,
     pub port_rows: PortRows,
     /// Ports the user corrected on the Effects tab: {USB location key or "charger": "left-back", ...}.
     pub learned_ports: BTreeMap<String, String>,
@@ -163,6 +171,9 @@ impl Default for EffectsSettings {
             plug_charger: true,
             plug_headphones: true,
             plug_usb: true,
+            plug_displays: true,
+            plug_left: true,
+            plug_right: true,
             port_rows: PortRows::default(),
             learned_ports: BTreeMap::new(),
             text_line: true,
@@ -192,6 +203,9 @@ impl EffectsSettings {
             ("plug_charger", &mut s.plug_charger),
             ("plug_headphones", &mut s.plug_headphones),
             ("plug_usb", &mut s.plug_usb),
+            ("plug_displays", &mut s.plug_displays),
+            ("plug_left", &mut s.plug_left),
+            ("plug_right", &mut s.plug_right),
             ("text_line", &mut s.text_line),
             ("text_song", &mut s.text_song),
             ("text_charger", &mut s.text_charger),
@@ -255,6 +269,10 @@ fn is_false(b: &bool) -> bool {
     !*b
 }
 
+fn is_true(b: &bool) -> bool {
+    *b
+}
+
 /// How the panel goes from one app to the next (and comes back after the unplug drain).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Transition {
@@ -265,6 +283,15 @@ pub enum Transition {
 
 impl EffectsSettings {
     pub const MAX_MESSAGES: usize = 10;
+
+    /// Whether the plug effect plays for a port at this position ("left-back", "right", None...).
+    pub fn plug_side_on(&self, position: Option<&str>) -> bool {
+        match position.map(parse_position).and_then(|(side, _)| side) {
+            Some(Side::Left) => self.plug_left,
+            Some(Side::Right) => self.plug_right,
+            None => true,
+        }
+    }
 
     pub fn transition(&self) -> Transition {
         if self.slide {
@@ -1524,6 +1551,21 @@ mod tests {
         // The one-message test build's setting still loads
         let old = EffectsSettings::from_json(&serde_json::json!({"pinned_message": "Hi"}));
         assert_eq!((old.messages, old.show_messages), (vec!["Hi".to_string()], true));
+    }
+
+    #[test]
+    fn plug_sides_and_screens_settings() {
+        let s = EffectsSettings::from_json(&serde_json::json!({"plug_right": false, "plug_displays": false}));
+        assert!(s.plug_side_on(Some("left-back")));
+        assert!(!s.plug_side_on(Some("right-middle")));
+        assert!(!s.plug_side_on(Some("right")));
+        assert!(s.plug_side_on(None), "a port we can't place still plays");
+        let saved = serde_json::to_value(&s).unwrap();
+        assert_eq!(
+            (saved["plug_right"].clone(), saved["plug_displays"].clone()),
+            (Value::Bool(false), Value::Bool(false))
+        );
+        assert!(saved.get("plug_left").is_none(), "on is the default, so it isn't saved");
     }
 
     #[test]

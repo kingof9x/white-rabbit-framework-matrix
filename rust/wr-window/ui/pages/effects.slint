@@ -9,6 +9,9 @@ export global EffectsPage {
     in-out property <bool> plug-charger;
     in-out property <bool> plug-headphones;
     in-out property <bool> plug-usb;
+    in-out property <bool> plug-displays: true;
+    in-out property <bool> plug-left: true;
+    in-out property <bool> plug-right: true;
     in-out property <bool> text-line;
     in-out property <bool> text-song;
     in-out property <bool> text-charger;
@@ -81,6 +84,12 @@ export component EffectsView inherits HorizontalLayout {
                 CheckBox { text: "the charger"; enabled: EffectsPage.plug-animation; checked <=> EffectsPage.plug-charger; toggled => { EffectsPage.changed(); } }
                 CheckBox { text: "headphones (audio card)"; enabled: EffectsPage.plug-animation; checked <=> EffectsPage.plug-headphones; toggled => { EffectsPage.changed(); } }
                 CheckBox { text: "every other USB device"; enabled: EffectsPage.plug-animation; checked <=> EffectsPage.plug-usb; toggled => { EffectsPage.changed(); } }
+                CheckBox { text: "screens (HDMI, DisplayPort)"; enabled: EffectsPage.plug-animation; checked <=> EffectsPage.plug-displays; toggled => { EffectsPage.changed(); } }
+            }
+            Row {
+                Label { text: "Ports on:"; }
+                CheckBox { text: "the left side of the laptop"; enabled: EffectsPage.plug-animation; checked <=> EffectsPage.plug-left; toggled => { EffectsPage.changed(); } }
+                CheckBox { text: "the right side"; enabled: EffectsPage.plug-animation; checked <=> EffectsPage.plug-right; toggled => { EffectsPage.changed(); } }
             }
             CheckBox { text: "My two LED panels sit next to each other: drain both panels as one picture"; enabled: EffectsPage.plug-animation; checked <=> EffectsPage.panels-together; toggled => { EffectsPage.changed(); } }
             Row {
