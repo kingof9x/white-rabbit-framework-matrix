@@ -121,6 +121,10 @@ fn show_settings(app: &AppWindow, s: &EffectsSettings) {
     page.set_slide(s.slide);
     page.set_fade(s.fade);
     page.set_panels_together(s.panels_together);
+    page.set_pinned(!s.pinned_message.is_empty());
+    if !s.pinned_message.is_empty() {
+        page.set_message(s.pinned_message.clone().into());
+    }
     page.set_full_shades(s.full_shades);
 }
 
@@ -309,6 +313,7 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
             new.slide = page.get_slide();
             new.fade = page.get_fade();
             new.panels_together = page.get_panels_together();
+            new.pinned_message = if page.get_pinned() { page.get_message().trim().to_string() } else { String::new() };
             new.full_shades = page.get_full_shades();
             // The monitor may have learned ports since this page read them
             new.learned_ports = load_settings().learned_ports;

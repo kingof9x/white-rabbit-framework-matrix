@@ -17,6 +17,8 @@ export global EffectsPage {
     in-out property <bool> slide: true;
     in-out property <bool> fade;
     in-out property <bool> panels-together;
+    // Your own message keeps going round until turned off
+    in-out property <bool> pinned;
     in-out property <bool> full-shades;
     // "Left back" ... "Right front"
     in property <[string]> positions;
@@ -123,10 +125,16 @@ export component EffectsView inherits HorizontalLayout {
                 message := LineEdit {
                     width: 280px;
                     text <=> EffectsPage.message;
-                    accepted => { EffectsPage.say(self.text); }
+                    // While it's showing, Enter shows the new words instead
+                    accepted => { if EffectsPage.pinned { EffectsPage.changed(); } }
                 }
-                Button { text: "Show it now"; clicked => { EffectsPage.say(message.text); } }
+                Button {
+                    text: EffectsPage.pinned ? "Stop showing it" : "Show it";
+                    enabled: EffectsPage.text-line && (EffectsPage.pinned || EffectsPage.message != "");
+                    clicked => { EffectsPage.pinned = !EffectsPage.pinned; EffectsPage.changed(); }
+                }
             }
+            Hint { text: EffectsPage.pinned ? "Your message keeps going round on the panels until you stop it. Other messages still get their turn." : "Show it keeps your message going round on the panels until you stop it."; }
             Row {
                 Label { text: "Scroll speed:"; }
                 Slider {
@@ -160,7 +168,7 @@ export component EffectsView inherits HorizontalLayout {
             width: 230px;
             title: "Preview";
             LedImage { source: EffectsPage.preview; width: 182px; height: 292px; }
-            Hint { text: "Left panel and right panel. Plays what Plug in, Unplug and Show it now do."; horizontal-alignment: center; }
+            Hint { text: "Left panel and right panel. Plays what Plug in, Unplug and Show it do."; horizontal-alignment: center; }
         }
     }
 }

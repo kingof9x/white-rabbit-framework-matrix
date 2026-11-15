@@ -136,6 +136,10 @@ pub struct EffectsSettings {
     pub text_battery: bool,
     /// 1-10.
     pub text_speed: i64,
+    /// Your own message kept going round on the text line until turned off; empty when off. Not in
+    /// the Python app, so only saved when set.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub pinned_message: String,
     /// Slide the next app in from the bottom when the panel changes app, instead of cutting to it.
     pub slide: bool,
     /// With `slide` off: fade from one app to the next instead of cutting. Also how the picture comes
@@ -164,6 +168,7 @@ impl Default for EffectsSettings {
             text_charger: true,
             text_battery: true,
             text_speed: 5,
+            pinned_message: String::new(),
             slide: true,
             fade: false,
             panels_together: false,
@@ -196,6 +201,9 @@ impl EffectsSettings {
             if let Some(v) = get(key) {
                 *flag = truthy(v);
             }
+        }
+        if let Some(Value::String(text)) = get("pinned_message") {
+            s.pinned_message = text.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(120).collect();
         }
         if let Some(n) = get("text_speed").and_then(py_int) {
             s.text_speed = n.clamp(1.0, 10.0) as i64;
@@ -882,6 +890,8 @@ pub struct TextLine {
     current: Option<(Vec<TextColumn>, f64)>,
     /// Columns a second.
     pub speed: f64,
+    /// A message shown again and again whenever nothing else is waiting, until it is unpinned.
+    pinned: Option<String>,
 }
 
 impl Default for TextLine {
@@ -895,7 +905,7 @@ impl TextLine {
     const QUEUE: usize = 8;
 
     pub fn new() -> TextLine {
-        TextLine { queue: VecDeque::new(), current: None, speed: 18.0 }
+        TextLine { queue: VecDeque::new(), current: None, speed: 18.0, pinned: None }
     }
 
     /// Queues a message, its spaces squeezed to one and cut to 120 letters.
@@ -914,6 +924,24 @@ impl TextLine {
         self.speed = 6.0 + 3.0 * setting.clamp(1, 10) as f64;
     }
 
+    /// Keeps `text` going round until it is unpinned (None or empty).
+    pub fn pin(&mut self, text: Option<&str>) {
+        let text = text.map(|t| t.split_whitespace().collect::<Vec<_>>().join(" ")).filter(|t| !t.is_empty());
+        if text == self.pinned {
+            return;
+        }
+        self.pinned = text;
+        // Turned off: stop it now rather than letting it scroll to the end
+        if self.pinned.is_none() {
+            self.current = None;
+        }
+    }
+
+    /// The next message: one waiting, else the pinned one.
+    fn next(&mut self) -> Option<String> {
+        self.queue.pop_front().or_else(|| self.pinned.clone())
+    }
+
     /// Drops what is showing and waiting.
     pub fn clear(&mut self) {
         self.queue.clear();
@@ -923,7 +951,7 @@ impl TextLine {
     /// The text line across all panels as TEXT_ROWS rows of `width` 0/1 values, or None when it is idle.
     pub fn strip(&mut self, width: usize, now: f64) -> Option<Vec<Vec<u8>>> {
         if self.current.is_none() {
-            let next = self.queue.pop_front()?;
+            let next = self.next()?;
             self.current = Some((text_columns(&next), now));
         }
         let (cols, start) = self.current.as_ref().unwrap();
@@ -931,7 +959,7 @@ impl TextLine {
         if x + (cols.len() as f64) < 0.0 {
             // Gone off the left edge: the next message, if any
             self.current = None;
-            let next = self.queue.pop_front()?;
+            let next = self.next()?;
             self.current = Some((text_columns(&next), now));
             x = width as f64;
         }
@@ -950,7 +978,7 @@ impl TextLine {
     }
 
     pub fn active(&self) -> bool {
-        self.current.is_some() || !self.queue.is_empty()
+        self.current.is_some() || !self.queue.is_empty() || self.pinned.is_some()
     }
 }
 
@@ -1082,6 +1110,8 @@ impl Effects {
         if !self.settings.text_line {
             self.text.clear();
         }
+        let pinned = self.settings.pinned_message.clone();
+        self.text.pin(Some(pinned.as_str()).filter(|t| self.settings.text_line && !t.is_empty()));
     }
 
     pub fn panel_present(&mut self, side: Side, present: bool) {
@@ -1429,6 +1459,36 @@ mod tests {
         assert_eq!(e.player(Side::Left).phase, Some(Phase::Empty));
         assert_eq!(e.player(Side::Right).phase, Some(Phase::Empty));
         assert!(e.wide.is_none());
+    }
+
+    #[test]
+    fn pinned_message_goes_round_until_unpinned() {
+        let mut t = TextLine::new();
+        t.pin(Some("HI"));
+        assert!(t.active());
+        let width = 2 * WIDTH + GAP;
+        // Long enough to scroll off twice: it comes back each time
+        let mut shown = 0;
+        let mut now = 0.0;
+        while now < 5.0 {
+            if t.strip(width, now).is_some_and(|rows| rows.iter().any(|r| r.contains(&1))) {
+                shown += 1;
+            }
+            now += 0.05;
+        }
+        assert!(shown > 50, "the pinned message should keep showing");
+        t.pin(None);
+        assert!(!t.active());
+        assert!(t.strip(width, now).is_none());
+
+        let mut e = Effects::new();
+        e.configure(EffectsSettings::from_json(&serde_json::json!({"pinned_message": "  Back   soon "})));
+        assert_eq!(e.settings.pinned_message, "Back soon");
+        assert!(e.text.active());
+        e.configure(EffectsSettings::from_json(
+            &serde_json::json!({"pinned_message": "Back soon", "text_line": false}),
+        ));
+        assert!(!e.text.active());
     }
 
     #[test]
