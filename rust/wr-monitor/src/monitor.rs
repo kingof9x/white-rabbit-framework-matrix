@@ -8,13 +8,13 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use wr_core::layout::{Layout, Rotation};
-use wr_core::ports::Pins;
 use wr_core::queue::{FrameQueue, Item};
 use wr_core::render::{brightness_values, render_ids, render_panel, Readings};
 use wr_core::settings::Settings;
 use wr_core::Grid;
+use wr_panel::ports::Pins;
 
-use crate::{error, info, warn};
+use wr_core::{error, info, warn};
 
 /// What the tray, the shortcuts and the power events change, read by the main loop.
 #[derive(Default)]

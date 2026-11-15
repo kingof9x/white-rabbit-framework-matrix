@@ -3,6 +3,7 @@
 
 use std::io::{Error, Result, Write};
 use std::ptr::{null, null_mut};
+use std::time::Duration;
 
 use windows_sys::core::GUID;
 use windows_sys::Win32::Devices::Communication::{
@@ -10,13 +11,13 @@ use windows_sys::Win32::Devices::Communication::{
 };
 use windows_sys::Win32::Devices::DeviceAndDriverInstallation::*;
 use windows_sys::Win32::Foundation::{CloseHandle, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE};
-use windows_sys::Win32::Storage::FileSystem::{CreateFileW, WriteFile, OPEN_EXISTING};
+use windows_sys::Win32::Storage::FileSystem::{CreateFileW, ReadFile, WriteFile, OPEN_EXISTING};
 use windows_sys::Win32::System::Registry::{RegCloseKey, RegQueryValueExW, KEY_READ};
 
-use wr_core::ports::{location_from_paths, usb_ids, PortInfo};
-use wr_core::protocol::BAUD_RATE;
+use crate::ports::{location_from_paths, usb_ids, PortInfo};
+use crate::protocol::BAUD_RATE;
 
-use crate::panel::PortSystem;
+use crate::hub::{Port, PortSystem};
 
 pub fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
@@ -192,6 +193,43 @@ impl Write for SerialPort {
     }
 }
 
+impl Port for SerialPort {
+    fn write_all(&mut self, data: &[u8]) -> Result<()> {
+        Write::write_all(self, data)
+    }
+
+    fn read(&mut self, size: usize, timeout: Duration) -> Result<Vec<u8>> {
+        let mut buf = vec![0u8; size];
+        let mut read = 0u32;
+        // SAFETY: plain Win32 calls on our own handle; the buffer and its length are passed together.
+        unsafe {
+            // Wait up to `timeout` in all for `size` bytes, then give back what came
+            let timeouts = COMMTIMEOUTS {
+                ReadIntervalTimeout: 0,
+                ReadTotalTimeoutMultiplier: 0,
+                ReadTotalTimeoutConstant: timeout.as_millis().clamp(1, u32::MAX as u128) as u32,
+                WriteTotalTimeoutMultiplier: 0,
+                WriteTotalTimeoutConstant: 2000,
+            };
+            SetCommTimeouts(self.handle, &timeouts);
+            if ReadFile(self.handle, buf.as_mut_ptr(), size as u32, &mut read, null_mut()) == 0 {
+                return Err(Error::last_os_error());
+            }
+        }
+        buf.truncate(read as usize);
+        Ok(buf)
+    }
+
+    fn clear_input(&mut self) -> Result<()> {
+        // SAFETY: plain Win32 call on our own handle.
+        if unsafe { PurgeComm(self.handle, 0x0008) } == 0 {
+            // PURGE_RXCLEAR
+            return Err(Error::last_os_error());
+        }
+        Ok(())
+    }
+}
+
 impl Drop for SerialPort {
     fn drop(&mut self) {
         // SAFETY: the handle came from CreateFileW and is closed once.
@@ -208,7 +246,7 @@ impl PortSystem for WindowsPorts {
         list_ports()
     }
 
-    fn open(&self, name: &str) -> Result<Box<dyn Write + Send>> {
+    fn open(&self, name: &str) -> Result<Box<dyn Port>> {
         Ok(Box::new(SerialPort::open(name)?))
     }
 }

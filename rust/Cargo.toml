@@ -1,8 +1,10 @@
 # The Rust version of White Rabbit's monitor (see the "Rust rewrite" plan).
-#   wr-core     drawing, settings and layout, the same on every platform (tested against tests/golden/)
+#   wr-core     drawing, settings, layout and the log, the same on every platform (tested against tests/golden/)
+#   wr-panel    talking to the LED panels: the serial protocol, finding the panels, a panel's drawing thread
+#   wr-music    the music visualizer: looks, sound analysis, capturing the sound (Windows)
 #   wr-monitor  the Windows program: panels, tray menu, lid and sleep, keyboard shortcuts
 [workspace]
-members = ["wr-core", "wr-monitor"]
+members = ["wr-core", "wr-panel", "wr-monitor"]
 resolver = "2"
 
 [workspace.package]

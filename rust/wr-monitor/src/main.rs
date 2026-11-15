@@ -5,9 +5,7 @@
 #![cfg_attr(not(windows), allow(dead_code))]
 
 mod icon;
-mod log;
 mod monitor;
-mod panel;
 mod paths;
 
 #[cfg(windows)]
@@ -16,8 +14,6 @@ mod app;
 mod sensors;
 #[cfg(windows)]
 mod ui;
-#[cfg(windows)]
-mod winports;
 
 #[cfg(windows)]
 fn main() {

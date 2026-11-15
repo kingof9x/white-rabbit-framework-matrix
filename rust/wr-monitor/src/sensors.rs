@@ -13,7 +13,7 @@ use wr_core::layout::App;
 use wr_core::monitors::{core_groups, CpuSmoother, History};
 use wr_core::render::Readings;
 
-use crate::warn;
+use wr_core::warn;
 
 pub struct WindowsReadings {
     cores: System,

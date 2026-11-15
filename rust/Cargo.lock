@@ -839,6 +839,7 @@ dependencies = [
 name = "wr-core"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -855,6 +856,15 @@ dependencies = [
  "sysinfo",
  "windows-sys",
  "wmi",
+ "wr-core",
+ "wr-panel",
+]
+
+[[package]]
+name = "wr-panel"
+version = "0.1.0"
+dependencies = [
+ "windows-sys",
  "wr-core",
 ]
 
