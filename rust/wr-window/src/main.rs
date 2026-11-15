@@ -15,6 +15,7 @@ slint::include_modules!();
 mod app;
 mod commands;
 mod dialogs;
+mod drawings;
 mod external;
 mod font;
 mod formula;
@@ -244,6 +245,12 @@ pub fn shoot_action(ui: &AppWindow, _ctx: &Rc<app::Ctx>, action: &str) {
             let m = ui.global::<MathPage>();
             m.set_effect(a[12..].parse().unwrap_or(0));
             m.invoke_start_effect();
+        }
+        // draw-open:N opens a saved drawing on the Draw page
+        a if a.starts_with("draw-open:") => {
+            let d = ui.global::<DrawPage>();
+            d.set_chosen(a[10..].parse().unwrap_or(0));
+            d.invoke_open();
         }
         "math-graph" => ui.global::<MathPage>().invoke_show_graph(),
         // game:N starts a game on the Games & patterns page

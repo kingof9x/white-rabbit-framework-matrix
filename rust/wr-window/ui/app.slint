@@ -15,8 +15,9 @@ import { EditorPage, EditorView, AppRow, PanelEdit, Field } from "pages/monitor.
 import { EffectsPage, EffectsView, TeachDialog } from "pages/effects.slint";
 import { GamesPage, GamesView } from "pages/games.slint";
 import { MathPage, MathView } from "pages/math.slint";
+import { DrawPage, DrawView } from "pages/draw.slint";
 
-export { Theme, App, PanelRow, EditorPage, AppRow, PanelEdit, Field, MusicPage, StartupPage, EffectsPage, GamesPage, MathPage, FirmwarePage, ShortcutsPage, ShortcutRow, AboutPage, Credit }
+export { Theme, App, PanelRow, EditorPage, AppRow, PanelEdit, Field, MusicPage, StartupPage, EffectsPage, GamesPage, MathPage, DrawPage, FirmwarePage, ShortcutsPage, ShortcutRow, AboutPage, Credit }
 
 component NavItem inherits Rectangle {
     in property <image> icon;
@@ -121,7 +122,7 @@ export component AppWindow inherits Window {
     }
     // Pages that fill the window themselves, instead of scrolling
     function full-page(p: string) -> bool {
-        return p == "monitor" || p == "draw";
+        return p == "monitor";
     }
 
     property <string> page: App.page;
@@ -218,6 +219,7 @@ export component AppWindow inherits Window {
                     if App.page == "music": MusicView { }
                     if App.page == "games": GamesView { }
                     if App.page == "math": MathView { }
+                    if App.page == "draw": DrawView { }
                 }
             }
             if full-page(App.page): VerticalLayout {

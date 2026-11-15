@@ -1,6 +1,7 @@
 //! The pages of the window, one module each: what each page shows and what its buttons do.
 
 pub mod about;
+pub mod draw;
 pub mod effects;
 pub mod firmware;
 pub mod games;
@@ -22,6 +23,7 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
     music::wire(ctx, app);
     games::wire(ctx, app);
     math::wire(ctx, app);
+    draw::wire(ctx, app);
     monitor::editor::wire(ctx, app);
     shortcuts::wire(ctx, app);
     about::wire(ctx, app);
