@@ -20,6 +20,8 @@ export global EffectsPage {
     in-out property <bool> slide: true;
     in-out property <bool> fade;
     in-out property <bool> panels-together;
+    // "" for slide / fade / cut (the two flags above), or "rain" or "zipper"
+    in-out property <string> transition-look;
     // The animation choices ("Drain", "Power surge" ...) and the one picked, for unplugging and plugging in
     in property <[string]> unplug-looks;
     in-out property <int> unplug-look;
@@ -54,6 +56,7 @@ export global EffectsPage {
 
     callback changed();
     callback try-plug(bool);
+    callback try-transition();
     callback learn();
     callback say(string);
     callback message-edited(int, string);
@@ -83,7 +86,7 @@ export component EffectsView inherits HorizontalLayout {
         spacing: 12px;
         Group {
             title: "When something is plugged in or out";
-            help: "The panel next to the port plays an animation when you plug something in or unplug it. After an unplug animation the panel goes back to what it was showing.";
+            help: "The panel next to the port plays an animation when you plug something in or unplug it. Power surge and ripple ring run across both panels. After an unplug animation the picture comes back with the app transition (App transition effects page).";
             CheckBox {
                 text: "Play the plug animations";
                 checked <=> EffectsPage.plug-animation;
@@ -155,13 +158,6 @@ export component EffectsView inherits HorizontalLayout {
                     Hint { text: "Windows doesn't say which port is which, so plug something into each one once."; }
                 }
             }
-        }
-        Group {
-            title: "Changing apps";
-            RadioButton { text: "Slide the next app in from the bottom"; checked: EffectsPage.slide; clicked => { EffectsPage.slide = true; EffectsPage.fade = false; EffectsPage.changed(); } }
-            RadioButton { text: "Fade into the next app"; checked: !EffectsPage.slide && EffectsPage.fade; clicked => { EffectsPage.slide = false; EffectsPage.fade = true; EffectsPage.changed(); } }
-            RadioButton { text: "Cut straight to the next app"; checked: !EffectsPage.slide && !EffectsPage.fade; clicked => { EffectsPage.slide = false; EffectsPage.fade = false; EffectsPage.changed(); } }
-            Hint { text: "The picture also comes back this way after the unplug animation."; }
         }
         Group {
             title: "Dimming";

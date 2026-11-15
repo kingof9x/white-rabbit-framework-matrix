@@ -67,11 +67,20 @@ impl Bridge {
         Ok(Map::new())
     }
 
-    /// "hold": the monitor stops drawing on these panels until they are released.
+    /// "hold": the monitor stops drawing on these panels until they are released. The reply also has
+    /// the monitor's last frame on each one, column by column as hex, so the window can play the app
+    /// transition from it.
     pub fn hold(&self, message: &Map<String, Value>) -> Map<String, Value> {
         let owner = message.get("pid").and_then(Value::as_u64).and_then(|p| u32::try_from(p).ok());
-        let held = self.panels.hub().hold(&port_names(message.get("ports")), owner);
-        json!({"held": held}).as_object().unwrap().clone()
+        let names = port_names(message.get("ports"));
+        let mut frames = Map::new();
+        for name in &names {
+            if let Some(frame) = self.panels.hub().last_frame(name) {
+                frames.insert(name.clone(), json!(to_hex(&frame.concat())));
+            }
+        }
+        let held = self.panels.hub().hold(&names, owner);
+        json!({"held": held, "frames": frames}).as_object().unwrap().clone()
     }
 
     /// "release": these panels (all when "ports" is null) go back to the monitor. Returns the ones
@@ -207,7 +216,11 @@ pub mod tests {
     #[test]
     fn hold_release_and_closed_windows() {
         let (_, bridge) = bridge();
-        assert_eq!(bridge.hold(&obj(json!({"ports": ["COM4"], "pid": 7}))), obj(json!({"held": ["com4"]})));
+        // No frames: nothing has been drawn on COM4
+        assert_eq!(
+            bridge.hold(&obj(json!({"ports": ["COM4"], "pid": 7}))),
+            obj(json!({"held": ["com4"], "frames": {}}))
+        );
         bridge.hold(&obj(json!({"ports": ["COM5"], "pid": 8})));
         assert!(bridge.release_orphans(|pid| pid == 8));
         assert_eq!(bridge.release(None), vec!["com5"]);

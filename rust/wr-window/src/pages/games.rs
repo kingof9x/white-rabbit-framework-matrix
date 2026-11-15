@@ -166,8 +166,11 @@ fn play(
     parts: crate::app::Parts,
 ) {
     let sender = parts.sender.clone();
+    let mut lead = None;
     if !panels.is_empty() {
         parts.lender.borrow(&sender, &panels);
+        // The app transition from what the monitor showed
+        lead = crate::lead_in::LeadIn::new(&parts.lender.take_last_frames(&panels));
         let p2 = parts.clone();
         Ctx::later(&parts.ui, move |app| p2.update_bar(app));
         for p in &panels {
@@ -192,9 +195,17 @@ fn play(
         last = now;
         let frame = session.frame();
         let changed = sent.as_ref().map(|s| s.bytes() != frame.bytes()).unwrap_or(true);
-        if changed {
+        let leading = lead.as_ref().is_some_and(|l: &crate::lead_in::LeadIn| l.active());
+        if changed || leading {
             if !panels.is_empty() {
-                if let Err(e) = sender.write_many(&frame_writes(&frame, &panels)) {
+                let writes = match lead.as_mut() {
+                    Some(l) if leading => l.writes(&frame, &panels),
+                    _ => {
+                        lead = None;
+                        frame_writes(&frame, &panels)
+                    }
+                };
+                if let Err(e) = sender.write_many(&writes) {
                     wr_core::warn!("The game stopped: {e}");
                     shared.lock().unwrap().error = Some(format!("The game stopped: {e}"));
                     return;

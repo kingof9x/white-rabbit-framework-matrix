@@ -20,7 +20,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
 use crate::nprand::Generator;
-use crate::plug_looks::Look;
+use crate::plug_looks::{return_frame, return_seconds, transition_frame, Look};
 use crate::pyround::{int_round, round_half_even};
 use crate::{Grid, HEIGHT, WIDTH};
 
@@ -178,6 +178,10 @@ pub struct EffectsSettings {
     pub unplug_look: String,
     #[serde(skip_serializing_if = "is_ripple")]
     pub plug_look: String,
+    /// Changing apps with pixel rain ("rain") or the zipper ("zipper") instead of `slide` / `fade`;
+    /// empty for those. Not in the Python app, so only saved when set.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub transition_look: String,
     /// Dim the panels with the LED chip's current instead of darker values (needs newer firmware).
     pub full_shades: bool,
 }
@@ -210,6 +214,7 @@ impl Default for EffectsSettings {
             panels_together: false,
             unplug_look: DRAIN.to_string(),
             plug_look: RIPPLE.to_string(),
+            transition_look: String::new(),
             full_shades: false,
         }
     }
@@ -274,13 +279,18 @@ impl EffectsSettings {
             }
         }
         if let Some(Value::String(key)) = get("unplug_look") {
-            if key == DRAIN || Look::from_key(key).is_some() {
+            if key == DRAIN || Look::plug_from_key(key).is_some() {
                 s.unplug_look = key.clone();
             }
         }
         if let Some(Value::String(key)) = get("plug_look") {
-            if key == RIPPLE || Look::from_key(key).is_some() {
+            if key == RIPPLE || Look::plug_from_key(key).is_some() {
                 s.plug_look = key.clone();
+            }
+        }
+        if let Some(Value::String(key)) = get("transition_look") {
+            if matches!(key.as_str(), "rain" | "zipper") {
+                s.transition_look = key.clone();
             }
         }
         if let Some(n) = get("text_speed").and_then(py_int) {
@@ -343,6 +353,21 @@ pub enum Transition {
     Slide,
     Fade,
     Cut,
+    /// The old app falls away as pixel rain while the new one floats up into place.
+    Rain,
+    /// The old app unzips and falls apart, then the new one zips up.
+    Zipper,
+}
+
+impl Transition {
+    /// The plug animation it borrows its frames from.
+    fn look(self) -> Option<Look> {
+        match self {
+            Transition::Rain => Some(Look::Rain),
+            Transition::Zipper => Some(Look::Zipper),
+            _ => None,
+        }
+    }
 }
 
 impl EffectsSettings {
@@ -368,15 +393,20 @@ impl EffectsSettings {
 
     /// The unplug animation, None for the drain.
     pub fn unplug(&self) -> Option<Look> {
-        Look::from_key(&self.unplug_look)
+        Look::plug_from_key(&self.unplug_look)
     }
 
     /// The plug-in animation, None for the ripple.
     pub fn plug_in(&self) -> Option<Look> {
-        Look::from_key(&self.plug_look)
+        Look::plug_from_key(&self.plug_look)
     }
 
     pub fn transition(&self) -> Transition {
+        match self.transition_look.as_str() {
+            "rain" => return Transition::Rain,
+            "zipper" => return Transition::Zipper,
+            _ => {}
+        }
         if self.slide {
             Transition::Slide
         } else if self.fade {
@@ -1155,8 +1185,10 @@ pub struct LookPlay {
     pub flipped: bool,
     /// The row the port is level with (the middle of the row).
     pub row: f64,
-    /// Going out, the picture as it was when unplugged.
+    /// Going out, the picture as it was when unplugged (both panels and the gap when `wide`).
     pub picture: Option<Picture>,
+    /// Plays across both panels as one picture, the port at the outer edge of its panel.
+    pub wide: bool,
 }
 
 /// The effects on one panel.
@@ -1317,7 +1349,9 @@ impl Effects {
             if let Some(look) = self.settings.plug_in() {
                 // The picture comes in on the port's panel, or every panel for a port we can't place
                 self.wide = None;
+                let wide = look.spans_panels() && panel.is_some() && self.panels == [true, true];
                 let targets: Vec<Side> = match panel {
+                    Some(_) if wide => Side::ALL.to_vec(),
                     Some(panel) => vec![panel],
                     None => self.order(Side::Left),
                 };
@@ -1325,7 +1359,7 @@ impl Effects {
                     let player = &mut self.players[side.index()];
                     player.drain = None;
                     player.slide = None;
-                    player.look = Some(LookPlay { look, flipped: at_left, row: row as f64 + 0.5, picture: None });
+                    player.look = Some(LookPlay { look, flipped: at_left, row: row as f64 + 0.5, picture: None, wide });
                     player.phase = Some(Phase::In);
                     player.phase_since = now;
                 }
@@ -1358,12 +1392,36 @@ impl Effects {
         let Some(panel) = panel else { return };
         if let Some(look) = self.settings.unplug() {
             self.wide = None;
+            if look.spans_panels() && self.panels == [true, true] {
+                if let (Some(left), Some(right)) = (&self.players[0].last_base, &self.players[1].last_base) {
+                    // Both panels as one picture, the port at the outer edge of the panel on its side
+                    let mut both = Picture::zeros(HEIGHT, 2 * WIDTH + GAP);
+                    both.put_columns(0, left);
+                    both.put_columns(WIDTH + GAP, right);
+                    let picture = if at_left { both.flipped() } else { both };
+                    for player in self.players.iter_mut() {
+                        player.drain = None;
+                        player.slide = None;
+                        player.look = Some(LookPlay {
+                            look,
+                            flipped: at_left,
+                            row: row as f64 + 0.5,
+                            picture: Some(picture.clone()),
+                            wide: true,
+                        });
+                        player.phase = Some(Phase::Out);
+                        player.phase_since = now;
+                    }
+                    return;
+                }
+            }
             let player = &mut self.players[panel.index()];
             let Some(base) = &player.last_base else { return };
             let picture = if at_left { base.flipped() } else { base.clone() };
             player.drain = None;
             player.slide = None;
-            player.look = Some(LookPlay { look, flipped: at_left, row: row as f64 + 0.5, picture: Some(picture) });
+            player.look =
+                Some(LookPlay { look, flipped: at_left, row: row as f64 + 0.5, picture: Some(picture), wide: false });
             player.phase = Some(Phase::Out);
             player.phase_since = now;
             return;
@@ -1464,6 +1522,7 @@ impl Effects {
         let transition = self.settings.transition();
         let base = Picture::from_grid(grid);
         let others_active = self.ripples_on(side) || self.text.active() || vertical.is_some();
+        let other_base = self.players[1 - i].last_base.clone();
         let player = &mut self.players[i];
         if new_frame || player.last_base.is_none() {
             player.last_base = Some(base.clone());
@@ -1478,7 +1537,13 @@ impl Effects {
         }
         let mut out = base;
 
-        if let (Some((old, start)), Transition::Fade) = (&player.slide, transition) {
+        if let (Some((old, start)), Some(look)) = (&player.slide, transition.look()) {
+            // Pixel rain or the zipper, from the last frame of the old app to the new one
+            match transition_frame(look, old, &out, now - start, self.foreground as f64) {
+                Some(frame) => out = frame,
+                None => player.slide = None,
+            }
+        } else if let (Some((old, start)), Transition::Fade) = (&player.slide, transition) {
             // Cross-fade from the last frame of the old app to the new one
             let k = ((now - start) / SidePlayer::FADE_SECONDS).clamp(0.0, 1.0);
             if k >= 1.0 {
@@ -1534,7 +1599,8 @@ impl Effects {
                 let t = now - player.phase_since;
                 let frame = player.look.as_ref().and_then(|p| {
                     let frame = p.look.out_frame(p.picture.as_ref()?, t, p.row, self.foreground as f64)?;
-                    Some(if p.flipped { frame.flipped() } else { frame })
+                    let frame = if p.flipped { frame.flipped() } else { frame };
+                    Some(if p.wide { frame.columns(i * (WIDTH + GAP), i * (WIDTH + GAP) + WIDTH) } else { frame })
                 });
                 match frame {
                     Some(frame) => out = frame,
@@ -1549,9 +1615,22 @@ impl Effects {
             Some(Phase::In) => {
                 let t = now - player.phase_since;
                 let frame = player.look.as_ref().and_then(|p| {
-                    let picture = if p.flipped { out.flipped() } else { out.clone() };
+                    let start = i * (WIDTH + GAP);
+                    let picture = if p.wide {
+                        // This panel's picture and the other one's, side by side with the gap
+                        let mut both = Picture::zeros(HEIGHT, 2 * WIDTH + GAP);
+                        both.put_columns(start, &out);
+                        if let Some(theirs) = &other_base {
+                            both.put_columns((1 - i) * (WIDTH + GAP), theirs);
+                        }
+                        both
+                    } else {
+                        out.clone()
+                    };
+                    let picture = if p.flipped { picture.flipped() } else { picture };
                     let frame = p.look.in_frame(&picture, t, p.row, self.foreground as f64)?;
-                    Some(if p.flipped { frame.flipped() } else { frame })
+                    let frame = if p.flipped { frame.flipped() } else { frame };
+                    Some(if p.wide { frame.columns(start, start + WIDTH) } else { frame })
                 });
                 match frame {
                     Some(frame) => out = frame,
@@ -1587,6 +1666,14 @@ impl Effects {
                 }
                 // Straight back to the picture, as when a new app comes on with sliding off
                 Transition::Cut => player.phase = None,
+                Transition::Rain | Transition::Zipper => {
+                    let look = transition.look().unwrap();
+                    let t = now - player.phase_since;
+                    match return_frame(look, &out, t, self.foreground as f64) {
+                        Some(frame) if t < return_seconds(look) => out = frame,
+                        _ => player.phase = None,
+                    }
+                }
             },
             None => {}
         }
@@ -1773,11 +1860,19 @@ mod tests {
     fn plug_looks_are_saved_only_when_picked_and_unknown_ones_are_ignored() {
         let default = serde_json::to_value(EffectsSettings::default()).unwrap();
         assert!(default.get("unplug_look").is_none() && default.get("plug_look").is_none());
-        let s = EffectsSettings::from_json(&serde_json::json!({"unplug_look": "zipper", "plug_look": "surge"}));
-        assert_eq!((s.unplug(), s.plug_in()), (Some(Look::Zipper), Some(Look::Surge)));
-        assert_eq!(serde_json::to_value(&s).unwrap()["unplug_look"], "zipper");
-        let odd = EffectsSettings::from_json(&serde_json::json!({"unplug_look": "fireworks", "plug_look": 3}));
+        let s = EffectsSettings::from_json(&serde_json::json!({"unplug_look": "tv", "plug_look": "surge"}));
+        assert_eq!((s.unplug(), s.plug_in()), (Some(Look::Tv), Some(Look::Surge)));
+        assert_eq!(serde_json::to_value(&s).unwrap()["unplug_look"], "tv");
+        // The zipper is an app transition now, not a plug animation
+        let odd = EffectsSettings::from_json(&serde_json::json!({"unplug_look": "zipper", "plug_look": 3}));
         assert_eq!((odd.unplug_look.as_str(), odd.plug_look.as_str()), (DRAIN, RIPPLE));
+        assert!(default.get("transition_look").is_none());
+        let rain = EffectsSettings::from_json(&serde_json::json!({"slide": false, "transition_look": "rain"}));
+        assert_eq!(rain.transition(), Transition::Rain);
+        assert_eq!(
+            EffectsSettings::from_json(&serde_json::json!({"transition_look": "tv"})).transition(),
+            Transition::Slide
+        );
     }
 
     #[test]
@@ -1803,9 +1898,52 @@ mod tests {
     }
 
     #[test]
-    fn a_picked_plug_in_look_brings_the_picture_in_on_the_ports_side() {
+    fn the_ripple_ring_runs_across_both_panels_from_the_port() {
         let mut e = Effects::new();
         e.configure(EffectsSettings { plug_look: "ring".into(), ..EffectsSettings::default() });
+        e.panel_present(Side::Left, true);
+        e.panel_present(Side::Right, true);
+        e.apply(Side::Left, &filled(160), true, 0.0);
+        e.apply(Side::Right, &filled(160), true, 0.0);
+        e.plug(Some("right-back"), true, 0.0);
+        assert_eq!(e.player(Side::Left).phase, Some(Phase::In));
+        assert_eq!(e.player(Side::Right).phase, Some(Phase::In));
+        // Early on only the right panel (the port's) shows anything; later the ring reaches the left
+        let lit = |g: &Grid| g.v.iter().flatten().filter(|&&v| v > 0).count();
+        assert_eq!(lit(&e.apply(Side::Left, &filled(160), true, 0.2)), 0);
+        assert!(lit(&e.apply(Side::Right, &filled(160), true, 0.2)) > 0);
+        assert!(lit(&e.apply(Side::Left, &filled(160), true, 0.7)) > 0);
+        let end = Look::Ring.in_seconds() + 0.05;
+        assert_eq!(e.apply(Side::Left, &filled(160), true, end), filled(160));
+        assert_eq!(e.apply(Side::Right, &filled(160), true, end), filled(160));
+        assert!(!e.player(Side::Left).active() && !e.player(Side::Right).active());
+    }
+
+    #[test]
+    fn pixel_rain_and_zipper_change_apps() {
+        for key in ["rain", "zipper"] {
+            let mut e = Effects::new();
+            e.configure(EffectsSettings { slide: false, transition_look: key.into(), ..EffectsSettings::default() });
+            e.panel_present(Side::Left, true);
+            e.apply(Side::Left, &filled(160), true, 0.0);
+            e.start_slide(Side::Left, 0.0);
+            assert!(e.player(Side::Left).active());
+            let first = e.apply(Side::Left, &filled(0), true, 0.0);
+            assert!(first.v.iter().flatten().filter(|&&v| v > 0).count() > 250, "{key}: starts on the old app");
+            let mut t = 0.0;
+            while e.player(Side::Left).active() && t < 3.0 {
+                t += FRAME_SECONDS;
+                e.apply(Side::Left, &filled(0), true, t);
+            }
+            assert!(t < 1.5, "{key} took {t} s");
+            assert!(e.apply(Side::Left, &filled(0), true, t).is_dark());
+        }
+    }
+
+    #[test]
+    fn a_picked_plug_in_look_brings_the_picture_in_on_the_ports_side() {
+        let mut e = Effects::new();
+        e.configure(EffectsSettings { plug_look: "glitch".into(), ..EffectsSettings::default() });
         e.panel_present(Side::Left, true);
         e.panel_present(Side::Right, true);
         e.apply(Side::Left, &filled(160), true, 0.0);
@@ -1815,10 +1953,7 @@ mod tests {
         assert_eq!(e.player(Side::Right).phase, None);
         // No water ripple with another look picked
         assert!(!e.ripples_on(Side::Right));
-        // The ring starts at the left panel's left edge (the port's side): the far edge is still dark
-        let early = e.apply(Side::Left, &filled(160), true, 0.3);
-        assert!(early.v[0][5] > 0 && early.v[WIDTH - 1][30] == 0);
-        let done = e.apply(Side::Left, &filled(160), true, Look::Ring.in_seconds() + 0.05);
+        let done = e.apply(Side::Left, &filled(160), true, Look::Glitch.in_seconds() + 0.05);
         assert_eq!(done, filled(160));
         assert!(!e.player(Side::Left).active());
     }

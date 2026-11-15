@@ -73,8 +73,11 @@ fn run(
     parts: crate::app::Parts,
 ) {
     let sender = parts.sender.clone();
+    let mut lead = None;
     if !panels.is_empty() {
         parts.lender.borrow(&sender, &panels);
+        // The app transition from what the monitor showed
+        lead = crate::lead_in::LeadIn::new(&parts.lender.take_last_frames(&panels));
         let p2 = parts.clone();
         Ctx::later(&parts.ui, move |app| p2.update_bar(app));
         for p in &panels {
@@ -85,7 +88,14 @@ fn run(
     while !job.stopped() {
         let frame = layout.to_panels(&anim.next_frame(), count);
         if !panels.is_empty() {
-            if let Err(e) = sender.write_many(&frame_writes(&frame, &panels)) {
+            let writes = match lead.as_mut() {
+                Some(l) if l.active() => l.writes(&frame, &panels),
+                _ => {
+                    lead = None;
+                    frame_writes(&frame, &panels)
+                }
+            };
+            if let Err(e) = sender.write_many(&writes) {
                 wr_core::warn!("The Math animation stopped: {e}");
                 shared.lock().unwrap().error = Some(format!("Stopped: {e}"));
                 return;
@@ -94,13 +104,24 @@ fn run(
         {
             // Shown in the window once it's on the panels, so the window doesn't run ahead of them
             let mut s = shared.lock().unwrap();
-            s.frame = Some(frame);
+            s.frame = Some(frame.clone());
             s.version += 1;
             if let Some(note) = anim.take_note() {
                 s.note = Some(note);
             }
         }
         next_at += Duration::from_secs_f64(1.0 / SPEED.load(Ordering::Relaxed).max(1) as f64);
+        // While the app transition plays, move it on about 30 times a second between the animation's
+        // own frames (a slow animation would make it jerky)
+        while let Some(l) = lead.as_mut().filter(|l| l.active() && Instant::now() < next_at) {
+            if !jobs::sleep(&job, 1.0 / 30.0) {
+                return;
+            }
+            if let Err(e) = sender.write_many(&l.writes(&frame, &panels)) {
+                wr_core::warn!("The Math animation stopped: {e}");
+                return;
+            }
+        }
         let now = Instant::now();
         if next_at > now {
             if !jobs::sleep(&job, (next_at - now).as_secs_f64()) {

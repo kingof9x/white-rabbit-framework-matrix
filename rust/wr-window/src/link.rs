@@ -231,11 +231,26 @@ impl Link {
         }
     }
 
-    pub fn hold(&self, ports: &[String]) -> Result<(), String> {
+    /// Borrows the panels from the monitor. Returns the monitor's last frame on each one it had drawn,
+    /// by port, for the app transition.
+    pub fn hold(&self, ports: &[String]) -> Result<Vec<(String, crate::lead_in::Frame)>, String> {
+        let mut frames = Vec::new();
         if !ports.is_empty() && self.running(false) {
-            self.call(json!({"cmd": "hold", "ports": ports, "pid": std::process::id()}))?;
+            let reply = self.call(json!({"cmd": "hold", "ports": ports, "pid": std::process::id()}))?;
+            if let Some(Value::Object(map)) = reply.get("frames") {
+                for (port, hex) in map {
+                    let bytes = unhex(hex.as_str().unwrap_or(""));
+                    if bytes.len() == wr_core::WIDTH * wr_core::HEIGHT {
+                        let mut frame = [[0u8; wr_core::HEIGHT]; wr_core::WIDTH];
+                        for (x, col) in frame.iter_mut().enumerate() {
+                            col.copy_from_slice(&bytes[x * wr_core::HEIGHT..(x + 1) * wr_core::HEIGHT]);
+                        }
+                        frames.push((port.clone(), frame));
+                    }
+                }
+            }
         }
-        Ok(())
+        Ok(frames)
     }
 
     pub fn release(&self, ports: Option<&[String]>) -> Result<(), String> {
