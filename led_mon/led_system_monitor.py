@@ -36,10 +36,13 @@ from led_mon.panel_names import name_grid
 import numpy as np
 from yaml import safe_load
 # evdev (direct keyboard device access) only exists on Linux; elsewhere only pynput is used
-if IS_LINUX:
+# (and may be missing there too: then the key shortcuts fall back to pynput)
+try:
+    if not IS_LINUX:
+        raise ImportError
     import evdev
     from evdev import ecodes
-else:
+except ImportError:
     evdev = None
     ecodes = None
 
