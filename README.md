@@ -25,8 +25,8 @@ The newest version is on the [Releases](https://github.com/kingof9x/white-rabbit
 ![The Home page in light mode](docs/screenshots/white-rabbit-home.png)
 
 - **A menu down the left side** instead of a row of tabs: Home, System
-  monitor, Games & patterns, Audio, Math, Draw, Effects, Startup animation and
-  Settings. Firmware, Keyboard shortcuts and About White Rabbit live under
+  monitor, Games & patterns, Audio, Math, Draw, Effects, Display messages,
+  Startup animation and Settings. Firmware, Keyboard shortcuts and About White Rabbit live under
   Settings.
 - **A Home page** that shows what each panel is doing right now, with the
   things you do most in one place: audio mode on or off, Identify panels,
@@ -102,7 +102,8 @@ and comes back when you press *Stop* or *Back to system monitor*.
 - **Layout editor** with a live preview: drag apps onto the left and right
   panel, top or bottom half, and set up several pages that take turns.
 - **Half-panel apps:** CPU cores (with an afterglow: a dim trail where each
-  core's load just was), CPU graph, GPU graph, memory + battery, battery as a
+  core's load just was), CPU graph, GPU graph (bars from the left or right,
+  scrolling up or down), memory + battery, battery as a
   pile of sand (charging rains sand in, on battery it drains away), disk,
   network, disk + network, temperatures, fans, FPS number.
 - **Whole-panel apps:** clock, weather, audio visualizer, now playing (the
@@ -203,15 +204,14 @@ visualizer code (the water look is newer than this picture).*
 
 Little extras that play over whatever the panels show.
 
-- **Plug-in ripple:** plug in the charger, headphones or any USB device and a
+- **Plug-in ripple:** plug in the charger, headphones, a screen (HDMI or
+  DisplayPort) or any USB device and a
   ripple runs across the panel from that port's side. Unplug it and the
   picture drains out through the port. *Try it* buttons show it without
   plugging anything in, and if White Rabbit guesses the wrong port you can
   tell it the right one; it remembers. If your two panels sit next to each
   other, tick the box and the unplug drains both as one picture.
-- **Text line:** a line of small letters scrolls across the top of both
-  panels when a new song starts, the charger goes in or out, or the battery is
-  low, or with your own message.
+  You can turn the effect off for the ports on one side of the laptop.
 - **Changing apps:** slide the next app in from the bottom, fade into it, or
   cut straight to it. After the unplug animation the picture comes back the
   same way.
@@ -219,6 +219,18 @@ Little extras that play over whatever the panels show.
   brightness. Needs the newest White Rabbit firmware.
 
 ![The Effects page](docs/screenshots/white-rabbit-effects.png)
+
+
+### Display messages page
+
+A line of small letters scrolls across the top of both panels when a new song
+starts, the charger goes in or out, or the battery is low. Add your own
+messages (up to 10 lines) and *Show them* keeps them going round one after
+another until you stop them.
+
+*Vertical messages* give each panel a message of its own, running down the
+panel in place of what it shows (upright letters, letters on their side, or
+two letters per row) until you stop them.
 
 ### Math page
 

@@ -92,6 +92,36 @@ pub fn draw_history_graph(grid: &mut Grid, values: &[Option<f64>], fill_value: i
     }
 }
 
+/// The history graph with its options: `bars_from` "right" grows the bars from the right edge
+/// instead of the left, and `newest` "bottom" puts the newest second at the bottom so the graph
+/// scrolls upwards instead of downwards.
+pub fn draw_history_graph_with(
+    grid: &mut Grid,
+    values: &[Option<f64>],
+    fill_value: i32,
+    y: usize,
+    bars_from: &str,
+    newest: &str,
+) {
+    let rows: Vec<usize> = half_rows(y).collect();
+    let n = rows.len().min(values.len());
+    let order: Vec<usize> =
+        if newest == "bottom" { rows[rows.len() - n..].iter().rev().copied().collect() } else { rows[..n].to_vec() };
+    for (&row, v) in order.iter().zip(values.iter()) {
+        if let Some(v) = v {
+            draw_hbar(grid, *v, fill_value, row, 7, 1);
+            if bars_from == "right" {
+                // Mirror columns 1..=7
+                for x in 1..4 {
+                    let (a, b) = (grid.v[x][row], grid.v[8 - x][row]);
+                    grid.v[x][row] = b;
+                    grid.v[8 - x][row] = a;
+                }
+            }
+        }
+    }
+}
+
 // Memory and battery ---------------------------------------------------------------------------------
 
 /// Two rows of up to 7 pixels.
@@ -459,5 +489,30 @@ mod tests {
         assert_eq!(fps_number_columns(144.0), vec![('|', 0, false), ('4', 2, false), ('4', 6, false)]);
         assert_eq!(fps_number_columns(7.0), vec![('7', 3, false)]);
         assert_eq!(fps_number_columns(1500.0)[0].0, '9');
+    }
+}
+
+#[cfg(test)]
+mod graph_option_tests {
+    use super::*;
+
+    #[test]
+    fn graph_options_mirror_and_flip_the_default_graph() {
+        let values: Vec<Option<f64>> = (0..15).map(|i| Some(i as f64 / 14.0)).collect();
+        let mut plain = Grid::new();
+        draw_history_graph(&mut plain, &values, 200, 0);
+        let mut same = Grid::new();
+        draw_history_graph_with(&mut same, &values, 200, 0, "", "");
+        assert_eq!(plain.v, same.v);
+        let mut right = Grid::new();
+        draw_history_graph_with(&mut right, &values, 200, 0, "right", "top");
+        let mut bottom = Grid::new();
+        draw_history_graph_with(&mut bottom, &values, 200, 0, "left", "bottom");
+        for row in 1..16 {
+            for x in 1..8 {
+                assert_eq!(right.v[x][row], plain.v[8 - x][row]);
+                assert_eq!(bottom.v[x][row], plain.v[x][16 - row]);
+            }
+        }
     }
 }

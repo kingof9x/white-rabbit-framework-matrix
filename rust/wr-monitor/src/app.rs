@@ -180,8 +180,9 @@ fn start_plug_watcher(shared: &Arc<Shared>) {
                 let wanted = match event.kind {
                     "charger" => s.plug_charger,
                     "headphones" => s.plug_headphones,
+                    "display" => s.plug_displays,
                     _ => s.plug_usb,
-                };
+                } && s.plug_side_on(event.position.as_deref());
                 (wanted, event.kind == "charger" && s.text_charger)
             };
             if wanted {

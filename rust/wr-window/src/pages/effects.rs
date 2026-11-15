@@ -7,7 +7,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Map, Value};
-use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use wr_core::drawing;
 use wr_core::effects::{position_label, Effects, EffectsSettings, Side, Spot, Transition};
 use wr_core::grid::{Grid, HEIGHT, WIDTH};
@@ -103,6 +103,9 @@ fn page_state() -> Shared {
     STATE.with(|s| s.borrow().clone()).expect("effects page wired")
 }
 
+/// The vertical messages' letter styles, as the Letters list shows them.
+const VERTICAL_STYLES: [&str; 3] = ["ticker", "sideways", "stacked"];
+
 fn load_settings() -> EffectsSettings {
     EffectsSettings::from_json(&settings::get("effects").unwrap_or(Value::Null))
 }
@@ -113,6 +116,9 @@ fn show_settings(app: &AppWindow, s: &EffectsSettings) {
     page.set_plug_charger(s.plug_charger);
     page.set_plug_headphones(s.plug_headphones);
     page.set_plug_usb(s.plug_usb);
+    page.set_plug_displays(s.plug_displays);
+    page.set_plug_left(s.plug_left);
+    page.set_plug_right(s.plug_right);
     page.set_text_line(s.text_line);
     page.set_text_song(s.text_song);
     page.set_text_charger(s.text_charger);
@@ -121,6 +127,16 @@ fn show_settings(app: &AppWindow, s: &EffectsSettings) {
     page.set_slide(s.slide);
     page.set_fade(s.fade);
     page.set_panels_together(s.panels_together);
+    page.set_pinned(s.show_messages);
+    page.set_vertical_left(s.vertical_left.clone().into());
+    page.set_vertical_right(s.vertical_right.clone().into());
+    page.set_vertical_style(VERTICAL_STYLES.iter().position(|v| *v == s.vertical_style).unwrap_or(0) as i32);
+    page.set_show_vertical(s.show_vertical);
+    page.set_max_messages(EffectsSettings::MAX_MESSAGES as i32);
+    if !s.messages.is_empty() {
+        let lines: Vec<slint::SharedString> = s.messages.iter().map(|m| m.as_str().into()).collect();
+        page.set_messages(slint::ModelRc::new(slint::VecModel::from(lines)));
+    }
     page.set_full_shades(s.full_shades);
 }
 
@@ -301,6 +317,9 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
             new.plug_charger = page.get_plug_charger();
             new.plug_headphones = page.get_plug_headphones();
             new.plug_usb = page.get_plug_usb();
+            new.plug_displays = page.get_plug_displays();
+            new.plug_left = page.get_plug_left();
+            new.plug_right = page.get_plug_right();
             new.text_line = page.get_text_line();
             new.text_song = page.get_text_song();
             new.text_charger = page.get_text_charger();
@@ -309,6 +328,13 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
             new.slide = page.get_slide();
             new.fade = page.get_fade();
             new.panels_together = page.get_panels_together();
+            new.messages = page.get_messages().iter().map(|m| m.trim().to_string()).filter(|m| !m.is_empty()).collect();
+            new.show_messages = page.get_pinned() && !new.messages.is_empty();
+            new.vertical_left = page.get_vertical_left().trim().to_string();
+            new.vertical_right = page.get_vertical_right().trim().to_string();
+            new.vertical_style = VERTICAL_STYLES[page.get_vertical_style().clamp(0, 2) as usize].to_string();
+            new.show_vertical =
+                page.get_show_vertical() && !(new.vertical_left.is_empty() && new.vertical_right.is_empty());
             new.full_shades = page.get_full_shades();
             // The monitor may have learned ports since this page read them
             new.learned_ports = load_settings().learned_ports;
@@ -370,6 +396,40 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
             ask_monitor(&ctx2, json!({"action": "say", "text": text}), |_, _| {});
         });
     }
+    // Your own messages: editing changes the list (saved by Show them, Enter, or adding and removing)
+    {
+        let ctx2 = ctx.clone();
+        page.on_message_edited(move |i, text| {
+            let Some(app) = ctx2.ui.upgrade() else { return };
+            let model = app.global::<EffectsPage>().get_messages();
+            if (i as usize) < model.row_count() {
+                model.set_row_data(i as usize, text);
+            }
+        });
+    }
+    {
+        let ctx2 = ctx.clone();
+        page.on_add_message(move || {
+            let Some(app) = ctx2.ui.upgrade() else { return };
+            let page = app.global::<EffectsPage>();
+            let mut lines: Vec<slint::SharedString> = page.get_messages().iter().collect();
+            lines.push("".into());
+            page.set_messages(slint::ModelRc::new(slint::VecModel::from(lines)));
+        });
+    }
+    {
+        let ctx2 = ctx.clone();
+        page.on_remove_message(move |i| {
+            let Some(app) = ctx2.ui.upgrade() else { return };
+            let page = app.global::<EffectsPage>();
+            let mut lines: Vec<slint::SharedString> = page.get_messages().iter().collect();
+            if (i as usize) < lines.len() && lines.len() > 1 {
+                lines.remove(i as usize);
+            }
+            page.set_messages(slint::ModelRc::new(slint::VecModel::from(lines)));
+            page.invoke_changed();
+        });
+    }
     {
         let (ctx2, state) = (ctx.clone(), state.clone());
         page.on_teach(move || {
@@ -421,7 +481,8 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
         let (ui, state) = (ctx.ui.clone(), state.clone());
         ctx.every(FRAME_SECONDS, move || {
             let Some(app) = ui.upgrade() else { return };
-            if app.global::<App>().get_page() != "effects" {
+            // The Display messages page shows the same preview
+            if !matches!(app.global::<App>().get_page().as_str(), "effects" | "messages") {
                 return;
             }
             let mut s = state.borrow_mut();

@@ -22,6 +22,8 @@ use wr_panel::winports::wide;
 use crate::plug::{instance_id_from_interface, parse_pd_info, DeviceProps, PlugWatcher};
 
 const GUID_DEVINTERFACE_USB_DEVICE: GUID = GUID::from_u128(0xA5DCBF10_6530_11D2_901F_00C04FB951ED);
+/// Screens: one plugged into an HDMI or DisplayPort card arrives as a monitor device.
+const GUID_DEVINTERFACE_MONITOR: GUID = GUID::from_u128(0xE6F07B5F_EE97_4A90_B076_33F57BF4EAA7);
 const DEVPKEY_LOCATION_PATHS: DEVPROPKEY =
     DEVPROPKEY { fmtid: GUID::from_u128(0xA45C254E_DF1C_4EFD_8020_67D146A850E0), pid: 37 };
 const DEVPKEY_PHYSICAL_LOCATION: DEVPROPKEY =
@@ -96,8 +98,10 @@ fn device_properties(instance_id: &str) -> DeviceProps {
         .into_iter()
         .next()
         .or_else(|| strings(property(node, &DEVPKEY_DEVICE_DESC)).into_iter().next());
-    // Walk up to the port: the device itself, then its parents (a hub in the port, ...)
-    for _ in 0..6 {
+    // Walk up to the port: the device itself, then its parents (a hub in the port, ...). A screen's
+    // parent is the graphics card, which says nothing about the port, so only the screen itself.
+    let levels = if crate::plug::is_display(instance_id) { 1 } else { 6 };
+    for _ in 0..levels {
         if out.location_paths.is_empty() {
             out.location_paths = strings(property(node, &DEVPKEY_LOCATION_PATHS));
         }
@@ -117,28 +121,18 @@ fn device_properties(instance_id: &str) -> DeviceProps {
     out
 }
 
-fn present_usb_devices() -> Vec<String> {
+fn present_devices(class: &GUID) -> Vec<String> {
     let mut size = 0u32;
     // SAFETY: the size call, then a buffer of that many UTF-16 units.
     unsafe {
-        if CM_Get_Device_Interface_List_SizeW(
-            &mut size,
-            &GUID_DEVINTERFACE_USB_DEVICE,
-            null(),
-            CM_GET_DEVICE_INTERFACE_LIST_PRESENT,
-        ) != 0
+        if CM_Get_Device_Interface_List_SizeW(&mut size, class, null(), CM_GET_DEVICE_INTERFACE_LIST_PRESENT) != 0
             || size == 0
         {
             return vec![];
         }
         let mut buf = vec![0u16; size as usize];
-        if CM_Get_Device_Interface_ListW(
-            &GUID_DEVINTERFACE_USB_DEVICE,
-            null(),
-            buf.as_mut_ptr(),
-            size,
-            CM_GET_DEVICE_INTERFACE_LIST_PRESENT,
-        ) != 0
+        if CM_Get_Device_Interface_ListW(class, null(), buf.as_mut_ptr(), size, CM_GET_DEVICE_INTERFACE_LIST_PRESENT)
+            != 0
         {
             return vec![];
         }
@@ -204,8 +198,10 @@ pub fn start(watcher: Arc<PlugWatcher>) {
     }
     let spawned = std::thread::Builder::new().name("plug-events".into()).spawn(move || {
         watcher.set_ac_online(ac_online());
-        for id in present_usb_devices() {
-            watcher.remember(&id, &device_properties(&id));
+        for class in [&GUID_DEVINTERFACE_USB_DEVICE, &GUID_DEVINTERFACE_MONITOR] {
+            for id in present_devices(class) {
+                watcher.remember(&id, &device_properties(&id));
+            }
         }
         let class = wide("WhiteRabbitPlugEvents");
         // SAFETY: standard window class and window; the window lives as long as the program.
@@ -236,17 +232,19 @@ pub fn start(watcher: Arc<PlugWatcher>) {
                 warn!("Couldn't listen for things being plugged in (no window)");
                 return;
             }
-            let mut filter: DEV_BROADCAST_DEVICEINTERFACE_W = std::mem::zeroed();
-            filter.dbcc_size = std::mem::size_of::<DEV_BROADCAST_DEVICEINTERFACE_W>() as u32;
-            filter.dbcc_devicetype = DBT_DEVTYP_DEVICEINTERFACE;
-            filter.dbcc_classguid = GUID_DEVINTERFACE_USB_DEVICE;
-            let registration = RegisterDeviceNotificationW(
-                hwnd as HANDLE,
-                &filter as *const _ as *const core::ffi::c_void,
-                DEVICE_NOTIFY_WINDOW_HANDLE,
-            );
-            if registration.is_null() {
-                warn!("Couldn't register for USB device messages");
+            for (class, what) in [(GUID_DEVINTERFACE_USB_DEVICE, "USB device"), (GUID_DEVINTERFACE_MONITOR, "screen")] {
+                let mut filter: DEV_BROADCAST_DEVICEINTERFACE_W = std::mem::zeroed();
+                filter.dbcc_size = std::mem::size_of::<DEV_BROADCAST_DEVICEINTERFACE_W>() as u32;
+                filter.dbcc_devicetype = DBT_DEVTYP_DEVICEINTERFACE;
+                filter.dbcc_classguid = class;
+                let registration = RegisterDeviceNotificationW(
+                    hwnd as HANDLE,
+                    &filter as *const _ as *const core::ffi::c_void,
+                    DEVICE_NOTIFY_WINDOW_HANDLE,
+                );
+                if registration.is_null() {
+                    warn!("Couldn't register for {what} messages");
+                }
             }
             info!("Listening for things being plugged in");
             let mut msg: MSG = std::mem::zeroed();

@@ -55,6 +55,17 @@ pub fn is_ignored(instance_id: &str) -> bool {
     matches!(vid_pid(instance_id), Some((FRAMEWORK_VID, pid)) if (0x0012..0x0030).contains(&pid))
 }
 
+/// A screen (Windows' monitor devices, `DISPLAY\...`): one plugged into an HDMI or DisplayPort card.
+pub fn is_display(instance_id: &str) -> bool {
+    instance_id.to_uppercase().starts_with("DISPLAY\\")
+}
+
+/// Where a screen is plugged in, to remember its port by: the graphics card's output it is on (its
+/// location path, e.g. `...#ACPI(GFX0)#ACPI(DD1F)`), else the screen itself.
+pub fn display_key(instance_id: &str, location_paths: &[String]) -> String {
+    location_paths.first().map(|p| p.to_uppercase()).unwrap_or_else(|| instance_id.to_uppercase())
+}
+
 pub fn is_audio_card(instance_id: &str) -> bool {
     vid_pid(instance_id) == Some((FRAMEWORK_VID, AUDIO_CARD_PID))
 }
@@ -165,7 +176,7 @@ pub struct DeviceProps {
 /// Something plugged in or out, for the effects and the Effects tab.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PlugEvent {
-    /// "charger", "headphones" or "usb".
+    /// "charger", "headphones", "display" or "usb".
     pub kind: &'static str,
     pub position: Option<String>,
     pub plugged_in: bool,
@@ -222,10 +233,21 @@ impl PlugWatcher {
     }
 
     fn present_entry(&self, instance_id: &str, props: &DeviceProps) -> (Present, Option<Value>) {
-        let key = location_key(&props.location_paths);
+        let display = is_display(instance_id);
+        let key = if display {
+            Some(display_key(instance_id, &props.location_paths))
+        } else {
+            location_key(&props.location_paths)
+        };
         let (side, raw) = pld_panel(props.pld.as_deref());
         let (position, how) = resolve_position(key.as_deref(), &(self.learned)(), side);
-        let kind = if is_audio_card(instance_id) { "headphones" } else { "usb" };
+        let kind = if display {
+            "display"
+        } else if is_audio_card(instance_id) {
+            "headphones"
+        } else {
+            "usb"
+        };
         let name = props.name.clone().unwrap_or_else(|| instance_id.to_string());
         (Present { key, position, how, name, kind }, raw)
     }
@@ -372,6 +394,29 @@ mod tests {
         assert!(is_audio_card(r"USB\VID_32AC&PID_0010\X"));
         assert!(!is_ignored(r"USB\VID_046D&PID_C52B\X"));
         assert_eq!(vid_pid("nothing"), None);
+    }
+
+    #[test]
+    fn screens_are_displays_remembered_by_their_output() {
+        assert!(is_display(r"DISPLAY\GSM5B7F\5&1A2B&0&UID4352"));
+        assert!(!is_display(r"USB\VID_32AC&PID_0010\X"));
+        assert_eq!(
+            instance_id_from_interface(r"\\?\DISPLAY#GSM5B7F#5&1a2b&0&UID4352#{e6f07b5f-ee97-4a90-b076-33f57bf4eaa7}"),
+            Some(r"DISPLAY\GSM5B7F\5&1A2B&0&UID4352".into())
+        );
+        let paths = vec!["ACPI(_SB_)#ACPI(PC00)#ACPI(GFX0)#ACPI(DD1F)".to_string()];
+        assert_eq!(display_key("DISPLAY\\X", &paths), "ACPI(_SB_)#ACPI(PC00)#ACPI(GFX0)#ACPI(DD1F)");
+        assert_eq!(display_key(r"display\x\1", &[]), r"DISPLAY\X\1");
+        let (events, w) = watcher(BTreeMap::from([(paths[0].clone(), "left-back".to_string())]));
+        w.device_arrived(
+            r"DISPLAY\GSM5B7F\1",
+            &DeviceProps { location_paths: paths, pld: None, name: Some("LG".into()) },
+        );
+        w.device_removed(r"DISPLAY\GSM5B7F\1");
+        let got = events.lock().unwrap().clone();
+        assert_eq!(got.len(), 2);
+        assert_eq!((got[0].kind, got[0].position.as_deref(), got[0].how), ("display", Some("left-back"), "learned"));
+        assert!(!got[1].plugged_in);
     }
 
     #[test]

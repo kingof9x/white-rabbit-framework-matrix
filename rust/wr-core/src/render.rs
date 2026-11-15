@@ -126,7 +126,14 @@ pub fn render_panel_on(
                 cores = values.len();
                 draw_cpu_vals(grid, &values, fg, y);
             }
-            "cpu-graph" => draw_history_graph(grid, &readings.cpu_history(), fg, y),
+            "cpu-graph" => draw_history_graph_with(
+                grid,
+                &readings.cpu_history(),
+                fg,
+                y,
+                &app.arg_str("bars_from").unwrap_or_default(),
+                &app.arg_str("newest").unwrap_or_default(),
+            ),
             "mem-bat" => {
                 draw_memory(grid, readings.memory(), fg, y);
                 if let Some((ratio, plugged)) = readings.battery() {
@@ -189,7 +196,9 @@ fn draw_data_app(grid: &mut Grid, app: &App, readings: &mut dyn Readings, fg: i3
             let (disk, net) = (readings.disk(), readings.net());
             draw_disk_net(grid, disk, net, fg, y);
         }
-        "gpu-graph" => draw_history_graph(grid, &readings.gpu_history(&arg("gpu")), fg, y),
+        "gpu-graph" => {
+            draw_history_graph_with(grid, &readings.gpu_history(&arg("gpu")), fg, y, &arg("bars_from"), &arg("newest"))
+        }
         "fps" => {
             let fps = readings.fps(&arg("process"));
             draw_fps(grid, fps.value, &fps.history, fps.available, fg);

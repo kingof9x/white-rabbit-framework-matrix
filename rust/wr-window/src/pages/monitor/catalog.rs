@@ -116,6 +116,15 @@ const GAME: Setting = help(
     s("process", "Game to watch", Kind::Process, "\"\""),
     "Automatic follows the full-screen game in front and keeps it while you switch to other windows. Or pick a game from the list; games drawing frames right now are at the top.",
 );
+const GRAPH_BARS_FROM: Setting =
+    choice("bars_from", "Bars grow from", "\"left\"", &["\"left\"", "\"right\""], &["The left edge", "The right edge"]);
+const GRAPH_NEWEST: Setting = choice(
+    "newest",
+    "Newest second",
+    "\"top\"",
+    &["\"top\"", "\"bottom\""],
+    &["At the top (scrolls down)", "At the bottom (scrolls up)"],
+);
 const SOURCE: Setting = target(s("sensor_source", "Read from", Kind::SensorSource, "null"), Target::Global);
 
 pub const LOOK_KEYS: [&str; 22] = [
@@ -172,9 +181,10 @@ const SPEED_LABELS: [&str; 3] = ["Slow", "Normal", "Fast"];
 pub static APPS: [AppInfo; 21] = [
     AppInfo { key: "cpu", label: "CPU cores", help: "Load on each CPU core, drawn as small spirals (or a bar per core when there are more than eight).", size: Size::Half,
         settings: &[help(s("afterglow", "Afterglow", Kind::Bool, "true"), "A dim trail shows where each core's load just was, fading over a couple of seconds")], fixed: "{}", fixed_args: "{}" },
-    AppInfo { key: "cpu-graph", label: "CPU graph", help: "Overall CPU use over the last 15 seconds. Each row is one second, newest at the top; a longer row is a busier CPU.", size: Size::Half, settings: &[], fixed: "{}", fixed_args: "{}" },
+    AppInfo { key: "cpu-graph", label: "CPU graph", help: "Overall CPU use over the last 15 seconds. Each row is one second; a longer row is a busier CPU.", size: Size::Half,
+        settings: &[GRAPH_BARS_FROM, GRAPH_NEWEST], fixed: "{}", fixed_args: "{}" },
     AppInfo { key: "gpu-graph", label: "GPU graph", help: "Overall GPU use over the last 15 seconds, like the CPU graph.", size: Size::Half,
-        settings: &[help(s("gpu", "GPU", Kind::Gpu, "null"), "Which graphics card to show, when the computer has more than one")], fixed: "{}", fixed_args: "{}" },
+        settings: &[help(s("gpu", "GPU", Kind::Gpu, "null"), "Which graphics card to show, when the computer has more than one"), GRAPH_BARS_FROM, GRAPH_NEWEST], fixed: "{}", fixed_args: "{}" },
     AppInfo { key: "disk-net", label: "Disk + network", help: "Disk read and write bars on the upper part, network upload and download bars on the lower part.", size: Size::Half, settings: &[], fixed: "{}", fixed_args: "{}" },
     AppInfo { key: "mem-bat", label: "Memory + battery", help: "Memory use on top, battery level below (pulses when charging).", size: Size::Half, settings: &[], fixed: "{}", fixed_args: "{}" },
     AppInfo { key: "battery-sand", label: "Battery (sand)", help: "The battery level as a pile of sand. Charging rains sand in from the top; on battery the pile slowly drains away. Flashes when nearly empty.", size: Size::Half,
@@ -369,7 +379,9 @@ mod tests {
         assert_eq!(p["animate"], json!(false));
         assert_eq!(p["args"]["file"], json!("drawing:Cat"));
         assert_eq!(p["args"]["panel"], json!("right"));
+        // The CPU graph now has options (not in Python): bars from the left, newest at the top
         let c = new_app("cpu-graph", "left", None);
-        assert!(c.get("args").is_none());
+        assert_eq!(c["args"]["bars_from"], json!("left"));
+        assert_eq!(c["args"]["newest"], json!("top"));
     }
 }
