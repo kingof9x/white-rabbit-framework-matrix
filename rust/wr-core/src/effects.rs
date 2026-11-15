@@ -138,6 +138,14 @@ pub struct EffectsSettings {
     pub text_speed: i64,
     /// Slide the next app in from the bottom when the panel changes app, instead of cutting to it.
     pub slide: bool,
+    /// With `slide` off: fade from one app to the next instead of cutting. Also how the picture comes
+    /// back after the unplug drain. Not in the Python app, so only saved when on.
+    #[serde(skip_serializing_if = "is_false")]
+    pub fade: bool,
+    /// The two panels sit next to each other (no keyboard between them): the unplug drain runs across
+    /// both as one picture. Not in the Python app, so only saved when on.
+    #[serde(skip_serializing_if = "is_false")]
+    pub panels_together: bool,
     /// Dim the panels with the LED chip's current instead of darker values (needs newer firmware).
     pub full_shades: bool,
 }
@@ -157,6 +165,8 @@ impl Default for EffectsSettings {
             text_battery: true,
             text_speed: 5,
             slide: true,
+            fade: false,
+            panels_together: false,
             full_shades: false,
         }
     }
@@ -179,6 +189,8 @@ impl EffectsSettings {
             ("text_charger", &mut s.text_charger),
             ("text_battery", &mut s.text_battery),
             ("slide", &mut s.slide),
+            ("fade", &mut s.fade),
+            ("panels_together", &mut s.panels_together),
             ("full_shades", &mut s.full_shades),
         ] {
             if let Some(v) = get(key) {
@@ -211,6 +223,30 @@ impl EffectsSettings {
 impl<'de> Deserialize<'de> for EffectsSettings {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         Ok(EffectsSettings::from_json(&Value::deserialize(deserializer)?))
+    }
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+/// How the panel goes from one app to the next (and comes back after the unplug drain).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Transition {
+    Slide,
+    Fade,
+    Cut,
+}
+
+impl EffectsSettings {
+    pub fn transition(&self) -> Transition {
+        if self.slide {
+            Transition::Slide
+        } else if self.fade {
+            Transition::Fade
+        } else {
+            Transition::Cut
+        }
     }
 }
 
@@ -934,7 +970,7 @@ pub enum Phase {
     Drain,
     /// Dark for a moment.
     Empty,
-    /// The picture coming back up from the bottom.
+    /// The picture coming back: up from the bottom, fading in, or all at once (Effects tab).
     Rise,
 }
 
@@ -954,6 +990,7 @@ pub struct SidePlayer {
 
 impl SidePlayer {
     const SLIDE_SECONDS: f64 = 0.45;
+    const FADE_SECONDS: f64 = 0.4;
     const EMPTY_SECONDS: f64 = 0.2;
     const RISE_SECONDS: f64 = 0.25;
 
@@ -986,6 +1023,35 @@ pub struct Effects {
     pub foreground: i32,
     /// Ripples across all panels at once, each with the panel order it was made for.
     ripples: Vec<(Ripple, Vec<Side>)>,
+    /// One drain across both panels (`panels_together`), shared by the two players.
+    wide: Option<WideDrain>,
+}
+
+/// The unplug drain over both panels side by side: left panel, the gap, right panel.
+#[derive(Clone, Debug)]
+struct WideDrain {
+    drain: Drain,
+    /// The port is on the left, so the drain runs on the flipped picture.
+    flipped: bool,
+    /// When it last moved on, and the picture it made then (both panels ask for it each frame).
+    last: Option<f64>,
+    picture: Picture,
+}
+
+impl WideDrain {
+    /// The whole picture at `now`, moving the drain on only once per moment.
+    fn at(&mut self, now: f64) -> &Picture {
+        let dt = match self.last {
+            Some(last) if now <= last => return &self.picture,
+            Some(last) => (now - last).min(0.1),
+            None => 0.0,
+        };
+        self.last = Some(now);
+        self.drain.advance(dt);
+        let picture = self.drain.pixels(dt);
+        self.picture = if self.flipped { picture.flipped() } else { picture };
+        &self.picture
+    }
 }
 
 impl Default for Effects {
@@ -1003,6 +1069,7 @@ impl Effects {
             panels: [false; 2],
             foreground: 160,
             ripples: Vec::new(),
+            wide: None,
         }
     }
 
@@ -1064,9 +1131,12 @@ impl Effects {
             let (jack_x, jack_y) = match panel {
                 None => (wide as f64 / 2.0, HEIGHT as f64 / 2.0),
                 Some(panel) => {
-                    let player = &mut self.players[panel.index()];
-                    if matches!(player.phase, Some(Phase::Drain | Phase::Empty)) {
-                        player.start_rise(now);
+                    let together = self.wide.take().is_some();
+                    for (i, player) in self.players.iter_mut().enumerate() {
+                        if (together || i == panel.index()) && matches!(player.phase, Some(Phase::Drain | Phase::Empty))
+                        {
+                            player.start_rise(now);
+                        }
                     }
                     (if at_left { 0.0 } else { wide as f64 }, row as f64 + 0.5)
                 }
@@ -1078,6 +1148,25 @@ impl Effects {
             return;
         }
         let Some(panel) = panel else { return };
+        if self.settings.panels_together && self.panels == [true, true] {
+            if let (Some(left), Some(right)) = (&self.players[0].last_base, &self.players[1].last_base) {
+                // Both panels as one picture, the port at the outer edge of the panel on its side
+                let mut both = Picture::zeros(HEIGHT, 2 * WIDTH + GAP);
+                both.put_columns(0, left);
+                both.put_columns(WIDTH + GAP, right);
+                let frame = if at_left { both.flipped() } else { both };
+                let drain = Drain::new(&frame, row as f64 + 0.5, 2.0, 11);
+                self.wide = Some(WideDrain { drain, flipped: at_left, last: None, picture: frame });
+                for player in self.players.iter_mut() {
+                    player.drain = None;
+                    player.slide = None;
+                    player.phase = Some(Phase::Drain);
+                    player.phase_since = now;
+                }
+                return;
+            }
+        }
+        self.wide = None;
         let player = &mut self.players[panel.index()];
         let Some(base) = &player.last_base else { return };
         let frame = if at_left { base.flipped() } else { base.clone() };
@@ -1095,7 +1184,7 @@ impl Effects {
 
     /// The panel on this side is changing app: slide the new one in over the last frame.
     pub fn start_slide(&mut self, side: Side, now: f64) {
-        if !self.settings.slide {
+        if self.settings.transition() == Transition::Cut {
             return;
         }
         let player = &mut self.players[side.index()];
@@ -1125,12 +1214,16 @@ impl Effects {
     /// The panel's picture was replaced by something else (a game, sleep): drop what is playing.
     pub fn forget(&mut self, side: Side) {
         self.players[side.index()] = SidePlayer::new();
+        if self.players.iter().all(|p| p.phase != Some(Phase::Drain)) {
+            self.wide = None;
+        }
     }
 
     /// The frame to send to the panel on this side. `new_frame` is false when the drawing thread is only
     /// redrawing its last frame to move an effect on.
     pub fn apply(&mut self, side: Side, grid: &Grid, new_frame: bool, now: f64) -> Grid {
         let i = side.index();
+        let transition = self.settings.transition();
         let base = Picture::from_grid(grid);
         let others_active = self.ripples_on(side) || self.text.active();
         let player = &mut self.players[i];
@@ -1147,7 +1240,17 @@ impl Effects {
         }
         let mut out = base;
 
-        if let Some((old, start)) = &player.slide {
+        if let (Some((old, start)), Transition::Fade) = (&player.slide, transition) {
+            // Cross-fade from the last frame of the old app to the new one
+            let k = ((now - start) / SidePlayer::FADE_SECONDS).clamp(0.0, 1.0);
+            if k >= 1.0 {
+                player.slide = None;
+            } else {
+                for (o, n) in out.data.iter_mut().zip(&old.data) {
+                    *o = *n * (1.0 - k) + *o * k;
+                }
+            }
+        } else if let Some((old, start)) = &player.slide {
             let k = ((now - start) / SidePlayer::SLIDE_SECONDS).min(1.0);
             let k = 1.0 - (1.0 - k).powf(3.0);
             // Clamped: Python can't slide backwards either (the clock only goes forwards)
@@ -1163,6 +1266,20 @@ impl Effects {
         }
 
         match player.phase {
+            Some(Phase::Drain) if self.wide.is_some() => {
+                let wide = self.wide.as_mut().unwrap();
+                let start = if i == 0 { 0 } else { WIDTH + GAP };
+                out = wide.at(now).columns(start, start + WIDTH);
+                if wide.drain.drained {
+                    self.wide = None;
+                    for p in self.players.iter_mut() {
+                        if p.phase == Some(Phase::Drain) {
+                            p.phase = Some(Phase::Empty);
+                            p.phase_since = now;
+                        }
+                    }
+                }
+            }
             Some(Phase::Drain) => {
                 if let Some((drain, flipped)) = &mut player.drain {
                     drain.advance(dt);
@@ -1181,16 +1298,27 @@ impl Effects {
                     player.start_rise(now);
                 }
             }
-            Some(Phase::Rise) => {
-                let k = ((now - player.phase_since) / SidePlayer::RISE_SECONDS).min(1.0);
-                let shift = int_round(HEIGHT as f64 * (1.0 - k)).clamp(0, HEIGHT as i64) as usize;
-                let mut risen = Picture::zeros(HEIGHT, WIDTH);
-                risen.copy_rows(shift, &out, 0, HEIGHT - shift);
-                out = risen;
-                if k >= 1.0 {
-                    player.phase = None;
+            Some(Phase::Rise) => match transition {
+                Transition::Slide => {
+                    let k = ((now - player.phase_since) / SidePlayer::RISE_SECONDS).min(1.0);
+                    let shift = int_round(HEIGHT as f64 * (1.0 - k)).clamp(0, HEIGHT as i64) as usize;
+                    let mut risen = Picture::zeros(HEIGHT, WIDTH);
+                    risen.copy_rows(shift, &out, 0, HEIGHT - shift);
+                    out = risen;
+                    if k >= 1.0 {
+                        player.phase = None;
+                    }
                 }
-            }
+                Transition::Fade => {
+                    let k = ((now - player.phase_since) / SidePlayer::FADE_SECONDS).clamp(0.0, 1.0);
+                    out.data.iter_mut().for_each(|v| *v *= k);
+                    if k >= 1.0 {
+                        player.phase = None;
+                    }
+                }
+                // Straight back to the picture, as when a new app comes on with sliding off
+                Transition::Cut => player.phase = None,
+            },
             None => {}
         }
 
@@ -1237,6 +1365,82 @@ impl Effects {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn filled(v: i32) -> Grid {
+        let mut g = Grid::new();
+        for col in g.v.iter_mut() {
+            col.iter_mut().for_each(|p| *p = v);
+        }
+        g
+    }
+
+    fn with(slide: bool, fade: bool) -> Effects {
+        let mut e = Effects::new();
+        e.configure(EffectsSettings { slide, fade, ..EffectsSettings::default() });
+        e.panel_present(Side::Left, true);
+        e
+    }
+
+    #[test]
+    fn fade_cross_fades_between_apps() {
+        let mut e = with(false, true);
+        e.apply(Side::Left, &filled(200), true, 0.0);
+        e.start_slide(Side::Left, 0.0);
+        let half = e.apply(Side::Left, &filled(0), true, SidePlayer::FADE_SECONDS / 2.0);
+        assert_eq!(half.v[3][5], 100);
+        let done = e.apply(Side::Left, &filled(0), true, SidePlayer::FADE_SECONDS);
+        assert_eq!(done.v[3][5], 0);
+        assert!(!e.player(Side::Left).active());
+    }
+
+    #[test]
+    fn cut_skips_the_slide_and_comes_straight_back_after_unplug() {
+        let mut e = with(false, false);
+        e.apply(Side::Left, &filled(200), true, 0.0);
+        e.start_slide(Side::Left, 0.0);
+        assert!(!e.player(Side::Left).active());
+        // After the drain and the dark moment, the picture is back whole at once
+        e.players[0].phase = Some(Phase::Rise);
+        e.players[0].phase_since = 1.0;
+        let back = e.apply(Side::Left, &filled(200), true, 1.0);
+        assert_eq!(back.v[0][HEIGHT - 1], 200);
+        assert_eq!(back.v[0][0], 200);
+        assert!(!e.player(Side::Left).active());
+    }
+
+    #[test]
+    fn panels_together_drain_both_as_one_picture() {
+        let mut e = Effects::new();
+        e.configure(EffectsSettings { panels_together: true, ..EffectsSettings::default() });
+        e.panel_present(Side::Left, true);
+        e.panel_present(Side::Right, true);
+        e.apply(Side::Left, &filled(200), true, 0.0);
+        e.apply(Side::Right, &filled(200), true, 0.0);
+        e.plug(Some("right-middle"), false, 0.0);
+        assert_eq!(e.player(Side::Left).phase, Some(Phase::Drain));
+        assert_eq!(e.player(Side::Right).phase, Some(Phase::Drain));
+        let mut t = 0.0;
+        while e.player(Side::Left).phase == Some(Phase::Drain) && t < 5.0 {
+            t += 1.0 / 30.0;
+            e.apply(Side::Left, &filled(200), true, t);
+            e.apply(Side::Right, &filled(200), true, t);
+        }
+        // Both panels finish draining together, then come back
+        assert_eq!(e.player(Side::Left).phase, Some(Phase::Empty));
+        assert_eq!(e.player(Side::Right).phase, Some(Phase::Empty));
+        assert!(e.wide.is_none());
+    }
+
+    #[test]
+    fn fade_setting_round_trips_and_stays_out_of_python_settings() {
+        let off = serde_json::to_value(EffectsSettings::default()).unwrap();
+        assert!(off.get("fade").is_none());
+        let on = EffectsSettings::from_json(&serde_json::json!({"slide": false, "fade": true}));
+        assert_eq!(on.transition(), Transition::Fade);
+        assert_eq!(serde_json::to_value(&on).unwrap()["fade"], true);
+        // Slide wins when both are on
+        assert_eq!(EffectsSettings::from_json(&serde_json::json!({"fade": true})).transition(), Transition::Slide);
+    }
 
     #[test]
     fn pairwise_sum_matches_a_plain_sum_on_small_arrays() {

@@ -9,7 +9,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde_json::{json, Map, Value};
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use wr_core::drawing;
-use wr_core::effects::{position_label, Effects, EffectsSettings, Side, Spot};
+use wr_core::effects::{position_label, Effects, EffectsSettings, Side, Spot, Transition};
 use wr_core::grid::{Grid, HEIGHT, WIDTH};
 
 use crate::app::Ctx;
@@ -119,6 +119,8 @@ fn show_settings(app: &AppWindow, s: &EffectsSettings) {
     page.set_text_battery(s.text_battery);
     page.set_text_speed(s.text_speed as f32);
     page.set_slide(s.slide);
+    page.set_fade(s.fade);
+    page.set_panels_together(s.panels_together);
     page.set_full_shades(s.full_shades);
 }
 
@@ -293,7 +295,7 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
             let Some(app) = ctx2.ui.upgrade() else { return };
             let page = app.global::<EffectsPage>();
             let mut s = state.borrow_mut();
-            let was_slide = s.settings.slide;
+            let was = s.settings.transition();
             let mut new = s.settings.clone();
             new.plug_animation = page.get_plug_animation();
             new.plug_charger = page.get_plug_charger();
@@ -305,13 +307,16 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
             new.text_battery = page.get_text_battery();
             new.text_speed = page.get_text_speed().round() as i64;
             new.slide = page.get_slide();
+            new.fade = page.get_fade();
+            new.panels_together = page.get_panels_together();
             new.full_shades = page.get_full_shades();
             // The monitor may have learned ports since this page read them
             new.learned_ports = load_settings().learned_ports;
             let new = EffectsSettings::from_json(&serde_json::to_value(&new).unwrap_or(Value::Null));
             let saved = settings::set("effects", serde_json::to_value(&new).unwrap_or(Value::Null));
             s.preview.configure(new.clone());
-            if new.slide && !was_slide {
+            // Show the new way of changing apps in the preview
+            if new.transition() != was && new.transition() != Transition::Cut {
                 let now = s.now();
                 s.preview.start_slide(Side::Left, now);
                 s.preview.start_slide(Side::Right, now);
