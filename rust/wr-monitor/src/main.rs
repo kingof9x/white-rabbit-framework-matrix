@@ -5,6 +5,8 @@
 #![cfg_attr(not(windows), allow(dead_code))]
 
 mod control;
+#[cfg(test)]
+mod e2e_test;
 mod icon;
 mod launch;
 mod monitor;

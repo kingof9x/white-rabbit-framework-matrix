@@ -17,7 +17,7 @@ use crate::hub::{Hub, PortSystem, SharedPort};
 use crate::ports::{discover, find_panel_port, Pins};
 use crate::protocol;
 use wr_core::queue::{FrameQueue, Item};
-use wr_core::{info, warn, Grid, HEIGHT, WIDTH};
+use wr_core::{info, warn, Grid};
 
 /// An unchanged frame is sent again after this long, so the panel never falls asleep.
 pub const RESEND_UNCHANGED: Duration = Duration::from_secs(5);
@@ -252,11 +252,11 @@ impl Panel {
                 return Ok(());
             }
         }
-        let mut bytes = Vec::with_capacity(WIDTH * (HEIGHT + 4) + 3);
+        // One write per command, as Python sends them: the firmware reads one command from each USB
+        // transfer, so commands joined into one write would be cut up and lost
         for command in protocol::frame_commands(&grid) {
-            bytes.extend_from_slice(&command);
+            state.write(&command)?;
         }
-        state.write(&bytes)?;
         if !state.is_held() {
             state.shown = Some((key, Instant::now()));
         }
@@ -342,6 +342,7 @@ impl Panel {
 mod tests {
     use super::*;
     use crate::hub::fake::*;
+    use wr_core::HEIGHT;
 
     fn setup() -> (Arc<Fake>, Arc<Panels>, Panel, Panel) {
         let fake = Arc::new(Fake::default());
@@ -374,29 +375,27 @@ mod tests {
         g.set(2, 2, 100);
         left.handle(Item::Frame(g.clone(), Some(false)));
         let w: Vec<_> = writes(&fake).into_iter().map(|(_, b)| b).collect();
-        // animate off when connecting, the frame (one column + flush), animate off
-        assert_eq!(w.len(), 3);
+        // animate off when connecting, the frame (one column, then flush: one write each, since the
+        // firmware reads one command per USB transfer), animate off
+        assert_eq!(w.len(), 4);
         assert_eq!(
             w[1],
-            [
-                protocol::command(protocol::STAGE_COL, &{
-                    let mut p = vec![2u8];
-                    p.extend((0..HEIGHT).map(|y| if y == 2 { 100 } else { 0 }));
-                    p
-                }),
-                protocol::command(protocol::FLUSH_COLS, &[])
-            ]
-            .concat()
+            protocol::command(protocol::STAGE_COL, &{
+                let mut p = vec![2u8];
+                p.extend((0..HEIGHT).map(|y| if y == 2 { 100 } else { 0 }));
+                p
+            })
         );
+        assert_eq!(w[2], protocol::command(protocol::FLUSH_COLS, &[]));
         // Any other command forgets what the panel shows (as in Python), so the next frame goes out again
         left.handle(Item::Frame(g.clone(), None));
-        assert_eq!(writes(&fake).len(), 4);
+        assert_eq!(writes(&fake).len(), 6);
         left.handle(Item::Frame(g.clone(), None));
-        assert_eq!(writes(&fake).len(), 4);
+        assert_eq!(writes(&fake).len(), 6);
         let port = panels.port(0).unwrap();
         port.lock().shown.as_mut().unwrap().1 -= RESEND_UNCHANGED;
         left.handle(Item::Frame(g, None));
-        assert_eq!(writes(&fake).len(), 5);
+        assert_eq!(writes(&fake).len(), 8);
     }
 
     #[test]
@@ -460,7 +459,7 @@ mod tests {
         assert_eq!(writes(&fake).len(), before);
         panels.hub().release(None);
         left.handle(Item::Frame(g, None));
-        assert_eq!(writes(&fake).len(), before + 1, "drawn again once released");
+        assert_eq!(writes(&fake).len(), before + 2, "drawn again once released (column + flush)");
     }
 
     /// Adds 1 to pixel (0, 0) on every frame; plays an effect for 3 redraws.
