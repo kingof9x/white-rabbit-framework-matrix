@@ -396,7 +396,7 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
             ask_monitor(&ctx2, json!({"action": "say", "text": text}), |_, _| {});
         });
     }
-    // Your own messages: editing changes the list (saved by Show them, Enter, or adding and removing)
+    // Your own messages: editing changes the list (saved by Show message, Enter, or adding and removing)
     {
         let ctx2 = ctx.clone();
         page.on_message_edited(move |i, text| {
