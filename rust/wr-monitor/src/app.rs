@@ -108,6 +108,7 @@ pub fn run() -> i32 {
         bridge: bridge.clone(),
         settings_file: paths::settings_file(),
         ui: Box::new(ui::request),
+        system: Box::new(WindowsSystem),
     };
     crate::control::serve(Arc::new(commands));
     start_plug_watcher(&shared);
@@ -192,4 +193,17 @@ fn start_plug_watcher(shared: &Arc<Shared>) {
         })
     };
     crate::plugwin::start(Arc::new(crate::plug::PlugWatcher::new(learned, fire)));
+}
+
+/// The control commands' questions about Windows.
+struct WindowsSystem;
+
+impl crate::control::commands::System for WindowsSystem {
+    fn sensor_source(&self, reload: bool) -> serde_json::Value {
+        crate::thermal::source_status(reload)
+    }
+
+    fn gpus(&self) -> Vec<String> {
+        crate::gpu::names()
+    }
 }

@@ -295,26 +295,103 @@ pub fn reader(interval: crate::background::Interval) -> Box<dyn FnMut() -> Therm
             other => vec![other],
         };
         let mut result = Thermal::default();
-        let (mut have_temps, mut have_fans) = (false, false);
-        for source in order {
+        let mut status = SourceStatus { choice: choice.clone(), ..Default::default() };
+        for source in order.iter().copied() {
             let t = match source {
                 "framework_control" => fc.read(),
                 "libre_hardware_monitor" => lhm.read(refresh),
                 _ => tool.read(),
             };
-            if !have_temps && !t.temps.is_empty() {
+            if status.temps_from.is_none() && !t.temps.is_empty() {
                 result.temps = t.temps;
                 result.named = t.named;
-                have_temps = true;
+                status.temps_from = Some(source.to_string());
             }
-            if !have_fans && !t.fans.is_empty() {
+            if status.fans_from.is_none() && !t.fans.is_empty() {
                 result.fans = t.fans;
-                have_fans = true;
+                status.fans_from = Some(source.to_string());
             }
-            if have_temps && have_fans {
+            if status.temps_from.is_some() && status.fans_from.is_some() {
                 break;
             }
         }
+        for source in order {
+            let error = match source {
+                "framework_control" => fc.log.error(),
+                "libre_hardware_monitor" => lhm.log.error(),
+                _ => tool.log.error(),
+            };
+            if let Some(error) = error {
+                status.errors.insert(source.to_string(), error.into());
+            }
+        }
+        status.thermal = result.clone();
+        status.read_at = Some(Instant::now());
+        *STATUS.lock().unwrap_or_else(|e| e.into_inner()) = Some(status);
         result
+    })
+}
+
+// For the layout editor ------------------------------------------------------------------------------
+
+/// Where the last readings came from, for the window's Panels tab and layout editor.
+#[derive(Clone, Default)]
+struct SourceStatus {
+    choice: String,
+    temps_from: Option<String>,
+    fans_from: Option<String>,
+    errors: serde_json::Map<String, serde_json::Value>,
+    thermal: Thermal,
+    read_at: Option<Instant>,
+}
+
+static STATUS: std::sync::Mutex<Option<SourceStatus>> = std::sync::Mutex::new(None);
+
+/// A reading older than this means no panel shows Temperatures or Fans right now.
+const STALE: Duration = Duration::from_secs(15);
+/// Longest wait for a one-off reading when nothing is being read.
+const ONE_OFF_WAIT: Duration = Duration::from_secs(5);
+
+fn current_status() -> Option<SourceStatus> {
+    STATUS.lock().unwrap_or_else(|e| e.into_inner()).clone().filter(|s| s.read_at.is_some_and(|t| t.elapsed() < STALE))
+}
+
+/// The reply to the window's {"cmd": "sensor_source"}, as Python's SensorSource.status() plus the
+/// sensors' names and readings ("named"), which the editor's Temperatures app offers to pick from.
+/// When nothing is being read (or `reload` asks for the new settings), it reads once, so the editor
+/// still gets the names.
+pub fn source_status(reload: bool) -> serde_json::Value {
+    let fresh = current_status().filter(|s| !reload || s.choice == settings().0);
+    let (status, reading) = match fresh {
+        Some(s) => (Some(s), true),
+        None => {
+            let (send, receive) = std::sync::mpsc::channel();
+            let _ = std::thread::Builder::new().name("sensors-once".into()).spawn(move || {
+                let mut read = reader(std::sync::Arc::new(std::sync::Mutex::new(Duration::from_secs(2))));
+                read();
+                let _ = send.send(());
+            });
+            let _ = receive.recv_timeout(ONE_OFF_WAIT);
+            // Read once for the editor: not counted as "now reading" for the Panels tab
+            (STATUS.lock().unwrap_or_else(|e| e.into_inner()).clone(), false)
+        }
+    };
+    let (choice, refresh) = settings();
+    let Some(s) = status else {
+        return serde_json::json!({"choice": choice, "refresh": refresh.as_secs_f64(), "reading": false});
+    };
+    let named: Vec<serde_json::Value> =
+        s.thermal.named.iter().map(|(name, c)| serde_json::json!([name, (c * 10.0).round() / 10.0])).collect();
+    serde_json::json!({
+        "choice": choice,
+        "refresh": refresh.as_secs_f64(),
+        "reading": reading,
+        "temps_from": s.temps_from,
+        "fans_from": s.fans_from,
+        "temps": s.thermal.temps.len(),
+        "fans": s.thermal.fans.len(),
+        "errors": s.errors,
+        "sensors": s.thermal.named.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>(),
+        "named": named,
     })
 }

@@ -39,6 +39,11 @@ fn adapters() -> windows::core::Result<Vec<(String, Luid)>> {
     }
 }
 
+/// The hardware GPUs' names, the main one first, for the layout editor's GPU picker.
+pub fn names() -> Vec<String> {
+    adapters().map(|a| a.into_iter().map(|(name, _)| name).collect()).unwrap_or_default()
+}
+
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
