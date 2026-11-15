@@ -87,11 +87,6 @@ fn editor() -> Rc<RefCell<Editor>> {
     EDITOR.with(|e| e.borrow().clone()).expect("layout editor wired")
 }
 
-/// Whether the layout has changes not applied yet (asked when the window closes).
-pub fn is_dirty() -> bool {
-    EDITOR.with(|e| e.borrow().as_ref().map(|e| e.borrow().dirty)).unwrap_or(false)
-}
-
 fn read_layout(path: Option<&PathBuf>) -> (EditorLayout, Vec<String>) {
     let loaded = match path {
         Some(p) => model::load_file(p).map_err(|e| (p.display().to_string(), e)),
@@ -738,7 +733,7 @@ fn run_action(app: &AppWindow, busy: &str, action: impl FnOnce() -> String + Sen
     if !busy.is_empty() {
         status(app, busy);
     }
-    crate::app::ctx().in_background(action, |app, text| status(app, text));
+    crate::app::ctx().in_background(action, status);
 }
 
 fn save(app: &AppWindow, e: &mut Editor) -> bool {
@@ -764,11 +759,16 @@ fn reload_monitor() -> bool {
 /// Asked when the window closes: apply the changes (true) or drop them.
 pub fn apply_on_close() {
     let ed = editor();
-    let e = ed.borrow_mut();
-    if e.dirty && dialogs::confirm("System monitor", "Apply your layout changes before closing?") {
-        if model::save(&e.layout, &e.save_path).is_ok() {
-            reload_monitor();
-        }
+    // Copied out first, so no borrow is held while the question is open (timers still run then)
+    let (dirty, layout, path) = {
+        let e = ed.borrow();
+        (e.dirty, e.layout.clone(), e.save_path.clone())
+    };
+    if dirty
+        && dialogs::confirm("System monitor", "Apply your layout changes before closing?")
+        && model::save(&layout, &path).is_ok()
+    {
+        reload_monitor();
     }
 }
 
@@ -1351,7 +1351,7 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
                 ticks = 0;
                 return;
             }
-            if ticks % 5 == 0 {
+            if ticks.is_multiple_of(5) {
                 check_monitor();
             }
             ticks += 1;

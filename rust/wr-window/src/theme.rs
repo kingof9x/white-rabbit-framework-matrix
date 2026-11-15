@@ -48,6 +48,7 @@ fn parse_hex(s: &str) -> Option<u32> {
 
 /// Windows' AccentPalette (8 RGBA colours, lightest first) -> (light mode accent, dark mode accent).
 /// Windows apps use the "Dark 1" shade on light backgrounds and "Light 2" on dark ones.
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn accent_from_palette(data: &[u8]) -> Option<(u32, u32)> {
     if data.len() < 32 {
         return None;
@@ -56,6 +57,7 @@ pub fn accent_from_palette(data: &[u8]) -> Option<(u32, u32)> {
     Some((color(4), color(1)))
 }
 
+#[cfg_attr(not(windows), allow(dead_code))]
 fn rgb_to_hls(r: f64, g: f64, b: f64) -> (f64, f64, f64) {
     let max = r.max(g).max(b);
     let min = r.min(g).min(b);
@@ -78,6 +80,7 @@ fn rgb_to_hls(r: f64, g: f64, b: f64) -> (f64, f64, f64) {
     (((h / 6.0) % 1.0 + 1.0) % 1.0, l, s)
 }
 
+#[cfg_attr(not(windows), allow(dead_code))]
 fn hls_to_rgb(h: f64, l: f64, s: f64) -> (f64, f64, f64) {
     if s == 0.0 {
         return (l, l, l);
@@ -100,6 +103,7 @@ fn hls_to_rgb(h: f64, l: f64, s: f64) -> (f64, f64, f64) {
 }
 
 /// A single accent colour (DWM AccentColor, 0xAABBGGRR) -> (light mode, dark mode) shades.
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn accent_from_color(abgr: u32) -> (u32, u32) {
     let (r, g, b) = ((abgr & 0xff) as f64, ((abgr >> 8) & 0xff) as f64, ((abgr >> 16) & 0xff) as f64);
     let (h, l, s) = rgb_to_hls(r / 255.0, g / 255.0, b / 255.0);
@@ -226,9 +230,7 @@ pub fn resolve(choice: &str, windows: &Windows) -> (&'static str, u32) {
         "classic"
     } else if choice == "light" {
         "light"
-    } else if choice == "dark" {
-        "dark"
-    } else if windows.dark {
+    } else if choice == "dark" || windows.dark {
         "dark"
     } else {
         "light"

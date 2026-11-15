@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 pub const APP_NAME: &str = "WhiteRabbit";
 /// Only one window: a second start brings the open one to the front (the installer checks it too).
+#[cfg_attr(not(windows), allow(dead_code))]
 pub const WINDOW_MUTEX: &str = "WhiteRabbit_window";
 /// The layout bundled with the app, used when the user has none yet.
 pub const BUNDLED_LAYOUT: &str = include_str!("../../../led_mon/config.yaml");
@@ -48,10 +49,6 @@ pub fn log_file() -> PathBuf {
     log_dir().join("WhiteRabbit-window.log")
 }
 
-pub fn monitor_log_file() -> PathBuf {
-    log_dir().join("WhiteRabbit-monitor.log")
-}
-
 /// The control channel's key, written by the monitor when it starts.
 pub fn control_key_file() -> PathBuf {
     log_dir().join("control.key")
@@ -64,11 +61,6 @@ pub fn layout_file() -> Option<PathBuf> {
     }
     let dir = config_dir();
     ["config-local.yaml", "config.yaml"].iter().map(|f| dir.join(f)).find(|p| p.exists())
-}
-
-/// Where a changed layout is saved: the file in use, or config.yaml in the settings folder.
-pub fn layout_save_file() -> PathBuf {
-    layout_file().unwrap_or_else(|| config_dir().join("config.yaml"))
 }
 
 /// The folder this exe is in (the installed app's folder, with the firmware and VERSION files).

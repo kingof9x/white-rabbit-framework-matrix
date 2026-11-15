@@ -226,7 +226,7 @@ pub fn import(path: &Path, how: &str, swap: bool) -> Result<Drawing, String> {
         for frame in decoder.into_frames().take(MAX_FRAMES) {
             let frame = frame.map_err(|e| e.to_string())?;
             let (num, den) = frame.delay().numer_denom_ms();
-            let ms = if den == 0 { 0 } else { (num / den) as i64 };
+            let ms = num.checked_div(den).unwrap_or(0) as i64;
             pictures.push((to_grey(frame.buffer()), if ms > 0 { ms } else { DEFAULT_DELAY_MS }));
         }
     } else {

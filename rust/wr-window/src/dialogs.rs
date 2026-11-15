@@ -41,19 +41,3 @@ pub fn open_file(title: &str, filters: &[(&str, &[&str])]) -> Option<std::path::
         std::env::var_os("WHITE_RABBIT_PICK_FILE").map(std::path::PathBuf::from)
     }
 }
-
-#[allow(unused_variables)]
-pub fn save_file(title: &str, name: &str, filters: &[(&str, &[&str])]) -> Option<std::path::PathBuf> {
-    #[cfg(windows)]
-    {
-        let mut d = rfd::FileDialog::new().set_title(title).set_file_name(name);
-        for (n, ext) in filters {
-            d = d.add_filter(*n, ext);
-        }
-        d.save_file()
-    }
-    #[cfg(not(windows))]
-    {
-        std::env::var_os("WHITE_RABBIT_SAVE_FILE").map(std::path::PathBuf::from)
-    }
-}

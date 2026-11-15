@@ -13,6 +13,7 @@ use crate::app::Ctx;
 use crate::{dialogs, AboutPage, AppWindow, Credit};
 
 const REPO: &str = "kingof9x/white-rabbit-framework-matrix";
+#[cfg_attr(not(windows), allow(dead_code))]
 const SETUP_ASSET: &str = "WhiteRabbit-setup.exe";
 
 /// The projects White Rabbit is based on or inspired by: (name, url, what came from it)
@@ -56,6 +57,7 @@ pub struct Release {
     pub setup_url: Option<String>,
 }
 
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn parse_release(release: &Value) -> Release {
     let setup_url = release
         .get("assets")
@@ -121,8 +123,8 @@ fn download(url: &str, progress: &dyn Fn(u32)) -> Result<std::path::PathBuf, Str
         }
         file.write_all(&buf[..n]).map_err(|e| e.to_string())?;
         done += n as u64;
-        if total > 0 {
-            progress((done * 100 / total) as u32);
+        if let Some(percent) = (done * 100).checked_div(total) {
+            progress(percent as u32);
         }
     }
     Ok(path)

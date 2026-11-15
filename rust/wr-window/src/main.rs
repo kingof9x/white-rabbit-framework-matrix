@@ -9,6 +9,9 @@
 //!
 //! For screenshots and tests away from Windows: --shoot OUT.png PAGE [SCALE] draws a page into a picture.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+// Style lints we choose not to follow: callback types are spelled out where they are used, and some
+// loops index several arrays at once.
+#![allow(clippy::type_complexity, clippy::needless_range_loop)]
 
 slint::include_modules!();
 

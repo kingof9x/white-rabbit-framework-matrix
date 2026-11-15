@@ -84,14 +84,6 @@ impl Default for EditorLayout {
     }
 }
 
-pub fn side_index(side: &str) -> usize {
-    if side == "right" {
-        1
-    } else {
-        0
-    }
-}
-
 /// The ready-made layouts: (name, [(top, bottom)] per side, one page per pair).
 pub const PRESETS: [(&str, [&[(&str, &str)]; 2]); 1] =
     [("Classic monitor", [&[("cpu", "mem-bat")], &[("disk", "net")]])];

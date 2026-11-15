@@ -267,6 +267,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn talks_to_a_monitor_on_a_unix_socket() {
         // A pretend monitor: the real handshake, then it echoes the command name back
         let dir = std::env::temp_dir().join(format!("wr-window-link-{}", std::process::id()));

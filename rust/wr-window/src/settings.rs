@@ -60,7 +60,6 @@ pub fn get_str(key: &str) -> Option<String> {
 }
 
 pub const PANEL_SIDES: [&str; 2] = ["left", "right"];
-pub const PANEL_NAME_LETTERS: usize = 5;
 pub const PANEL_NAME_MAX: usize = 20;
 
 /// The names the user gave the left and right panels, cleaned as Python's clean_panel_names does.

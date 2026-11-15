@@ -249,9 +249,6 @@ pub static APPS: [AppInfo; 21] = [
     AppInfo { key: "plugin", label: "App from a plugin", help: "App from a plugin.", size: Size::Half, settings: &[], fixed: "{}", fixed_args: "{}" },
 ];
 
-/// Names the monitor uses for empty slots (display: false); never offered as apps.
-pub const HIDDEN: [&str; 2] = ["none", "equalizer_dispose"];
-
 /// The apps to offer in the editor, in order.
 pub fn offered() -> impl Iterator<Item = &'static AppInfo> {
     APPS.iter().filter(|a| a.key != "none" && a.key != "plugin")

@@ -711,7 +711,7 @@ fn langton() -> Step {
 pub fn collatz_sequence(mut n: u64) -> Vec<u64> {
     let mut seq = vec![n];
     while n != 1 {
-        n = if n % 2 == 0 { n / 2 } else { 3 * n + 1 };
+        n = if n.is_multiple_of(2) { n / 2 } else { 3 * n + 1 };
         seq.push(n);
     }
     seq
@@ -755,7 +755,7 @@ fn collatz() -> Step {
 
 /// Where each number 1..count lands on a square spiral from the middle of the picture.
 fn ulam_positions(width: usize, count: usize) -> Vec<(i64, i64)> {
-    let (mut x, mut y) = (width as i64 / 2 - if width % 2 == 0 { 1 } else { 0 }, HEIGHT as i64 / 2);
+    let (mut x, mut y) = (width as i64 / 2 - if width.is_multiple_of(2) { 1 } else { 0 }, HEIGHT as i64 / 2);
     let mut pos = vec![(0, 0), (x, y)];
     const TURNS: [(i64, i64); 4] = [(1, 0), (0, -1), (-1, 0), (0, 1)];
     let (mut step, mut d) = (1, 0);
@@ -1371,7 +1371,7 @@ pub fn pi_digits(count: usize) -> Vec<u8> {
             if part.iter().all(|l| *l == 0) {
                 break;
             }
-            if k % 2 == 0 {
+            if k.is_multiple_of(2) {
                 let mut carry = 0;
                 for i in (0..limbs).rev() {
                     let v = sum[i] + part[i] + carry;

@@ -12,7 +12,7 @@ background is now written in Rust, so it uses a fraction of the memory it used t
 The newest version is on the [Releases](https://github.com/kingof9x/white-rabbit-framework-matrix/releases/latest) page:
 
 - [`WhiteRabbit-setup.exe`](https://github.com/kingof9x/white-rabbit-framework-matrix/releases/latest/download/WhiteRabbit-setup.exe): installer (starts with Windows, Start menu shortcut)
-- [`WhiteRabbit.exe`](https://github.com/kingof9x/white-rabbit-framework-matrix/releases/latest/download/WhiteRabbit.exe): portable app, nothing is installed (still all Python, so it doesn't get the memory savings below; use the installer for those)
+- [`WhiteRabbit-portable.zip`](https://github.com/kingof9x/white-rabbit-framework-matrix/releases/latest/download/WhiteRabbit-portable.zip): portable app, nothing is installed. Unzip it anywhere and run `WhiteRabbit.exe`
 - [`ledmatrix.uf2`](https://github.com/kingof9x/white-rabbit-framework-matrix/releases/latest/download/ledmatrix.uf2): LED Matrix firmware with the startup animation setting and the extra Game of Life patterns (the app can flash it for you)
 
 <!-- virus-scan:start -->
@@ -55,18 +55,10 @@ memory:
 
 *Measured on a Framework Laptop 16 in Task Manager, with the window closed.*
 
-The installer sets this up for you: `WhiteRabbit.exe` is now the Rust monitor
-and tray icon, and the settings window is still the Python app
-(`WhiteRabbitWindow.exe` next to it). The window only uses memory while it is
-open; close it and only the 8 MB part keeps running.
-
-**Coming in 1.5:** the settings window gets rewritten in Rust too, so the whole
-app is Rust and no Python is shipped at all.
-
-**Not in the Rust monitor yet:** the FPS counter and FPS number apps show a
-question mark, and the Weather app uses the location you typed in (or your
-internet address) instead of *Windows Location*. The portable `WhiteRabbit.exe`
-still has both.
+Since 1.5 the settings window is Rust too, so the whole app is Rust and no
+Python is shipped at all: `WhiteRabbit.exe` is the monitor and tray icon, and
+`WhiteRabbitWindow.exe` next to it is the window. The window only uses memory
+while it is open; close it and only the small monitor keeps running.
 
 ### New features since the last README
 
@@ -323,7 +315,7 @@ panels or the microphone because there are none.*
 ## Install and use
 
 1. Download [`WhiteRabbit-setup.exe`](https://github.com/kingof9x/white-rabbit-framework-matrix/releases/latest/download/WhiteRabbit-setup.exe)
-   (or the portable `WhiteRabbit.exe`) and run it. If Windows shows *"Windows
+   and run it (or unzip the portable `WhiteRabbit-portable.zip` and run `WhiteRabbit.exe`). If Windows shows *"Windows
    protected your PC"*, click *More info* > *Run anyway* (the app isn't code-signed).
 2. Quit the old apps first if you use them: led_mon (tray icon > *Quit*) and
    `ledmatrixgui.exe`. They would be holding the panels.
@@ -406,31 +398,19 @@ each White Rabbit build bundles the newest firmware from its Releases page.
 
 ## Run or build it yourself
 
-Windows, Python 3.12:
+The app is in [`rust/`](rust); see [rust/README.md](rust/README.md). On Windows,
+with [Rust](https://rustup.rs) installed:
 
 ```powershell
 git clone https://github.com/kingof9x/white-rabbit-framework-matrix
-cd white-rabbit-framework-matrix
-py -3.12 -m venv .venv
-.venv\Scripts\activate
-python -m pip install -r requirements.txt pytest
-python -m pytest
-python main.py                    # monitor + tray + window
-python main.py --window           # just the window
-python -m PyInstaller white_rabbit.spec --noconfirm    # dist\WhiteRabbit\WhiteRabbit.exe
+cd white-rabbit-framework-matrix\rust
+cargo test                                         # checks every picture against the Python version
+cargo build --release -p wr-monitor -p wr-window   # rust\target\release\WhiteRabbit.exe and WhiteRabbitWindow.exe
 ```
 
-On Linux the monitor runs in the console as before (`python main.py`), and
-`python main.py --window` opens the window next to it.
-
-The Rust monitor (the installed `WhiteRabbit.exe`) is in [`rust/`](rust); see
-[rust/README.md](rust/README.md). With [Rust](https://rustup.rs) installed:
-
-```powershell
-cd rust
-cargo test                          # checks every picture against the Python version
-cargo build --release -p wr-monitor # rust\target\release\WhiteRabbit.exe
-```
+The older Python version is still in the repository (`main.py`, `led_mon/`,
+`white_rabbit/`). The Rust app is checked against it, and on Linux it still runs
+in the console (`python main.py`, Python 3.12, `pip install -r requirements.txt`).
 
 ## Where it comes from
 

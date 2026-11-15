@@ -1,7 +1,7 @@
 name: Rust monitor
 
-# The Rust rewrite of the monitor (rust/). Checks that it still draws exactly what the Python monitor
-# draws (the golden frames in tests/golden/) and builds the Rust WhiteRabbit.exe (the Windows build ships it with the Python window).
+# The Rust app (rust/). Checks that it still draws exactly what the Python monitor
+# draws (the golden frames in tests/golden/) and builds the Rust WhiteRabbit.exe (the Windows build makes the installer).
 # The exe is a test build: it is attached to the workflow run (Actions > this run > Artifacts), not
 # to a release.
 

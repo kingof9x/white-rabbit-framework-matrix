@@ -85,7 +85,7 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
             });
             let command = cmd::set_startup_animation(mode as u8, animation, mask);
             ctx.act(
-                move |s, p| s.write(&p.device, &[command.clone()]).map(|_| ()),
+                move |s, p| s.write(&p.device, std::slice::from_ref(&command)).map(|_| ()),
                 status,
                 Some(supported),
                 true,
