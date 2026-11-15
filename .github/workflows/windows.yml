@@ -28,7 +28,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install test dependencies
-        run: python -m pip install pytest pyserial pyyaml python-dotenv numpy psutil pillow
+        run: python -m pip install pytest pyserial pyyaml python-dotenv numpy psutil pillow requests
       - name: Run tests
         run: python -m pytest
 
