@@ -7,7 +7,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Map, Value};
-use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use wr_core::drawing;
 use wr_core::effects::{position_label, Effects, EffectsSettings, Side, Spot, Transition};
 use wr_core::grid::{Grid, HEIGHT, WIDTH};
@@ -121,9 +121,11 @@ fn show_settings(app: &AppWindow, s: &EffectsSettings) {
     page.set_slide(s.slide);
     page.set_fade(s.fade);
     page.set_panels_together(s.panels_together);
-    page.set_pinned(!s.pinned_message.is_empty());
-    if !s.pinned_message.is_empty() {
-        page.set_message(s.pinned_message.clone().into());
+    page.set_pinned(s.show_messages);
+    page.set_max_messages(EffectsSettings::MAX_MESSAGES as i32);
+    if !s.messages.is_empty() {
+        let lines: Vec<slint::SharedString> = s.messages.iter().map(|m| m.as_str().into()).collect();
+        page.set_messages(slint::ModelRc::new(slint::VecModel::from(lines)));
     }
     page.set_full_shades(s.full_shades);
 }
@@ -313,7 +315,8 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
             new.slide = page.get_slide();
             new.fade = page.get_fade();
             new.panels_together = page.get_panels_together();
-            new.pinned_message = if page.get_pinned() { page.get_message().trim().to_string() } else { String::new() };
+            new.messages = page.get_messages().iter().map(|m| m.trim().to_string()).filter(|m| !m.is_empty()).collect();
+            new.show_messages = page.get_pinned() && !new.messages.is_empty();
             new.full_shades = page.get_full_shades();
             // The monitor may have learned ports since this page read them
             new.learned_ports = load_settings().learned_ports;
@@ -373,6 +376,40 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
             }
             state.borrow_mut().preview.say(&text);
             ask_monitor(&ctx2, json!({"action": "say", "text": text}), |_, _| {});
+        });
+    }
+    // Your own messages: editing changes the list (saved by Show them, Enter, or adding and removing)
+    {
+        let ctx2 = ctx.clone();
+        page.on_message_edited(move |i, text| {
+            let Some(app) = ctx2.ui.upgrade() else { return };
+            let model = app.global::<EffectsPage>().get_messages();
+            if (i as usize) < model.row_count() {
+                model.set_row_data(i as usize, text);
+            }
+        });
+    }
+    {
+        let ctx2 = ctx.clone();
+        page.on_add_message(move || {
+            let Some(app) = ctx2.ui.upgrade() else { return };
+            let page = app.global::<EffectsPage>();
+            let mut lines: Vec<slint::SharedString> = page.get_messages().iter().collect();
+            lines.push("".into());
+            page.set_messages(slint::ModelRc::new(slint::VecModel::from(lines)));
+        });
+    }
+    {
+        let ctx2 = ctx.clone();
+        page.on_remove_message(move |i| {
+            let Some(app) = ctx2.ui.upgrade() else { return };
+            let page = app.global::<EffectsPage>();
+            let mut lines: Vec<slint::SharedString> = page.get_messages().iter().collect();
+            if (i as usize) < lines.len() && lines.len() > 1 {
+                lines.remove(i as usize);
+            }
+            page.set_messages(slint::ModelRc::new(slint::VecModel::from(lines)));
+            page.invoke_changed();
         });
     }
     {

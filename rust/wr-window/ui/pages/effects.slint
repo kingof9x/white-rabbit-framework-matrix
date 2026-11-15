@@ -17,8 +17,10 @@ export global EffectsPage {
     in-out property <bool> slide: true;
     in-out property <bool> fade;
     in-out property <bool> panels-together;
-    // Your own message keeps going round until turned off
+    // Your own messages keep going round, taking turns, until turned off
     in-out property <bool> pinned;
+    in-out property <[string]> messages: ["Back in 5 minutes"];
+    in property <int> max-messages: 10;
     in-out property <bool> full-shades;
     // "Left back" ... "Right front"
     in property <[string]> positions;
@@ -26,7 +28,6 @@ export global EffectsPage {
     in-out property <int> fix-position;
     in property <string> last-plug: "Nothing plugged in or out since White Rabbit started.";
     in property <bool> can-fix;
-    in-out property <string> message: "Back in 5 minutes";
     in property <string> status;
     in property <image> preview;
 
@@ -42,6 +43,9 @@ export global EffectsPage {
     callback try-plug(bool);
     callback learn();
     callback say(string);
+    callback message-edited(int, string);
+    callback add-message();
+    callback remove-message(int);
     callback teach();
     callback teach-skip();
     callback teach-start-over();
@@ -120,21 +124,26 @@ export component EffectsView inherits HorizontalLayout {
                 CheckBox { text: "the charger goes in or out"; enabled: EffectsPage.text-line; checked <=> EffectsPage.text-charger; toggled => { EffectsPage.changed(); } }
                 CheckBox { text: "the battery is low"; enabled: EffectsPage.text-line; checked <=> EffectsPage.text-battery; toggled => { EffectsPage.changed(); } }
             }
-            Row {
-                Label { text: "Your own message:"; }
-                message := LineEdit {
+            Label { text: "Your own messages:"; }
+            for text[i] in EffectsPage.messages: Row {
+                LineEdit {
                     width: 280px;
-                    text <=> EffectsPage.message;
-                    // While it's showing, Enter shows the new words instead
+                    text: text;
+                    edited(t) => { EffectsPage.message-edited(i, t); }
+                    // While they're showing, Enter shows the new words
                     accepted => { if EffectsPage.pinned { EffectsPage.changed(); } }
                 }
+                Button { text: "Remove"; enabled: EffectsPage.messages.length > 1; clicked => { EffectsPage.remove-message(i); } }
+            }
+            Row {
+                Button { text: "Add a line"; enabled: EffectsPage.messages.length < EffectsPage.max-messages; clicked => { EffectsPage.add-message(); } }
                 Button {
-                    text: EffectsPage.pinned ? "Stop showing it" : "Show it";
-                    enabled: EffectsPage.text-line && (EffectsPage.pinned || EffectsPage.message != "");
+                    text: EffectsPage.pinned ? "Stop showing them" : "Show them";
+                    enabled: EffectsPage.text-line;
                     clicked => { EffectsPage.pinned = !EffectsPage.pinned; EffectsPage.changed(); }
                 }
             }
-            Hint { text: EffectsPage.pinned ? "Your message keeps going round on the panels until you stop it. Other messages still get their turn." : "Show it keeps your message going round on the panels until you stop it."; }
+            Hint { text: EffectsPage.pinned ? "Your messages go round on the panels one after another until you stop them. Other messages still get their turn." : "Show them keeps your messages going round on the panels, one after another, until you stop them."; }
             Row {
                 Label { text: "Scroll speed:"; }
                 Slider {
@@ -168,7 +177,7 @@ export component EffectsView inherits HorizontalLayout {
             width: 230px;
             title: "Preview";
             LedImage { source: EffectsPage.preview; width: 182px; height: 292px; }
-            Hint { text: "Left panel and right panel. Plays what Plug in, Unplug and Show it do."; horizontal-alignment: center; }
+            Hint { text: "Left panel and right panel. Plays what Plug in, Unplug and Show them do."; horizontal-alignment: center; }
         }
     }
 }

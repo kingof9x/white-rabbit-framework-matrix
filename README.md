@@ -212,7 +212,8 @@ Little extras that play over whatever the panels show.
   other, tick the box and the unplug drains both as one picture.
 - **Text line:** a line of small letters scrolls across the top of both
   panels when a new song starts, the charger goes in or out, or the battery is
-  low, or with your own message, which can keep going round until you stop it.
+  low, or with your own messages, which can keep going round one after
+  another until you stop them.
 - **Changing apps:** slide the next app in from the bottom, fade into it, or
   cut straight to it. After the unplug animation the picture comes back the
   same way.
