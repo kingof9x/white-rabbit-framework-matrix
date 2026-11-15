@@ -155,3 +155,19 @@ def test_swap_uses_port_names_without_locations():
     assert shared_state.swapped_pins([(None, "COM4")]) is None
     assert shared_state.pins_from_settings({"left-location": "1-4.4", "right-port": "COM4"}) == (
         {"right": "COM4"}, {"left": "1-4.4"})
+
+
+def test_panels_coming_back_one_at_a_time_keep_their_sides(usb):
+    # Callum's log: both panels unplugged (keyboard moved), the right one (1-3.3) came back first and the
+    # left thread took it; then the left one (1-4.2) came back and went to the right thread
+    usb["ports"] = [port("COM4", "1-4.2:x.0"), port("COM5", "1-3.3:x.0")]
+    left, right = threads(usb)
+    assert (left.port_name, right.port_name) == ("COM4", "COM5")
+    left._close_serial_port()
+    right._close_serial_port()
+    usb["ports"] = [port("COM5", "1-3.3:x.0")]
+    assert not left._attempt_reconnect(force=True), "the right panel is kept for the right side"
+    assert right._attempt_reconnect(force=True)
+    usb["ports"] = [port("COM3", "1-4.2:x.0"), port("COM5", "1-3.3:x.0")]
+    assert left._attempt_reconnect(force=True)
+    assert (left.port_name, right.port_name) == ("COM3", "COM5")

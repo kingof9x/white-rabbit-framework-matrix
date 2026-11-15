@@ -607,6 +607,10 @@ def align_panels(threads, device_list=None):
     return False
 
 
+# {side index: the DrawingThread for that side}, so a thread can leave the other side's panel for it
+_threads_by_side = {}
+
+
 def _find_panel_port(port_location, side_index, owner, device_list=None):
     """The port this drawing thread should draw on now, or None.
 
@@ -627,14 +631,31 @@ def _find_panel_port(port_location, side_index, owner, device_list=None):
                 return device.device
     if side_index is None:
         return None
+    # While the other side's thread is looking for its panel, the panel back at that side's own USB
+    # position is kept for it. Otherwise, when the modules come back one at a time (moving the keyboard),
+    # the first thread to look grabs whichever panel showed up first, and the two sides swap.
+    other = _threads_by_side.get(1 - side_index)
+    reserved = None
+    if other is not None and other is not owner and other.serial_port is None and other.port_location:
+        reserved = str(other.port_location).split(":")[0].lower()
+    location_of = {d.device.lower(): (d.location or "") for d in device_list}
+
+    def free(port):
+        if _claimed_by_other(port, owner):
+            return False
+        if reserved is not None and (port.lower() == reserved
+                                     or location_of.get(port.lower(), "").split(":")[0].lower() == reserved):
+            return False
+        return True
+
     found = discover_led_devices(device_list) or []
     if side_index < len(found):
         port = found[side_index][1]
-        if not _claimed_by_other(port, owner):
+        if free(port):
             return port
     # The panel on this side is taken (e.g. the other panel moved onto this side): use any free one
     for _, port in found:
-        if not _claimed_by_other(port, owner):
+        if free(port):
             return port
     return None
 
@@ -661,6 +682,8 @@ class DrawingThread(threading.Thread):
         # Which panel's effects (ripples, sliding, text line; see effects.py) go over these frames
         self.effect_side = effect_side or (effects.SIDES[side_index] if side_index in (0, 1) else None)
         self.last_grid = None
+        if side_index in (0, 1):
+            _threads_by_side[side_index] = self
         if port_location is not None or side_index is None:
             if side_index is None:
                 self.serial_port = init_device(self.port_location)
