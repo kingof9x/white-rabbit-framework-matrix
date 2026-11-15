@@ -1,0 +1,197 @@
+// Games & patterns: games played on the panels with the arrow keys, the firmware's Game of Life and
+// patterns, text, and the clock, countdown and equalizer. These borrow the ticked panels from the
+// system monitor.
+import { Theme } from "../theme.slint";
+import { Group, Hint, Status, Slider, LedImage, Button, AccentButton } from "../widgets.slint";
+import { ComboBox, LineEdit, SpinBox } from "std-widgets.slint";
+
+export global GamesPage {
+    in property <[string]> games;
+    in property <[string]> life-starts;
+    in property <[string]> patterns;
+    in property <[string]> layouts;
+    in-out property <int> layout;
+    in property <bool> running;
+    in property <bool> paused;
+    in property <bool> can-pause;
+    in property <string> title: "No game running";
+    in property <string> score: "Pick a game on the left.";
+    in property <string> controls;
+    in property <string> best;
+    in property <image> preview;
+    in property <length> preview-width: 182px;
+    in property <string> status: "These borrow the ticked panels from the system monitor. Stop, or Back to system monitor, gives them back.";
+    in-out property <int> fill: 50;
+    in-out property <int> seconds: 10;
+    in-out property <string> text;
+    // Bumped to put the keyboard on the preview
+    in property <int> focus-preview;
+    callback start(int);
+    callback pause();
+    callback stop();
+    // key: left, right, up, down, action, pause
+    callback key(string, bool);
+    callback preview-clicked();
+    callback preview-focus(bool);
+    callback layout-chosen(int);
+    callback life(int);
+    callback pattern(int);
+    callback show-text(string);
+    callback fill-changed(int);
+    callback scroll();
+    callback clock();
+    callback countdown(int);
+    callback equalizer();
+}
+
+component Row inherits HorizontalLayout {
+    spacing: 8px;
+    alignment: start;
+}
+
+component Label inherits Text {
+    color: Theme.text;
+    font-size: Theme.body;
+    vertical-alignment: center;
+}
+
+// The game's picture; it takes the keys while it has the focus.
+component GameScreen inherits Rectangle {
+    width: GamesPage.preview-width + 12px;
+    height: 304px;
+    border-radius: Theme.small-radius;
+    border-width: 2px;
+    border-color: keys.has-focus ? Theme.accent : #111111;
+    background: #111111;
+    property <int> want-focus: GamesPage.focus-preview;
+    changed want-focus => { keys.focus(); }
+    LedImage { source: GamesPage.preview; width: GamesPage.preview-width; height: 292px; }
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => { keys.focus(); GamesPage.preview-clicked(); }
+    }
+    keys := FocusScope {
+        focus-gained => { GamesPage.preview-focus(true); }
+        focus-lost => { GamesPage.preview-focus(false); }
+        key-pressed(e) => {
+            if e.text == Key.LeftArrow || e.text == "a" || e.text == "A" { GamesPage.key("left", true); return accept; }
+            if e.text == Key.RightArrow || e.text == "d" || e.text == "D" { GamesPage.key("right", true); return accept; }
+            if e.text == Key.UpArrow || e.text == "w" || e.text == "W" { GamesPage.key("up", true); return accept; }
+            if e.text == Key.DownArrow || e.text == "s" || e.text == "S" { GamesPage.key("down", true); return accept; }
+            if e.text == " " || e.text == Key.Return { GamesPage.key("action", true); return accept; }
+            if !e.repeat && (e.text == Key.Escape || e.text == "p" || e.text == "P") { GamesPage.key("pause", true); return accept; }
+            return reject;
+        }
+        key-released(e) => {
+            if e.text == Key.LeftArrow || e.text == "a" || e.text == "A" { GamesPage.key("left", false); return accept; }
+            if e.text == Key.RightArrow || e.text == "d" || e.text == "D" { GamesPage.key("right", false); return accept; }
+            if e.text == Key.UpArrow || e.text == "w" || e.text == "W" { GamesPage.key("up", false); return accept; }
+            if e.text == Key.DownArrow || e.text == "s" || e.text == "S" { GamesPage.key("down", false); return accept; }
+            return reject;
+        }
+    }
+}
+
+export component GamesView inherits HorizontalLayout {
+    spacing: 16px;
+    VerticalLayout {
+        horizontal-stretch: 1;
+        spacing: 12px;
+        Group {
+            title: "Games";
+            help: "Played on the panels with the arrow keys. Click the picture on the right to give it the keyboard; it pauses when you click somewhere else.";
+            Row {
+                for g[i] in GamesPage.games: Button { text: g; clicked => { GamesPage.start(i); } }
+            }
+            Row {
+                Button { text: GamesPage.paused ? "Carry on" : "Pause"; enabled: GamesPage.can-pause; clicked => { GamesPage.pause(); } }
+                Button { text: "Stop"; enabled: GamesPage.running; clicked => { GamesPage.stop(); } }
+            }
+            Hint { text: GamesPage.best; }
+        }
+        Group {
+            title: "Game of Life";
+            help: "Played by the panels themselves. Current picture starts from what the panel shows now.";
+            GridLayout {
+                spacing: 4px;
+                for name[i] in GamesPage.life-starts: Button {
+                    row: floor(i / 4);
+                    col: mod(i, 4);
+                    text: name;
+                    clicked => { GamesPage.life(i); }
+                }
+            }
+            Row { Button { text: "Stop"; clicked => { GamesPage.stop(); } } }
+        }
+        Group {
+            title: "Patterns and text";
+            Row {
+                Label { text: "Pattern:"; width: 70px; }
+                ComboBox {
+                    width: 300px;
+                    model: GamesPage.patterns;
+                    current-index: -1;
+                    selected => { GamesPage.pattern(self.current-index); }
+                }
+            }
+            Row {
+                Label { text: "Text:"; width: 70px; }
+                words := LineEdit {
+                    width: 200px;
+                    placeholder-text: "Up to 5 letters";
+                    text <=> GamesPage.text;
+                    accepted => { GamesPage.show-text(self.text); }
+                }
+                Button { text: "Show"; clicked => { GamesPage.show-text(words.text); } }
+            }
+            Row {
+                Label { text: "Fill:"; width: 70px; }
+                Slider {
+                    width: 260px;
+                    minimum: 0;
+                    maximum: 100;
+                    value: GamesPage.fill;
+                    released(v) => { GamesPage.fill = round(v); GamesPage.fill-changed(round(v)); }
+                }
+                Label { text: GamesPage.fill + "%"; }
+            }
+            Row {
+                Rectangle { width: 70px; }
+                Button { text: "Scroll the picture"; clicked => { GamesPage.scroll(); } }
+            }
+        }
+        Group {
+            title: "Clock, countdown and equalizer";
+            Row {
+                Button { text: "Clock"; clicked => { GamesPage.clock(); } }
+                Rectangle { width: 8px; }
+                Button { text: "Countdown"; clicked => { GamesPage.countdown(GamesPage.seconds); } }
+                SpinBox { width: 110px; minimum: 1; maximum: 600; value <=> GamesPage.seconds; }
+                Label { text: "seconds"; }
+                Rectangle { width: 8px; }
+                Button { text: "Random equalizer"; clicked => { GamesPage.equalizer(); } }
+                Rectangle { width: 8px; }
+                Button { text: "Stop"; clicked => { GamesPage.stop(); } }
+            }
+        }
+        Status { text: GamesPage.status; }
+    }
+    VerticalLayout {
+        alignment: start;
+        horizontal-stretch: 0;
+        Group {
+            width: 236px;
+            title: GamesPage.title;
+            Hint { text: GamesPage.score; }
+            HorizontalLayout { alignment: center; GameScreen { } }
+            if GamesPage.controls != "": Hint { text: GamesPage.controls; }
+            Text { text: "Both panels:"; color: Theme.text; font-size: Theme.body; }
+            ComboBox {
+                model: GamesPage.layouts;
+                current-index: GamesPage.layout;
+                selected => { GamesPage.layout = self.current-index; GamesPage.layout-chosen(self.current-index); }
+            }
+            Hint { text: "Ledris always plays side by side. The keyboard gap is set on the Math page."; }
+        }
+    }
+}

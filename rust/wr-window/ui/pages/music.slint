@@ -1,0 +1,166 @@
+// Music: music mode, and the look and sound input the audio visualizer uses for it.
+import { Theme } from "../theme.slint";
+import { App } from "../state.slint";
+import { Card, Group, Hint, Status, CheckBox, RadioButton, Slider, Switch, LedImage, Button } from "../widgets.slint";
+import { ComboBox } from "std-widgets.slint";
+
+export global MusicPage {
+    in property <string> shortcut;
+    in property <string> mode-status;
+    in property <string> mode-hearing;
+    // 0 what the laptop plays, 1 a microphone
+    in-out property <int> input-mode;
+    in property <[string]> microphones: ["Default microphone"];
+    in-out property <int> microphone;
+    in property <[string]> looks;
+    in-out property <int> look;
+    in property <string> look-help;
+    in property <bool> bar-options: true;
+    in-out property <bool> span-panels;
+    in-out property <bool> peak-dots;
+    in-out property <bool> shaded;
+    in-out property <bool> flip;
+    in-out property <bool> auto-sensitivity: true;
+    in-out property <int> fall-speed: 1;
+    in-out property <float> sensitivity: 5;
+    // 0 to 1
+    in property <float> meter;
+    in property <string> hearing;
+    in property <string> status;
+    in property <image> preview;
+    callback changed();
+    callback find-microphones();
+}
+
+component Row inherits HorizontalLayout {
+    spacing: 10px;
+    alignment: start;
+}
+
+component Label inherits Text {
+    color: Theme.text;
+    font-size: Theme.body;
+    vertical-alignment: center;
+}
+
+export component MusicView inherits VerticalLayout {
+    spacing: 12px;
+    Card {
+        icon: @image-url("../icons/music_note_2.svg");
+        title: "Music mode";
+        help: "Shows the audio visualizer on both panels, with the look picked below, until you turn it off. Also in the tray menu, and with " + MusicPage.shortcut + ".";
+        HorizontalLayout {
+            spacing: 12px;
+            alignment: end;
+            Text { text: App.music-mode ? "On" : "Off"; color: Theme.text; font-size: Theme.body; vertical-alignment: center; }
+            VerticalLayout {
+                alignment: center;
+                Switch {
+                    checked: App.music-mode;
+                    toggled(on) => { App.music-toggled(on); }
+                }
+            }
+        }
+    }
+    if MusicPage.mode-status != "" || MusicPage.mode-hearing != "": VerticalLayout {
+        padding-left: 4px;
+        if MusicPage.mode-status != "": Status { text: MusicPage.mode-status; }
+        if MusicPage.mode-hearing != "": Status { text: MusicPage.mode-hearing; }
+    }
+    HorizontalLayout {
+        spacing: 16px;
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: 12px;
+            alignment: start;
+            Group {
+                title: "Listen to";
+                RadioButton { text: "What the laptop is playing"; checked: MusicPage.input-mode == 0; clicked => { MusicPage.input-mode = 0; MusicPage.changed(); } }
+                RadioButton { text: "A microphone"; checked: MusicPage.input-mode == 1; clicked => { MusicPage.input-mode = 1; MusicPage.changed(); } }
+                Row {
+                    padding-left: 28px;
+                    Label { text: "Microphone:"; }
+                    ComboBox {
+                        width: 320px;
+                        enabled: MusicPage.input-mode == 1;
+                        model: MusicPage.microphones;
+                        current-index: MusicPage.microphone;
+                        selected => { MusicPage.microphone = self.current-index; MusicPage.changed(); }
+                    }
+                    Button { text: "Look again"; clicked => { MusicPage.find-microphones(); } }
+                }
+                Row {
+                    padding-top: 4px;
+                    Label { text: "Sound check:"; }
+                    VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 200px;
+                            height: 10px;
+                            border-radius: 5px;
+                            background: Theme.control-border;
+                            Rectangle {
+                                x: 0;
+                                width: parent.width * MusicPage.meter;
+                                border-radius: 5px;
+                                background: Theme.accent;
+                            }
+                        }
+                    }
+                }
+                Hint { text: MusicPage.hearing; }
+            }
+            Group {
+                title: "Look";
+                Row {
+                    Label { text: "Look:"; }
+                    ComboBox {
+                        width: 240px;
+                        model: MusicPage.looks;
+                        current-index: MusicPage.look;
+                        selected => { MusicPage.look = self.current-index; MusicPage.changed(); }
+                    }
+                }
+                Hint { text: MusicPage.look-help; }
+                CheckBox { text: "One spectrum across both panels: 18 bars, bass on the left panel"; checked <=> MusicPage.span-panels; toggled => { MusicPage.changed(); } }
+                CheckBox { text: "Peak dots: a dot above each bar that falls slowly"; enabled: MusicPage.bar-options; checked <=> MusicPage.peak-dots; toggled => { MusicPage.changed(); } }
+                CheckBox { text: "Shaded: brighter towards the tips"; enabled: MusicPage.bar-options; checked <=> MusicPage.shaded; toggled => { MusicPage.changed(); } }
+                CheckBox { text: "Upside down"; checked <=> MusicPage.flip; toggled => { MusicPage.changed(); } }
+                CheckBox { text: "Adjust the sensitivity automatically"; checked <=> MusicPage.auto-sensitivity; toggled => { MusicPage.changed(); } }
+                Row {
+                    padding-top: 4px;
+                    Label { text: "Falling speed:"; }
+                    ComboBox {
+                        width: 140px;
+                        model: ["Slow", "Normal", "Fast"];
+                        current-index: MusicPage.fall-speed;
+                        selected => { MusicPage.fall-speed = self.current-index; MusicPage.changed(); }
+                    }
+                }
+                Row {
+                    Label { text: "Sensitivity:"; }
+                    Slider {
+                        width: 220px;
+                        minimum: 1;
+                        maximum: 10;
+                        value <=> MusicPage.sensitivity;
+                        released => { MusicPage.changed(); }
+                    }
+                    Label { text: round(MusicPage.sensitivity); }
+                }
+                Hint { text: "Turn it up if the bars hardly move, down if they're always full."; }
+            }
+            if MusicPage.status != "": Status { text: MusicPage.status; }
+        }
+        VerticalLayout {
+            alignment: start;
+            horizontal-stretch: 0;
+            Group {
+                width: 230px;
+                title: "Preview";
+                LedImage { source: MusicPage.preview; width: 182px; height: 292px; }
+                Hint { text: "Left panel and right panel. Plays the real sound, so you can see what the panels will show."; horizontal-alignment: center; }
+            }
+        }
+    }
+}

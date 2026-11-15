@@ -79,6 +79,21 @@ fn describe(device: &IMMDevice) -> windows::core::Result<Device> {
     }
 }
 
+/// The default device for playback (eRender) or recording (eCapture).
+///
+/// Every COM object must be released before `Com` is dropped: CoUninitialize can unload the audio
+/// DLL, and releasing an object after that crashes. So the objects live in this function's own
+/// locals, all gone when it returns; written as one expression in the caller, its temporaries
+/// would only be dropped after the caller's `_com`.
+fn default_device(flow: windows::Win32::Media::Audio::EDataFlow) -> Result<Device, String> {
+    let enumerator = enumerator().map_err(text)?;
+    let device = unsafe { enumerator.GetDefaultAudioEndpoint(flow, eConsole) }.map_err(text)?;
+    let described = describe(&device).map_err(text);
+    drop(device);
+    drop(enumerator);
+    described
+}
+
 impl Backend for Wasapi {
     fn check_available(&self) -> Result<(), String> {
         let _com = Com::init();
@@ -87,8 +102,7 @@ impl Backend for Wasapi {
 
     fn default_speaker(&self) -> Result<Device, String> {
         let _com = Com::init();
-        unsafe { describe(&enumerator().map_err(text)?.GetDefaultAudioEndpoint(eRender, eConsole).map_err(text)?) }
-            .map_err(text)
+        default_device(eRender)
     }
 
     fn microphones(&self) -> Result<Vec<Device>, String> {
@@ -99,13 +113,15 @@ impl Backend for Wasapi {
                 (0..devices.GetCount()?).map(|i| describe(&devices.Item(i)?)).collect()
             }
         };
-        list().map_err(text)
+        // Bound first so nothing COM made outlives `_com` (see default_device)
+        #[allow(clippy::let_and_return)]
+        let result = list().map_err(text);
+        result
     }
 
     fn default_microphone(&self) -> Result<Device, String> {
         let _com = Com::init();
-        unsafe { describe(&enumerator().map_err(text)?.GetDefaultAudioEndpoint(eCapture, eConsole).map_err(text)?) }
-            .map_err(text)
+        default_device(eCapture)
     }
 
     fn record(
@@ -116,7 +132,10 @@ impl Backend for Wasapi {
         sink: &mut dyn FnMut(&[f32], usize),
     ) -> Result<(), String> {
         let _com = Com::init();
-        record(device, loopback, keep_going, sink).map_err(text)
+        // Bound first so nothing COM made outlives `_com` (see default_device)
+        #[allow(clippy::let_and_return)]
+        let result = record(device, loopback, keep_going, sink).map_err(text);
+        result
     }
 }
 

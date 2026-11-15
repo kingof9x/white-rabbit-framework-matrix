@@ -3,8 +3,9 @@
 #   wr-panel    talking to the LED panels: the serial protocol, finding the panels, a panel's drawing thread
 #   wr-music    the music visualizer: looks, sound analysis, capturing the sound (Windows)
 #   wr-monitor  the Windows program: panels, tray menu, lid and sleep, keyboard shortcuts
+#   wr-window   the window (WhiteRabbitWindow.exe): every page of the app, built with Slint
 [workspace]
-members = ["wr-core", "wr-panel", "wr-monitor", "wr-music"]
+members = ["wr-core", "wr-panel", "wr-monitor", "wr-music", "wr-window"]
 resolver = "2"
 
 [workspace.package]

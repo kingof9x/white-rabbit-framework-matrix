@@ -1,0 +1,64 @@
+// Firmware: what each panel has, installing new firmware, and putting the panels to sleep.
+import { Theme } from "../theme.slint";
+import { App } from "../state.slint";
+import { Group, Body, Hint, Status, AccentButton, Button } from "../widgets.slint";
+import { ComboBox } from "std-widgets.slint";
+
+export global FirmwarePage {
+    in property <[string]> installed: ["Reading the panels..."];
+    in property <[string]> choices;
+    in-out property <int> choice;
+    in property <string> status;
+    in property <bool> busy;
+    callback refresh();
+    callback flash(int);
+    callback bootloader();
+    callback sleep(bool);
+}
+
+export component FirmwareView inherits VerticalLayout {
+    spacing: 12px;
+    Group {
+        title: "Installed firmware";
+        for line in FirmwarePage.installed: Body { text: line; }
+        HorizontalLayout {
+            alignment: start;
+            Button { text: "Check again"; clicked => { FirmwarePage.refresh(); } }
+        }
+    }
+    Group {
+        title: "Update firmware";
+        help: "Close other programs that use the LED panels first. The panels ticked in the \"Controls act on\" list, bottom left, are flashed, one after the other.";
+        HorizontalLayout {
+            spacing: 8px;
+            ComboBox {
+                horizontal-stretch: 1;
+                model: FirmwarePage.choices;
+                current-index: FirmwarePage.choice;
+                selected => { FirmwarePage.choice = self.current-index; }
+            }
+            AccentButton {
+                text: "Flash";
+                enabled: !FirmwarePage.busy;
+                clicked => { FirmwarePage.flash(FirmwarePage.choice); }
+            }
+        }
+        HorizontalLayout {
+            alignment: start;
+            spacing: 8px;
+            Button { text: "Enter bootloader"; enabled: !FirmwarePage.busy; clicked => { FirmwarePage.bootloader(); } }
+            Button { text: "Firmware releases"; clicked => { App.open-url("https://github.com/kingof9x/inputmodule-rs/releases"); } }
+        }
+        if FirmwarePage.status != "": Status { text: FirmwarePage.status; }
+    }
+    Group {
+        title: "Sleep";
+        help: "Turns the ticked panels off or on again.";
+        HorizontalLayout {
+            alignment: start;
+            spacing: 8px;
+            Button { text: "Sleep"; clicked => { FirmwarePage.sleep(true); } }
+            Button { text: "Wake"; clicked => { FirmwarePage.sleep(false); } }
+        }
+    }
+}

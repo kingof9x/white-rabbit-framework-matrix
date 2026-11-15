@@ -1,0 +1,37 @@
+// Keyboard shortcuts: the monitor's shortcuts, each of which can be turned off.
+import { Theme } from "../theme.slint";
+import { Group, Body, Hint, Status, CheckBox } from "../widgets.slint";
+
+export struct ShortcutRow {
+    letter: string,
+    keys: string,
+    name: string,
+    what: string,
+    on: bool,
+}
+
+export global ShortcutsPage {
+    in property <[ShortcutRow]> rows;
+    in property <string> status;
+    callback toggled(int, bool);
+}
+
+export component ShortcutsView inherits VerticalLayout {
+    spacing: 12px;
+    Group {
+        title: "Keyboard shortcuts";
+        help: "These work anywhere in Windows while White Rabbit runs in the tray. A shortcut that's turned off is left free for other programs to use.";
+        for row[i] in ShortcutsPage.rows: HorizontalLayout {
+            spacing: 16px;
+            CheckBox {
+                width: 24px;
+                checked: row.on;
+                toggled(on) => { ShortcutsPage.toggled(i, on); }
+            }
+            Body { text: row.keys; width: 150px; vertical-alignment: center; }
+            Body { text: row.name; width: 190px; vertical-alignment: center; }
+            Hint { text: row.what; horizontal-stretch: 1; vertical-alignment: center; }
+        }
+    }
+    if ShortcutsPage.status != "": Status { text: ShortcutsPage.status; }
+}

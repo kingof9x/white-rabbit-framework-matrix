@@ -1,0 +1,41 @@
+// What the Rust side tells the window, and what the window asks of it, shared by every page.
+
+export struct PanelRow {
+    device: string,
+    // "Left panel (COM4)", or the user's name for it
+    label: string,
+    // What it shows: "Showing the system monitor.  Firmware 0.2.0"
+    doing: string,
+    checked: bool,
+}
+
+export global App {
+    in-out property <string> page: "home";
+    in property <string> title: "White Rabbit";
+    in property <[PanelRow]> panels;
+    in property <bool> monitor-running;
+    in property <bool> any-borrowed;
+    // At the bottom of the menu: what the panels show
+    in property <string> bar-status;
+    in-out property <bool> music-mode;
+    // The layout editor has changes not saved yet
+    in property <bool> layout-dirty;
+    // 0 system, 1 light, 2 dark, 3 classic
+    in-out property <int> theme-choice;
+    in property <string> home-status;
+
+    // The Name panels dialog
+    in-out property <bool> naming;
+    in-out property <string> left-name;
+    in-out property <string> right-name;
+
+    callback panel-checked(int, bool);
+    callback give-back-all();
+    callback identify();
+    callback music-toggled(bool);
+    callback theme-chosen(int);
+    callback name-panels();
+    callback save-names(string, string);
+    callback page-shown(string);
+    callback open-url(string);
+}

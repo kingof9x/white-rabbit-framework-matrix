@@ -1,0 +1,83 @@
+// About White Rabbit: the version, updates, the tip jar and the projects it comes from.
+import { Theme } from "../theme.slint";
+import { App } from "../state.slint";
+import { Group, Body, Hint, Status, AccentButton, Button } from "../widgets.slint";
+import { AboutSlint } from "std-widgets.slint";
+
+export struct Credit {
+    name: string,
+    url: string,
+    what: string,
+}
+
+export global AboutPage {
+    in property <string> version;
+    in property <string> update-status;
+    in property <bool> checking;
+    in property <bool> can-install;
+    in property <bool> show-page;
+    in property <[Credit]> credits;
+    callback check();
+    callback install();
+    callback release-page();
+}
+
+component Link inherits Text {
+    in property <string> url;
+    color: ta.has-hover ? Theme.accent.brighter(0.2) : Theme.accent;
+    font-size: Theme.body;
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { App.open-url(url); }
+    }
+}
+
+export component AboutView inherits VerticalLayout {
+    spacing: 12px;
+    Group {
+        title: "White Rabbit";
+        Body { text: AboutPage.version == "" ? "Version unknown" : "Version " + AboutPage.version; }
+        Hint { text: "One app for the Framework 16 LED Matrix panels: the system monitor, games, patterns, startup animations and firmware updates."; }
+        HorizontalLayout {
+            alignment: start;
+            spacing: 8px;
+            Button { text: "White Rabbit on GitHub"; clicked => { App.open-url("https://github.com/kingof9x/white-rabbit-framework-matrix"); } }
+            Button { text: "Report a bug or send feedback"; clicked => { App.open-url("https://github.com/kingof9x/white-rabbit-framework-matrix/issues"); } }
+        }
+    }
+    Group {
+        title: "Enjoying White Rabbit?";
+        Body { text: "White Rabbit is free. If you like it, you can leave a tip on Ko-fi. Thank you!"; }
+        HorizontalLayout {
+            alignment: start;
+            AccentButton { text: "Leave a tip on Ko-fi"; clicked => { App.open-url("https://ko-fi.com/kingof9x"); } }
+        }
+    }
+    Group {
+        title: "Updates";
+        HorizontalLayout {
+            alignment: start;
+            spacing: 8px;
+            Button { text: "Check for updates"; enabled: !AboutPage.checking; clicked => { AboutPage.check(); } }
+            if AboutPage.can-install: AccentButton { text: "Download and install"; enabled: !AboutPage.checking; clicked => { AboutPage.install(); } }
+            if AboutPage.show-page: Button { text: "Open the download page"; clicked => { AboutPage.release-page(); } }
+        }
+        if AboutPage.update-status != "": Status { text: AboutPage.update-status; }
+    }
+    Group {
+        title: "Based on";
+        help: "White Rabbit is built on these open source projects. Thanks to everyone who worked on them.";
+        for c in AboutPage.credits: VerticalLayout {
+            spacing: 0px;
+            Link { text: c.name; url: c.url; }
+            Hint { text: c.what; }
+        }
+    }
+    Group {
+        title: "Made with Slint";
+        HorizontalLayout {
+            alignment: start;
+            AboutSlint { max-width: 260px; }
+        }
+    }
+}

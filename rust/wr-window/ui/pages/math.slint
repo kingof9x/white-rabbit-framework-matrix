@@ -1,0 +1,227 @@
+// Math: graphs of functions and simulations (Game of Life and other rules, traffic, gas particles,
+// one-line automata, and more maths) played on the LED panels, with a preview.
+import { Theme } from "../theme.slint";
+import { Group, Hint, Status, Slider, LedImage, Button, AccentButton, CheckBox } from "../widgets.slint";
+import { ComboBox, LineEdit, SpinBox } from "std-widgets.slint";
+
+export global MathPage {
+    in property <[string]> graphs;
+    in property <[string]> rules;
+    in property <[string]> starts;
+    in property <[string]> gas-starts;
+    in property <[string]> kinds;
+    in property <[string]> automaton-starts;
+    in property <[string]> effects;
+    in property <[string]> effect-about;
+    in property <[string]> layouts;
+    in-out property <int> layout;
+    in-out property <int> gap: 30;
+    in-out property <int> graph;
+    in-out property <bool> axes: true;
+    in-out property <string> formula: "sin(x) * x";
+    in-out property <string> x-from: "-10";
+    in-out property <string> x-to: "10";
+    in-out property <int> rule;
+    in-out property <string> birth: "3";
+    in-out property <string> survive: "23";
+    in-out property <int> start;
+    in-out property <int> traffic: 35;
+    in-out property <int> gas-start;
+    in-out property <int> gas: 30;
+    in-out property <int> kind;
+    in-out property <int> number: 30;
+    in-out property <int> automaton-start;
+    in-out property <int> effect;
+    in-out property <int> speed: 8;
+    in property <image> preview;
+    in property <length> preview-width: 182px;
+    in property <string> note;
+    in property <bool> running;
+    in property <string> status: "Pick something to show. Both panels together make one wide picture.";
+    callback show-graph();
+    callback random-graphs();
+    callback show-formula();
+    callback rule-chosen(int);
+    callback start-life();
+    callback start-traffic();
+    callback start-gas();
+    callback kind-chosen(int);
+    callback start-automaton();
+    callback start-effect();
+    callback noise();
+    callback stop();
+    callback span-changed();
+    callback gap-test();
+    callback speed-changed(int);
+}
+
+component Row inherits HorizontalLayout {
+    spacing: 8px;
+    alignment: start;
+}
+
+component Label inherits Text {
+    color: Theme.text;
+    font-size: Theme.body;
+    vertical-alignment: center;
+}
+
+export component MathView inherits HorizontalLayout {
+    spacing: 16px;
+    VerticalLayout {
+        horizontal-stretch: 1;
+        spacing: 12px;
+        Group {
+            title: "Graphs";
+            Row {
+                Label { text: "Graph:"; }
+                ComboBox {
+                    width: 200px;
+                    model: MathPage.graphs;
+                    current-index <=> MathPage.graph;
+                    selected => { MathPage.show-graph(); }
+                }
+                Button { text: "Show"; clicked => { MathPage.show-graph(); } }
+                Button { text: "Random graphs"; clicked => { MathPage.random-graphs(); } }
+            }
+            Row {
+                Label { text: "Your own: y ="; }
+                LineEdit { width: 180px; text <=> MathPage.formula; accepted => { MathPage.show-formula(); } }
+                Button { text: "Show"; clicked => { MathPage.show-formula(); } }
+                Label { text: "x from"; }
+                LineEdit { width: 64px; text <=> MathPage.x-from; accepted => { MathPage.show-formula(); } }
+                Label { text: "to"; }
+                LineEdit { width: 64px; text <=> MathPage.x-to; accepted => { MathPage.show-formula(); } }
+            }
+            Hint { text: "x runs down the panels and y across. Use + - * / ^, sin, cos, tan, sqrt, exp, log, abs, pi... Put t in it to make it move, like sin(x - t)."; }
+            CheckBox { text: "Show the axes (dim)"; checked <=> MathPage.axes; }
+        }
+        Group {
+            title: "Game of Life and other Life-like rules";
+            Row {
+                Label { text: "Rule:"; width: 80px; }
+                ComboBox {
+                    width: 320px;
+                    model: MathPage.rules;
+                    current-index <=> MathPage.rule;
+                    selected => { MathPage.rule-chosen(self.current-index); }
+                }
+                AccentButton { text: "Start"; clicked => { MathPage.start-life(); } }
+            }
+            Row {
+                Label { text: "Start from:"; width: 80px; }
+                ComboBox { width: 220px; model: MathPage.starts; current-index <=> MathPage.start; }
+            }
+            Row {
+                Rectangle { width: 80px; }
+                Label { text: "Born with"; }
+                LineEdit { width: 70px; enabled: MathPage.rule == MathPage.rules.length - 1; text <=> MathPage.birth; }
+                Label { text: "neighbours, survives with"; }
+                LineEdit { width: 90px; enabled: MathPage.rule == MathPage.rules.length - 1; text <=> MathPage.survive; }
+            }
+        }
+        Group {
+            title: "Traffic jam (Biham-Middleton-Levine)";
+            help: "Cars going across (bright) and down (dim) take turns to move. Busy roads jam up for good.";
+            Row {
+                AccentButton { text: "Start"; clicked => { MathPage.start-traffic(); } }
+                Label { text: "Roads:"; }
+                Slider { width: 160px; minimum: 5; maximum: 80; value: MathPage.traffic; released(v) => { MathPage.traffic = round(v); } moved(v) => { MathPage.traffic = round(v); } }
+                Label { text: MathPage.traffic + "% full"; }
+            }
+        }
+        Group {
+            title: "Gas particles bouncing in a box (Hardy-Pomeau-Pazzis)";
+            Row {
+                AccentButton { text: "Start"; clicked => { MathPage.start-gas(); } }
+                Label { text: "Begin with:"; }
+                ComboBox { width: 170px; model: MathPage.gas-starts; current-index <=> MathPage.gas-start; }
+                Label { text: "Amount:"; }
+                Slider { width: 140px; minimum: 5; maximum: 100; value: MathPage.gas; released(v) => { MathPage.gas = round(v); } moved(v) => { MathPage.gas = round(v); } }
+                Label { text: MathPage.gas + "%"; }
+            }
+        }
+        Group {
+            title: "One-line automata";
+            help: "Each new row is the next generation.";
+            Row {
+                AccentButton { text: "Start"; clicked => { MathPage.start-automaton(); } }
+                ComboBox {
+                    width: 290px;
+                    model: MathPage.kinds;
+                    current-index <=> MathPage.kind;
+                    selected => { MathPage.kind-chosen(self.current-index); }
+                }
+            }
+            Row {
+                Label { text: "Number:"; }
+                SpinBox { width: 120px; minimum: 0; maximum: MathPage.kind == 1 ? 2186 : 255; value <=> MathPage.number; }
+                Label { text: "Start:"; }
+                ComboBox { width: 140px; model: MathPage.automaton-starts; current-index <=> MathPage.automaton-start; }
+            }
+        }
+        Group {
+            title: "More maths";
+            Row {
+                ComboBox { width: 280px; model: MathPage.effects; current-index <=> MathPage.effect; }
+                AccentButton { text: "Start"; clicked => { MathPage.start-effect(); } }
+            }
+            Hint { text: MathPage.effect-about[MathPage.effect]; }
+            Row {
+                Button { text: "Random grey noise"; clicked => { MathPage.noise(); } }
+            }
+            Hint { text: "Ideas from mariobx's Framework-LED-Matrix project."; }
+        }
+    }
+    VerticalLayout {
+        alignment: start;
+        horizontal-stretch: 0;
+        spacing: 12px;
+        Group {
+            width: 236px;
+            title: "Preview";
+            HorizontalLayout {
+                alignment: center;
+                LedImage { source: MathPage.preview; width: MathPage.preview-width; height: 292px; }
+            }
+            if MathPage.note != "": Hint { text: MathPage.note; }
+            Text { text: "Speed: " + MathPage.speed + " steps a second"; color: Theme.text; font-size: Theme.body; }
+            Slider {
+                minimum: 1;
+                maximum: 30;
+                value: MathPage.speed;
+                moved(v) => { MathPage.speed = round(v); MathPage.speed-changed(round(v)); }
+                released(v) => { MathPage.speed = round(v); MathPage.speed-changed(round(v)); }
+            }
+            Button { text: "Stop"; enabled: MathPage.running; clicked => { MathPage.stop(); } }
+            Status { text: MathPage.status; }
+        }
+        Group {
+            width: 236px;
+            title: "Both panels";
+            ComboBox {
+                model: MathPage.layouts;
+                current-index <=> MathPage.layout;
+                selected => { MathPage.span-changed(); }
+            }
+            Row {
+                Label { text: "Keyboard gap:"; }
+                SpinBox {
+                    width: 96px;
+                    enabled: MathPage.layout == 1;
+                    minimum: 0;
+                    maximum: 120;
+                    value <=> MathPage.gap;
+                    edited => { MathPage.span-changed(); }
+                }
+            }
+            Hint {
+                text: MathPage.layout == 1
+                    ? "The picture carries on behind the keyboard, so things line up when they cross it. Use the gap test: if the dot comes out on the other side too soon, make the gap bigger; if it takes too long, make it smaller."
+                    : MathPage.layout == 2 ? "The right panel shows the picture; the left panel shows it mirrored."
+                    : "The two panels make one picture 18 lights wide, as if they touched.";
+            }
+            Button { text: "Show the gap test"; enabled: MathPage.layout == 1; clicked => { MathPage.gap-test(); } }
+        }
+    }
+}

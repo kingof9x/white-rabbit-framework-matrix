@@ -1,0 +1,198 @@
+// Effects: a ripple when something is plugged in, the text line along the top of the panels, sliding
+// between apps, and dimming. The monitor plays them; this page saves the settings and previews them.
+import { Theme } from "../theme.slint";
+import { Group, Hint, Body, Status, CheckBox, RadioButton, Slider, Dialog, AccentButton, LedImage, Button } from "../widgets.slint";
+import { ComboBox, LineEdit } from "std-widgets.slint";
+
+export global EffectsPage {
+    in-out property <bool> plug-animation;
+    in-out property <bool> plug-charger;
+    in-out property <bool> plug-headphones;
+    in-out property <bool> plug-usb;
+    in-out property <bool> text-line;
+    in-out property <bool> text-song;
+    in-out property <bool> text-charger;
+    in-out property <bool> text-battery;
+    in-out property <float> text-speed: 5;
+    in-out property <bool> slide: true;
+    in-out property <bool> full-shades;
+    // "Left back" ... "Right front"
+    in property <[string]> positions;
+    in-out property <int> try-position;
+    in-out property <int> fix-position;
+    in property <string> last-plug: "Nothing plugged in or out since White Rabbit started.";
+    in property <bool> can-fix;
+    in-out property <string> message: "Back in 5 minutes";
+    in property <string> status;
+    in property <image> preview;
+
+    // Teach White Rabbit my ports
+    in-out property <bool> teaching;
+    in property <string> teach-ask;
+    in property <string> teach-heard;
+    // One per port, left side first: "○  back", "▶  middle", "✓  front"
+    in property <[string]> teach-marks;
+    in property <bool> teach-can-skip: true;
+
+    callback changed();
+    callback try-plug(bool);
+    callback learn();
+    callback say(string);
+    callback teach();
+    callback teach-skip();
+    callback teach-start-over();
+    callback teach-close();
+}
+
+component Row inherits HorizontalLayout {
+    spacing: 10px;
+    alignment: start;
+}
+
+component Label inherits Text {
+    color: Theme.text;
+    font-size: Theme.body;
+    vertical-alignment: center;
+}
+
+export component EffectsView inherits HorizontalLayout {
+    spacing: 16px;
+    VerticalLayout {
+        horizontal-stretch: 1;
+        spacing: 12px;
+        Group {
+            title: "When something is plugged in";
+            help: "A ripple runs across the panel from the port you plug something into, and the picture drains out through the port when you unplug it. The panel goes back to what it was showing after about two seconds.";
+            CheckBox {
+                text: "Play the ripple and the drain";
+                checked <=> EffectsPage.plug-animation;
+                toggled => { EffectsPage.changed(); }
+            }
+            Row {
+                Label { text: "For:"; }
+                CheckBox { text: "the charger"; enabled: EffectsPage.plug-animation; checked <=> EffectsPage.plug-charger; toggled => { EffectsPage.changed(); } }
+                CheckBox { text: "headphones (audio card)"; enabled: EffectsPage.plug-animation; checked <=> EffectsPage.plug-headphones; toggled => { EffectsPage.changed(); } }
+                CheckBox { text: "every other USB device"; enabled: EffectsPage.plug-animation; checked <=> EffectsPage.plug-usb; toggled => { EffectsPage.changed(); } }
+            }
+            Row {
+                Label { text: "Try it at:"; }
+                ComboBox {
+                    width: 160px;
+                    model: EffectsPage.positions;
+                    current-index: EffectsPage.try-position;
+                    selected => { EffectsPage.try-position = self.current-index; }
+                }
+                Button { text: "Plug in"; clicked => { EffectsPage.try-plug(true); } }
+                Button { text: "Unplug"; clicked => { EffectsPage.try-plug(false); } }
+            }
+            Hint { text: EffectsPage.last-plug; }
+            Row {
+                Label { text: "Wrong port? It was really:"; }
+                ComboBox {
+                    width: 160px;
+                    model: EffectsPage.positions;
+                    current-index: EffectsPage.fix-position;
+                    selected => { EffectsPage.fix-position = self.current-index; }
+                }
+                Button { text: "Remember"; enabled: EffectsPage.can-fix; clicked => { EffectsPage.learn(); } }
+            }
+            Hint { text: "White Rabbit remembers the port you pick, for that device's port from then on."; }
+            Row {
+                Button { text: "Teach White Rabbit my ports..."; clicked => { EffectsPage.teach(); } }
+                VerticalLayout {
+                    alignment: center;
+                    Hint { text: "Windows doesn't say which port is which, so plug something into each one once."; }
+                }
+            }
+        }
+        Group {
+            title: "Text line";
+            help: "A line of small letters that scrolls across the top of both panels, over whatever they show, then gets out of the way.";
+            CheckBox { text: "Show the text line"; checked <=> EffectsPage.text-line; toggled => { EffectsPage.changed(); } }
+            Row {
+                Label { text: "Say when:"; }
+                CheckBox { text: "a new song starts"; enabled: EffectsPage.text-line; checked <=> EffectsPage.text-song; toggled => { EffectsPage.changed(); } }
+                CheckBox { text: "the charger goes in or out"; enabled: EffectsPage.text-line; checked <=> EffectsPage.text-charger; toggled => { EffectsPage.changed(); } }
+                CheckBox { text: "the battery is low"; enabled: EffectsPage.text-line; checked <=> EffectsPage.text-battery; toggled => { EffectsPage.changed(); } }
+            }
+            Row {
+                Label { text: "Your own message:"; }
+                message := LineEdit {
+                    width: 280px;
+                    text <=> EffectsPage.message;
+                    accepted => { EffectsPage.say(self.text); }
+                }
+                Button { text: "Show it now"; clicked => { EffectsPage.say(message.text); } }
+            }
+            Row {
+                Label { text: "Scroll speed:"; }
+                Slider {
+                    width: 220px;
+                    minimum: 1;
+                    maximum: 10;
+                    value <=> EffectsPage.text-speed;
+                    released => { EffectsPage.changed(); }
+                }
+                Label { text: round(EffectsPage.text-speed); }
+            }
+        }
+        Group {
+            title: "Changing apps";
+            RadioButton { text: "Slide the next app in from the bottom"; checked: EffectsPage.slide; clicked => { EffectsPage.slide = true; EffectsPage.changed(); } }
+            RadioButton { text: "Cut straight to the next app"; checked: !EffectsPage.slide; clicked => { EffectsPage.slide = false; EffectsPage.changed(); } }
+        }
+        Group {
+            title: "Dimming";
+            CheckBox { text: "Keep every shade when the panels are dim"; checked <=> EffectsPage.full-shades; toggled => { EffectsPage.changed(); } }
+            Hint { text: "Dark pictures stop losing detail at low brightness. Needs White Rabbit firmware with dimming (update it in Settings > Firmware); older firmware ignores this."; }
+        }
+        if EffectsPage.status != "": Status { text: EffectsPage.status; }
+    }
+    VerticalLayout {
+        alignment: start;
+        horizontal-stretch: 0;
+        Group {
+            width: 230px;
+            title: "Preview";
+            LedImage { source: EffectsPage.preview; width: 182px; height: 292px; }
+            Hint { text: "Left panel and right panel. Plays what Plug in, Unplug and Show it now do."; horizontal-alignment: center; }
+        }
+    }
+}
+
+component Mark inherits Text {
+    color: Theme.text;
+    font-size: Theme.body;
+}
+
+export component TeachDialog inherits Dialog {
+    title: "Teach White Rabbit my ports";
+    card-width: 460px;
+    close => { EffectsPage.teach-close(); }
+    Body {
+        text: "Use something small, like a USB stick, mouse or phone cable. For each port: unplug it from the last port, then plug it in here. Ports with a display or storage card can be skipped.";
+    }
+    Text { text: EffectsPage.teach-ask; color: Theme.text; font-size: Theme.body-large; font-weight: 600; wrap: word-wrap; }
+    Hint { text: EffectsPage.teach-heard; }
+    HorizontalLayout {
+        spacing: 40px;
+        alignment: start;
+        VerticalLayout {
+            spacing: 2px;
+            Text { text: "Left side"; color: Theme.text; font-weight: 600; font-size: Theme.body; }
+            for i in 3: Mark { text: EffectsPage.teach-marks[i]; }
+        }
+        VerticalLayout {
+            spacing: 2px;
+            Text { text: "Right side"; color: Theme.text; font-weight: 600; font-size: Theme.body; }
+            for i in 3: Mark { text: EffectsPage.teach-marks[i + 3]; }
+        }
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        Button { text: "Forget all and start over"; clicked => { EffectsPage.teach-start-over(); } }
+        Rectangle { horizontal-stretch: 1; }
+        Button { text: "Skip this port"; enabled: EffectsPage.teach-can-skip; clicked => { EffectsPage.teach-skip(); } }
+        AccentButton { text: "Done"; clicked => { EffectsPage.teach-close(); } }
+    }
+}

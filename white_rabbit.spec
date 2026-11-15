@@ -4,8 +4,9 @@
 #   pyinstaller white_rabbit.spec                              one-dir build: dist/WhiteRabbit/
 #   WHITE_RABBIT_ONEFILE=1 pyinstaller white_rabbit.spec       one-file build: dist/WhiteRabbit(.exe)  (portable exe on Windows)
 #
-# WHITE_RABBIT_EXE_NAME names the exe (default WhiteRabbit). The Windows installer's one-dir build uses
-# WhiteRabbitWindow: there WhiteRabbit.exe is the Rust monitor (rust/), which opens this window.
+# WHITE_RABBIT_EXE_NAME names the exe (default WhiteRabbit).
+# Since 1.5 the Windows release is all Rust (rust/) and no longer uses this file; it is kept for
+# building the Python version yourself (e.g. on Linux).
 
 import os
 import sys

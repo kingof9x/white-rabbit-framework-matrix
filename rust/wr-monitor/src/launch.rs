@@ -1,4 +1,4 @@
-//! WhiteRabbit.exe is this Rust monitor; the window is the Python app next to it, WhiteRabbitWindow.exe.
+//! WhiteRabbit.exe is this Rust monitor; the window is WhiteRabbitWindow.exe next to it (wr-window, also Rust).
 //! Opening the app, the tray's "Open White Rabbit..." and anything meant for the window start that exe.
 
 use std::path::PathBuf;
@@ -10,7 +10,7 @@ use wr_core::{info, warn};
 /// The window's exe name, next to WhiteRabbit.exe in the installed app.
 pub const WINDOW_EXE: &str = "WhiteRabbitWindow.exe";
 
-/// Options the Python app handles: the window, its layout editor and its reports.
+/// Options the window (WhiteRabbitWindow.exe) handles: the window, its layout editor and its reports.
 const WINDOW_OPTIONS: [&str; 8] = [
     "--window",
     "--edit-layout",

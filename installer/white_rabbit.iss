@@ -1,10 +1,11 @@
 ; Inno Setup 6 script for the White Rabbit installer.
-; Build after the one-dir PyInstaller build (dist\WhiteRabbit\):
+; Build after the Windows build has put the app together in dist\WhiteRabbit\ (.github/workflows/windows.yml):
 ;   iscc /DAppVersion=0.1.0 installer\white_rabbit.iss
 ; Output: dist\WhiteRabbit-setup.exe (same name in every release, so download links keep working)
 ;
-; The installed app: WhiteRabbit.exe is the Rust monitor and tray icon (rust/), copied into dist\WhiteRabbit\
-; by the build, and WhiteRabbitWindow.exe the Python window it opens. It starts when the user logs in.
+; The installed app is all Rust (rust/): WhiteRabbit.exe is the monitor and tray icon, and WhiteRabbitWindow.exe
+; the settings window it opens. Next to them: the firmware (res\releases), PresentMon and the licences.
+; It starts when the user logs in.
 
 #ifndef AppVersion
   #define AppVersion "0.0.0"
@@ -39,8 +40,8 @@ DisableDirPage=yes
 PrivilegesRequired=lowest
 OutputDir=..\dist
 OutputBaseFilename=WhiteRabbit-setup
-SetupIconFile=..\build\WhiteRabbit.ico
-UninstallDisplayIcon={app}\WhiteRabbitWindow.exe
+SetupIconFile=..\res\WhiteRabbit.ico
+UninstallDisplayIcon={app}\WhiteRabbit.exe
 UninstallDisplayName=White Rabbit
 Compression=lzma2
 SolidCompression=yes
@@ -54,9 +55,12 @@ AppMutex=WhiteRabbit_single_instance,WhiteRabbit_window
 [Files]
 Source: "..\dist\WhiteRabbit\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
+[InstallDelete]
+; What the Python window (1.4 and before) left behind; the Rust app doesn't use any of it
+Type: filesandordirs; Name: "{app}\_internal"
+
 [Icons]
-; The Rust exe has no icon of its own yet, so the shortcut shows the window exe's
-Name: "{group}\White Rabbit"; Filename: "{app}\WhiteRabbit.exe"; IconFilename: "{app}\WhiteRabbitWindow.exe"
+Name: "{group}\White Rabbit"; Filename: "{app}\WhiteRabbit.exe"
 Name: "{group}\Uninstall White Rabbit"; Filename: "{uninstallexe}"
 
 [Registry]

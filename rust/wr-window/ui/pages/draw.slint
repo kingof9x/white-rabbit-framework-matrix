@@ -1,0 +1,322 @@
+// Draw: draw on one panel's 9 x 34 LEDs in shades of grey, make an animation out of several frames,
+// import a PNG or GIF, and save drawings for the Picture app to show on a panel.
+import { Theme } from "../theme.slint";
+import { Group, Hint, Status, Slider, Button, AccentButton, CheckBox, RadioButton } from "../widgets.slint";
+import { ComboBox, LineEdit, SpinBox, ListView, ScrollView } from "std-widgets.slint";
+
+export global DrawPage {
+    // The editor: 9 x 34 LEDs, each `led` pixels, with `margin` round them
+    in property <image> editor;
+    in property <length> led: 14px;
+    in property <length> margin: 6px;
+    in property <[image]> thumbs;
+    in property <int> index;
+    in property <string> label: "Not saved yet";
+    in property <bool> playing;
+    in property <[string]> names;
+    in property <[string]> fits;
+    in property <string> status: "Draw with the left mouse button; the right button rubs out.";
+    // 0 pen, 1 eraser, 2 fill
+    in-out property <int> tool;
+    in-out property <int> size: 1;
+    in-out property <int> shade: 255;
+    in-out property <int> delay: 100;
+    in-out property <int> fit;
+    in-out property <bool> invert;
+    in-out property <bool> live;
+    in-out property <string> name;
+    in-out property <int> chosen: -1;
+    callback press(int, int, bool);
+    callback drag(int, int);
+    callback release();
+    callback shade-picked(int);
+    callback clear();
+    callback fill();
+    callback swap();
+    callback mirror();
+    callback flip();
+    callback undo();
+    callback redo();
+    callback shift(int, int);
+    callback pick-frame(int);
+    callback add-blank();
+    callback duplicate();
+    callback delete-frame();
+    callback move-frame(int);
+    callback delay-changed(int);
+    callback play();
+    callback import();
+    callback live-changed(bool);
+    callback save();
+    callback open();
+    callback new-drawing();
+    callback delete-drawing();
+    callback show-folder();
+}
+
+component Line inherits HorizontalLayout {
+    spacing: 6px;
+    alignment: start;
+}
+
+component Label inherits Text {
+    color: Theme.text;
+    font-size: Theme.body;
+    vertical-alignment: center;
+}
+
+// One of the brightness swatches
+component Swatch inherits Rectangle {
+    in property <int> value;
+    width: 30px;
+    height: 30px;
+    border-radius: 4px;
+    border-width: DrawPage.shade == value ? 2px : 0px;
+    border-color: Theme.accent;
+    Rectangle {
+        width: 22px;
+        height: 22px;
+        border-radius: 2px;
+        // As the LEDs look in the window: off ones stay faintly visible
+        background: rgb(34 + value * 221 / 255, 34 + value * 221 / 255, 34 + value * 221 / 255);
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => { DrawPage.shade-picked(value); }
+    }
+}
+
+export component DrawView inherits FocusScope {
+    key-pressed(e) => {
+        if e.modifiers.control && (e.text == "z" || e.text == "Z") { DrawPage.undo(); return accept; }
+        if e.modifiers.control && (e.text == "y" || e.text == "Y") { DrawPage.redo(); return accept; }
+        return reject;
+    }
+    HorizontalLayout {
+        spacing: 16px;
+        // Brush and whole-frame tools
+        VerticalLayout {
+            width: 244px;
+            spacing: 12px;
+            alignment: start;
+            Group {
+                title: "Brush";
+                RadioButton { text: "Pen"; checked: DrawPage.tool == 0; clicked => { DrawPage.tool = 0; } }
+                RadioButton { text: "Eraser"; checked: DrawPage.tool == 1; clicked => { DrawPage.tool = 1; } }
+                RadioButton { text: "Fill area"; checked: DrawPage.tool == 2; clicked => { DrawPage.tool = 2; } }
+                Label { text: "Size"; }
+                Line {
+                    for s in [1, 2, 3]: RadioButton {
+                        text: s + " x " + s;
+                        checked: DrawPage.size == s;
+                        clicked => { DrawPage.size = s; }
+                    }
+                }
+            }
+            Group {
+                title: "Brightness";
+                Line {
+                    spacing: 2px;
+                    for v in [255, 192, 128, 80, 40, 16]: Swatch { value: v; }
+                }
+                Line {
+                    Slider {
+                        width: 150px;
+                        minimum: 1;
+                        maximum: 255;
+                        value: DrawPage.shade;
+                        moved(v) => { DrawPage.shade-picked(round(v)); }
+                        released(v) => { DrawPage.shade-picked(round(v)); }
+                    }
+                    Label { text: DrawPage.shade; }
+                }
+            }
+            Group {
+                title: "Whole frame";
+                GridLayout {
+                    spacing: 4px;
+                    Row {
+                        Button { text: "Clear"; clicked => { DrawPage.clear(); } }
+                        Button { text: "Fill"; clicked => { DrawPage.fill(); } }
+                    }
+                    Row {
+                        Button { text: "Swap dark/light"; clicked => { DrawPage.swap(); } }
+                        Button { text: "Mirror"; clicked => { DrawPage.mirror(); } }
+                    }
+                    Row {
+                        Button { text: "Upside down"; clicked => { DrawPage.flip(); } }
+                        Button { text: "Undo"; clicked => { DrawPage.undo(); } }
+                    }
+                }
+                Label { text: "Move it"; }
+                Line {
+                    spacing: 2px;
+                    Button { text: "Up"; clicked => { DrawPage.shift(-1, 0); } }
+                    Button { text: "Down"; clicked => { DrawPage.shift(1, 0); } }
+                    Button { text: "Left"; clicked => { DrawPage.shift(0, -1); } }
+                    Button { text: "Right"; clicked => { DrawPage.shift(0, 1); } }
+                }
+            }
+        }
+        // The editor
+        VerticalLayout {
+            spacing: 6px;
+            alignment: start;
+            Text { text: DrawPage.label; color: Theme.text2; font-size: Theme.caption; width: canvas.width; wrap: word-wrap; }
+            canvas := Rectangle {
+                width: DrawPage.led * 9 + DrawPage.margin * 2;
+                height: DrawPage.led * 34 + DrawPage.margin * 2;
+                background: #111111;
+                border-radius: 4px;
+                Image {
+                    source: DrawPage.editor;
+                    width: parent.width;
+                    height: parent.height;
+                    image-rendering: pixelated;
+                }
+                property <bool> down;
+                function cell-x() -> int { return floor((ta.mouse-x - DrawPage.margin) / DrawPage.led); }
+                function cell-y() -> int { return floor((ta.mouse-y - DrawPage.margin) / DrawPage.led); }
+                ta := TouchArea {
+                    mouse-cursor: crosshair;
+                    pointer-event(e) => {
+                        if e.kind == PointerEventKind.down && (e.button == PointerEventButton.left || e.button == PointerEventButton.right) {
+                            down = true;
+                            root.focus();
+                            DrawPage.press(cell-x(), cell-y(), e.button == PointerEventButton.right);
+                        }
+                        if e.kind == PointerEventKind.move && down {
+                            DrawPage.drag(cell-x(), cell-y());
+                        }
+                        if e.kind == PointerEventKind.up && down {
+                            down = false;
+                            DrawPage.release();
+                        }
+                    }
+                }
+            }
+        }
+        // Frames, import, the panels and saved drawings
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: 12px;
+            alignment: start;
+            Group {
+                title: "Frames (more than one makes an animation)";
+                ScrollView {
+                    height: 136px;
+                    HorizontalLayout {
+                        spacing: 6px;
+                        padding: 4px;
+                        alignment: start;
+                        for t[i] in DrawPage.thumbs: Rectangle {
+                            width: 33px;
+                            border-radius: 3px;
+                            border-width: 2px;
+                            border-color: i == DrawPage.index ? Theme.accent : transparent;
+                            VerticalLayout {
+                                padding: 3px;
+                                spacing: 2px;
+                                Image { source: t; width: 27px; height: 102px; image-rendering: pixelated; }
+                                Text { text: i + 1; color: Theme.text2; font-size: Theme.caption; horizontal-alignment: center; }
+                            }
+                            TouchArea { clicked => { DrawPage.pick-frame(i); } }
+                        }
+                    }
+                }
+                Line {
+                    Button { text: "Add blank"; clicked => { DrawPage.add-blank(); } }
+                    Button { text: "Copy this frame"; clicked => { DrawPage.duplicate(); } }
+                    Button { text: "Delete"; clicked => { DrawPage.delete-frame(); } }
+                }
+                Line {
+                    Button { text: "Move earlier"; clicked => { DrawPage.move-frame(-1); } }
+                    Button { text: "Move later"; clicked => { DrawPage.move-frame(1); } }
+                }
+                Line {
+                    Label { text: "Each frame shows for"; }
+                    SpinBox {
+                        width: 120px;
+                        minimum: 20;
+                        maximum: 10000;
+                        step-size: 10;
+                        value <=> DrawPage.delay;
+                        edited(v) => { DrawPage.delay-changed(v); }
+                    }
+                    Label { text: "milliseconds"; }
+                    Rectangle { width: 8px; }
+                    AccentButton { text: DrawPage.playing ? "Stop" : "Play"; clicked => { DrawPage.play(); } }
+                }
+            }
+            VerticalLayout {
+                spacing: 12px;
+                VerticalLayout {
+                    spacing: 12px;
+                    alignment: start;
+                    Group {
+                        title: "Import a picture";
+                        Line { Button { text: "Import a PNG or GIF..."; clicked => { DrawPage.import(); } } }
+                        Label { text: "Shape"; }
+                        ComboBox { model: DrawPage.fits; current-index <=> DrawPage.fit; }
+                        CheckBox { text: "Swap dark and light (for dark drawings on white)"; checked <=> DrawPage.invert; }
+                        Hint { text: "The picture is shrunk to 9 x 34 LEDs and turned grey. A GIF keeps all its frames and its speed. It replaces what is in the editor (Undo brings it back)."; }
+                    }
+                    Group {
+                        title: "On the panels";
+                        CheckBox {
+                            text: "Show on the ticked panels while I draw";
+                            checked: DrawPage.live;
+                            toggled(on) => { DrawPage.live-changed(on); }
+                        }
+                        Hint { text: "To keep a drawing on a panel, save it, then put the Picture app on the panel on the System monitor page and pick the drawing there."; }
+                    }
+                }
+                Group {
+                    title: "My drawings";
+                    Line {
+                        Label { text: "Name"; }
+                        LineEdit { horizontal-stretch: 1; text <=> DrawPage.name; accepted => { DrawPage.save(); } }
+                        AccentButton { text: "Save"; clicked => { DrawPage.save(); } }
+                    }
+                    Rectangle {
+                        height: 150px;
+                        border-width: 1px;
+                        border-color: Theme.control-border;
+                        border-radius: Theme.small-radius;
+                        background: Theme.control;
+                        if DrawPage.names.length == 0: Text {
+                            text: "No saved drawings yet.";
+                            color: Theme.text2;
+                            font-size: Theme.caption;
+                        }
+                        ListView {
+                            for n[i] in DrawPage.names: Rectangle {
+                                height: 28px;
+                                background: i == DrawPage.chosen ? Theme.selected : row-ta.has-hover ? Theme.hover : transparent;
+                                row-ta := TouchArea {
+                                    clicked => { DrawPage.chosen = i; }
+                                    double-clicked => { DrawPage.chosen = i; DrawPage.open(); }
+                                }
+                                Text {
+                                    x: 8px;
+                                    text: n;
+                                    color: Theme.text;
+                                    font-size: Theme.body;
+                                    vertical-alignment: center;
+                                    height: parent.height;
+                                }
+                            }
+                        }
+                    }
+                    Line {
+                        Button { text: "Open"; enabled: DrawPage.chosen >= 0; clicked => { DrawPage.open(); } }
+                        Button { text: "New"; clicked => { DrawPage.new-drawing(); } }
+                        Button { text: "Delete"; enabled: DrawPage.chosen >= 0; clicked => { DrawPage.delete-drawing(); } }
+                        Button { text: "Show folder"; clicked => { DrawPage.show-folder(); } }
+                    }
+                }
+            }
+            Status { text: DrawPage.status; }
+        }
+    }
+}

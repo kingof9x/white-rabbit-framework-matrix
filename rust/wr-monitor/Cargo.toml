@@ -4,7 +4,7 @@ version = "0.0.0"
 edition = "2021"
 license = "MIT"
 publish = false
-description = "White Rabbit's panel monitor and tray icon, in Rust (WhiteRabbit.exe; the window is the Python app)"
+description = "White Rabbit's panel monitor and tray icon, in Rust (WhiteRabbit.exe; the window is WhiteRabbitWindow.exe, wr-window)"
 
 [[bin]]
 name = "WhiteRabbit"
@@ -65,3 +65,6 @@ windows-sys = { version = "0.60", features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
+
+[build-dependencies]
+winresource = "=0.1.19"
