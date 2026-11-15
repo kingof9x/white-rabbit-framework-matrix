@@ -25,9 +25,8 @@ The newest version is on the [Releases](https://github.com/kingof9x/white-rabbit
 ![The Home page in light mode](docs/screenshots/white-rabbit-home.png)
 
 - **A menu down the left side** instead of a row of tabs: Home, System
-  monitor, Games & patterns, Audio, Math, Draw, Effects, Display messages, Startup
-  animation and
-  Settings. Firmware, Keyboard shortcuts and About White Rabbit live under
+  monitor, Games & patterns, Audio, Math, Draw, Effects, Display messages,
+  Startup animation and Settings. Firmware, Keyboard shortcuts and About White Rabbit live under
   Settings.
 - **A Home page** that shows what each panel is doing right now, with the
   things you do most in one place: audio mode on or off, Identify panels,
