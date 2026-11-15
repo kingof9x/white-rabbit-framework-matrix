@@ -5,6 +5,7 @@ pub mod effects;
 pub mod monitor;
 pub mod music;
 pub mod firmware;
+pub mod games;
 pub mod shortcuts;
 pub mod startup;
 
@@ -18,6 +19,7 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
     startup::wire(ctx, app);
     effects::wire(ctx, app);
     music::wire(ctx, app);
+    games::wire(ctx, app);
     monitor::editor::wire(ctx, app);
     shortcuts::wire(ctx, app);
     about::wire(ctx, app);

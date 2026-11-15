@@ -90,7 +90,9 @@ pub fn shoot(args: &[String]) {
     }
     if let Ok(action) = std::env::var("WHITE_RABBIT_SHOOT_ACTION") {
         crate::shoot_action(&ui, &ctx, &action);
-        for _ in 0..25 {
+        // WHITE_RABBIT_SHOOT_AFTER: seconds to wait after the action (default half a second)
+        let after: f64 = std::env::var("WHITE_RABBIT_SHOOT_AFTER").ok().and_then(|v| v.parse().ok()).unwrap_or(0.5);
+        for _ in 0..(after * 50.0) as usize {
             pump(&queue);
             std::thread::sleep(Duration::from_millis(20));
         }

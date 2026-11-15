@@ -13,8 +13,9 @@ import { StartupPage, StartupView } from "pages/startup.slint";
 import { MusicPage, MusicView } from "pages/music.slint";
 import { EditorPage, EditorView, AppRow, PanelEdit, Field } from "pages/monitor.slint";
 import { EffectsPage, EffectsView, TeachDialog } from "pages/effects.slint";
+import { GamesPage, GamesView } from "pages/games.slint";
 
-export { Theme, App, PanelRow, EditorPage, AppRow, PanelEdit, Field, MusicPage, StartupPage, EffectsPage, FirmwarePage, ShortcutsPage, ShortcutRow, AboutPage, Credit }
+export { Theme, App, PanelRow, EditorPage, AppRow, PanelEdit, Field, MusicPage, StartupPage, EffectsPage, GamesPage, FirmwarePage, ShortcutsPage, ShortcutRow, AboutPage, Credit }
 
 component NavItem inherits Rectangle {
     in property <image> icon;
@@ -214,6 +215,7 @@ export component AppWindow inherits Window {
                     if App.page == "startup": StartupView { }
                     if App.page == "effects": EffectsView { }
                     if App.page == "music": MusicView { }
+                    if App.page == "games": GamesView { }
                 }
             }
             if full-page(App.page): VerticalLayout {

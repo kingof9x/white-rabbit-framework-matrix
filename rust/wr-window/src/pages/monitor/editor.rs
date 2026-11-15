@@ -718,7 +718,7 @@ fn reload_monitor() -> bool {
 /// Asked when the window closes: apply the changes (true) or drop them.
 pub fn apply_on_close() {
     let ed = editor();
-    let mut e = ed.borrow_mut();
+    let e = ed.borrow_mut();
     if e.dirty && dialogs::confirm("System monitor", "Apply your layout changes before closing?") {
         if model::save(&e.layout, &e.save_path).is_ok() {
             reload_monitor();

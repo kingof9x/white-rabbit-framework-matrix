@@ -17,6 +17,7 @@ mod commands;
 mod dialogs;
 mod external;
 mod font;
+mod games;
 mod jobs;
 mod link;
 mod panels;
@@ -26,6 +27,7 @@ mod preview;
 mod report;
 mod settings;
 mod shoot;
+mod span;
 mod theme;
 mod winapps;
 
@@ -231,6 +233,8 @@ pub fn shoot_action(ui: &AppWindow, _ctx: &Rc<app::Ctx>, action: &str) {
         }
         // teach: the Effects page's port teacher
         "teach" => ui.global::<EffectsPage>().invoke_teach(),
+        // game:N starts a game on the Games & patterns page
+        a if a.starts_with("game:") => ui.global::<GamesPage>().invoke_start(a[5..].parse().unwrap_or(0)),
         _ => wr_core::warn!("Unknown screenshot action {action}"),
     }
 }
