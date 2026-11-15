@@ -134,21 +134,41 @@ jobs:
           $env:LOCALAPPDATA = "$PWD\smoke-appdata"
           $log = "smoke-appdata\WhiteRabbit\WhiteRabbit-window.log"
           # The second run opens on the Music page, whose preview listens to the sound (the runner has no sound card)
-          foreach ($arguments in @("--window", "--window --tab music")) {
+          # Each start is checked to the end and the failures are listed together
+          $failures = @()
+          foreach ($arguments in @("--window", "--window --tab games", "--window --tab music", "--window --tab draw")) {
             $exe = "dist\WhiteRabbit\WhiteRabbitWindow.exe"
             Write-Host "== $exe $arguments"
             Remove-Item $log -ErrorAction SilentlyContinue
             $p = Start-Process -FilePath $exe -ArgumentList $arguments -PassThru
             $null = $p.Handle
-            if (-not $p.WaitForExit(120000)) { $p.Kill(); throw "$exe $arguments did not exit" }
+            if (-not $p.WaitForExit(120000)) { $p.Kill(); $failures += "$arguments did not exit"; continue }
             Get-Content $log -ErrorAction SilentlyContinue
-            if ($p.ExitCode -ne 0) { throw "$exe $arguments exited with $($p.ExitCode)" }
-            if (Select-String -Path $log -Pattern "The window stopped" -Quiet) { throw "$exe $arguments crashed" }
+            if ($p.ExitCode -ne 0) { $failures += "$arguments exited with $($p.ExitCode)"; continue }
+            if (Select-String -Path $log -Pattern "The window stopped" -Quiet) { $failures += "$arguments crashed"; continue }
             foreach ($page in @("monitor", "games", "music", "math", "draw", "settings", "firmware", "about")) {
-              if (-not (Select-String -Path $log -Pattern "Smoke test: page $page shown" -Quiet)) { throw "$exe $arguments didn't show the $page page" }
+              if (-not (Select-String -Path $log -Pattern "Smoke test: page $page shown" -Quiet)) { $failures += "$arguments didn't show the $page page" }
             }
-            if (-not (Select-String -Path $log -Pattern "Smoke test: window $([regex]::Escape($env:WHITE_RABBIT_VERSION)) with" -Quiet)) { throw "$exe $arguments didn't show its version" }
-            if (-not (Select-String -Path $log -Pattern "Smoke test: done" -Quiet)) { throw "$exe $arguments didn't finish the smoke test" }
+            if (-not (Select-String -Path $log -Pattern "Smoke test: window $([regex]::Escape($env:WHITE_RABBIT_VERSION)) with" -Quiet)) { $failures += "$arguments didn't show its version" }
+            if (-not (Select-String -Path $log -Pattern "Smoke test: done" -Quiet)) { $failures += "$arguments didn't finish the smoke test" }
+          }
+          if ($failures) { $failures | ForEach-Object { Write-Host "FAILED: $_" }; throw "The window smoke test failed" }
+
+      # Only when the smoke test failed: run a debug build under the debugger to see where it crashed
+      - name: Where the window crashed
+        if: failure()
+        shell: pwsh
+        working-directory: rust
+        run: |
+          cargo build -p wr-window
+          $cdb = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\Debuggers\x64\cdb.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $cdb) { Write-Host "No cdb.exe on this runner"; exit 0 }
+          $env:WHITE_RABBIT_SMOKE_TEST = "1"
+          $env:APPDATA = "$PWD\debug-appdata"
+          $env:LOCALAPPDATA = "$PWD\debug-appdata"
+          foreach ($tab in @("music", "games")) {
+            Write-Host "== debug build, --window --tab $tab"
+            & $cdb.FullName -g -G -lines -c "sxe -c `".ecxr;kn 60;~*kn 30;q`" av; g" target\debug\WhiteRabbitWindow.exe --window --tab $tab
           }
 
       # Code signing placeholder (not enabled yet). Unsigned builds show a SmartScreen warning.
