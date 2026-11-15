@@ -7,8 +7,10 @@
 mod control;
 #[cfg(test)]
 mod e2e_test;
+mod fps;
 mod icon;
 mod launch;
+mod location;
 mod monitor;
 mod music;
 mod paths;

@@ -30,6 +30,7 @@ sysinfo = { version = "0.37", default-features = false, features = ["system", "d
 ureq = { version = "3", default-features = false, features = ["native-tls", "json"] }
 # What is playing (WinRT media controls) and the GPUs' names (DXGI)
 windows = { version = "0.62", features = [
+    "Devices_Geolocation",
     "Foundation",
     "Foundation_Collections",
     "Graphics_Imaging",
@@ -59,6 +60,7 @@ windows-sys = { version = "0.60", features = [
     "Win32_System_SystemServices",
     "Win32_System_Threading",
     "Win32_System_IO",
+    "Win32_System_JobObjects",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
