@@ -43,6 +43,8 @@ pub struct PortState {
     io: Box<dyn Port>,
     /// The last full frame drawn and when, or None when unknown. Any other write forgets it.
     pub shown: Option<([[u8; HEIGHT]; WIDTH], Instant)>,
+    /// The monitor's last frame on this panel, kept while the window writes (for its app transition).
+    pub last_frame: Option<[[u8; HEIGHT]; WIDTH]>,
     pub dimming: Dimming,
     broken: bool,
     name: String,
@@ -136,6 +138,7 @@ impl Hub {
             state: Mutex::new(PortState {
                 io,
                 shown: None,
+                last_frame: None,
                 dimming: Dimming::default(),
                 broken: false,
                 name: name.to_string(),
@@ -145,6 +148,13 @@ impl Hub {
         open.insert(key, Arc::downgrade(&port));
         open.retain(|_, p| p.strong_count() > 0);
         Ok(port)
+    }
+
+    /// The monitor's last frame on this port, if it is open and has drawn one.
+    pub fn last_frame(&self, name: &str) -> Option<[[u8; HEIGHT]; WIDTH]> {
+        let port = self.open.lock().unwrap().get(&name.to_lowercase()).and_then(Weak::upgrade)?;
+        let frame = port.lock().last_frame;
+        frame
     }
 
     /// Lends panels to the window (`owner` = its process id). Their LED current goes back to full first,

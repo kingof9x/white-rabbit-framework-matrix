@@ -66,7 +66,7 @@ export component HomePage inherits VerticalLayout {
     Card { link: true; icon: @image-url("../icons/paint_brush.svg"); title: "Draw";
         help: "Draw, animate or import a picture for a panel."; clicked => { App.page = "draw"; } }
     Card { link: true; icon: @image-url("../icons/sparkle.svg"); title: "Plug animation";
-        help: "What the panels play when something is plugged in or out, sliding between apps and more."; clicked => { App.page = "effects"; } }
+        help: "What the panels play when something is plugged in or out, and dimming."; clicked => { App.page = "effects"; } }
     Card { link: true; icon: @image-url("../icons/play_circle.svg"); title: "Startup animation";
         help: "What the panels play when the laptop turns on."; clicked => { App.page = "startup"; } }
     if App.home-status != "": Status { text: App.home-status; }

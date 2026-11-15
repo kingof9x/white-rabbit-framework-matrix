@@ -109,12 +109,12 @@ const VERTICAL_STYLES: [&str; 3] = ["ticker", "sideways", "stacked"];
 
 /// The unplug animations in the list's order: the drain first, then the [`Look`]s.
 fn unplug_keys() -> Vec<String> {
-    std::iter::once(DRAIN.to_string()).chain(Look::ALL.iter().map(|l| l.key().to_string())).collect()
+    std::iter::once(DRAIN.to_string()).chain(Look::PLUG.iter().map(|l| l.key().to_string())).collect()
 }
 
 /// The plug-in animations in the list's order: the ripple first, then the [`Look`]s.
 fn plug_keys() -> Vec<String> {
-    std::iter::once(RIPPLE.to_string()).chain(Look::ALL.iter().map(|l| l.key().to_string())).collect()
+    std::iter::once(RIPPLE.to_string()).chain(Look::PLUG.iter().map(|l| l.key().to_string())).collect()
 }
 
 /// The key at a list position, `fallback` when nothing sensible is picked.
@@ -124,7 +124,7 @@ fn pick(keys: &[String], index: i32, fallback: &str) -> String {
 
 fn look_labels(first: &str) -> ModelRc<SharedString> {
     let labels: Vec<SharedString> =
-        std::iter::once(first.into()).chain(Look::ALL.iter().map(|l| l.label().into())).collect();
+        std::iter::once(first.into()).chain(Look::PLUG.iter().map(|l| l.label().into())).collect();
     ModelRc::new(VecModel::from(labels))
 }
 
@@ -148,6 +148,7 @@ fn show_settings(app: &AppWindow, s: &EffectsSettings) {
     page.set_text_speed(s.text_speed as f32);
     page.set_slide(s.slide);
     page.set_fade(s.fade);
+    page.set_transition_look(s.transition_look.as_str().into());
     page.set_panels_together(s.panels_together);
     page.set_unplug_look(unplug_keys().iter().position(|k| *k == s.unplug_look).unwrap_or(0) as i32);
     page.set_plug_look(plug_keys().iter().position(|k| *k == s.plug_look).unwrap_or(0) as i32);
@@ -353,6 +354,7 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
             new.text_speed = page.get_text_speed().round() as i64;
             new.slide = page.get_slide();
             new.fade = page.get_fade();
+            new.transition_look = page.get_transition_look().to_string();
             new.panels_together = page.get_panels_together();
             new.unplug_look = pick(&unplug_keys(), page.get_unplug_look(), DRAIN);
             new.plug_look = pick(&plug_keys(), page.get_plug_look(), RIPPLE);
@@ -384,6 +386,15 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
     }
     {
         let (ctx2, state) = (ctx.clone(), state.clone());
+        let state2 = state.clone();
+        page.on_try_transition(move || {
+            // Change the preview's apps (the sample pictures swap sides) with the chosen transition
+            let mut s = state2.borrow_mut();
+            let now = s.now();
+            s.preview.start_slide(Side::Left, now);
+            s.preview.start_slide(Side::Right, now);
+            s.slide_flip = !s.slide_flip;
+        });
         page.on_try_plug(move |plugged_in| {
             let Some(app) = ctx2.ui.upgrade() else { return };
             let all = positions();
@@ -510,7 +521,7 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
         ctx.every(FRAME_SECONDS, move || {
             let Some(app) = ui.upgrade() else { return };
             // The Display messages page shows the same preview
-            if !matches!(app.global::<App>().get_page().as_str(), "effects" | "messages") {
+            if !matches!(app.global::<App>().get_page().as_str(), "effects" | "messages" | "transitions") {
                 return;
             }
             let mut s = state.borrow_mut();

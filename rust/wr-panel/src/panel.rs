@@ -279,6 +279,7 @@ impl Panel {
         }
         if !state.is_held() {
             state.shown = Some((key, Instant::now()));
+            state.last_frame = Some(key);
         }
         Ok(())
     }
@@ -514,6 +515,18 @@ mod tests {
         panels.hub().release(None);
         left.handle(Item::Frame(g, None));
         assert_eq!(writes(&fake).len(), before + 2, "drawn again once released (column + flush)");
+    }
+
+    #[test]
+    fn the_last_frame_is_kept_for_the_window_while_it_holds_the_panel() {
+        let (_, panels, mut left, _) = setup();
+        left.connect(true);
+        let mut g = Grid::new();
+        g.set(2, 3, 90);
+        left.handle(Item::Frame(g, None));
+        panels.hub().hold(&["COM4".into()], None);
+        let frame = panels.hub().last_frame("COM4").expect("kept");
+        assert_eq!(frame[2][3], 90);
     }
 
     /// Adds 1 to pixel (0, 0) on every frame; plays an effect for 3 redraws.

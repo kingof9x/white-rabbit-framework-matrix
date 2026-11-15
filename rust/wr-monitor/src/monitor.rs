@@ -454,14 +454,22 @@ impl Monitor {
         let held = self.shared.identifying() || (0..2).any(|s| self.shared.preview_frame(s).is_some());
         self.music.held.store(held, Ordering::SeqCst);
         for (side, want) in wanted.iter().enumerate() {
+            let was_running = self.music.running(side);
             match want {
                 Some(settings) => self.music.ensure(side, settings, &self.queues[side]),
-                None if self.music.running(side) => {
+                None if was_running => {
                     self.music.stop(side);
                     // Say the scrolling again and send the apps' picture even if it looks unchanged
                     self.redraw = true;
                 }
                 None => {}
+            }
+            // Music starting or stopping changes what the panel shows: play the app transition
+            if was_running != self.music.running(side) {
+                self.shown[side] = None;
+                if let Some(fx) = self.shared.effects.lock().unwrap().as_ref() {
+                    fx.start_slide(side);
+                }
             }
         }
         *self.shared.hearing.lock().unwrap() = self.music.hearing();

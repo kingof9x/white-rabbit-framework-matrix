@@ -25,7 +25,7 @@ The newest version is on the [Releases](https://github.com/kingof9x/white-rabbit
 ![The Home page in light mode](docs/screenshots/white-rabbit-home.png)
 
 - **A menu down the left side** instead of a row of tabs: Home, System
-  monitor, Games & patterns, Audio, Math, Draw, Plug animation, Display messages,
+  monitor, Games & patterns, Audio, Math, Draw, Plug animation, App transition effects, Display messages,
   Startup animation and Settings. Firmware, Keyboard shortcuts and About White Rabbit live under
   Settings.
 - **A Home page** that shows what each panel is doing right now, with the
@@ -208,19 +208,27 @@ What the panels play when something is plugged in or out, plus a few extras.
   DisplayPort) or any USB device and the panel by that port plays an
   animation. Pick one for unplugging and one for plugging in: the original
   drain (unplug) and water ripple (plug in), or power surge, pixel rain,
-  old TV, ripple ring, zipper or glitch.
+  old TV, ripple ring or glitch. Power surge and ripple ring start at the
+  port and run across both panels.
   *Try it* buttons show it without
   plugging anything in, and if White Rabbit guesses the wrong port you can
   tell it the right one; it remembers. If your two panels sit next to each
   other, tick the box and the unplug drains both as one picture.
   You can turn the animations off for the ports on one side of the laptop.
-- **Changing apps:** slide the next app in from the bottom, fade into it, or
-  cut straight to it. After the unplug animation the picture comes back the
-  same way.
 - **Keep every shade when dim:** dark pictures keep their detail at low
   brightness. Needs the newest White Rabbit firmware.
 
 ![The Plug animation page](docs/screenshots/white-rabbit-effects.png)
+
+### App transition effects page
+
+How a panel changes from one app to the next: slide the next app in from the
+bottom, fade into it, pixel rain (the old app falls away as the new one floats
+up), zipper (the old app unzips, the new one zips up), or cut straight to it.
+It also plays when Audio, Math or a game starts on a panel, and when the
+picture comes back after the unplug animation.
+
+![The App transition effects page](docs/screenshots/white-rabbit-transitions.png)
 
 
 ### Display messages page

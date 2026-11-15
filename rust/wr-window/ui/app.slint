@@ -14,6 +14,7 @@ import { MusicPage, MusicView } from "pages/music.slint";
 import { EditorPage, EditorView, AppRow, PanelEdit, Field } from "pages/monitor.slint";
 import { EffectsPage, EffectsView, TeachDialog } from "pages/effects.slint";
 import { MessagesView } from "pages/messages.slint";
+import { TransitionsView } from "pages/transitions.slint";
 import { GamesPage, GamesView } from "pages/games.slint";
 import { MathPage, MathView } from "pages/math.slint";
 import { DrawPage, DrawView } from "pages/draw.slint";
@@ -107,6 +108,7 @@ export component AppWindow inherits Window {
         { key: "math", label: "Math", icon: @image-url("icons/math_formula.svg") },
         { key: "draw", label: "Draw", icon: @image-url("icons/paint_brush.svg") },
         { key: "effects", label: "Plug animation", icon: @image-url("icons/sparkle.svg") },
+        { key: "transitions", label: "App transition effects", icon: @image-url("icons/arrow_swap.svg") },
         { key: "messages", label: "Display messages", icon: @image-url("icons/text_line.svg") },
         { key: "startup", label: "Startup animation", icon: @image-url("icons/play_circle.svg") },
         { key: "settings", label: "Settings", icon: @image-url("icons/settings.svg") },
@@ -119,7 +121,7 @@ export component AppWindow inherits Window {
     function title-of(p: string) -> string {
         return p == "home" ? "Home" : p == "settings" ? "Settings" : p == "monitor" ? "System monitor"
             : p == "games" ? "Games & patterns" : p == "music" ? "Audio" : p == "math" ? "Math" : p == "draw" ? "Draw"
-            : p == "effects" ? "Plug animation" : p == "messages" ? "Display messages" : p == "startup" ? "Startup animation" : p == "firmware" ? "Firmware"
+            : p == "effects" ? "Plug animation" : p == "messages" ? "Display messages" : p == "transitions" ? "App transition effects" : p == "startup" ? "Startup animation" : p == "firmware" ? "Firmware"
             : p == "shortcuts" ? "Keyboard shortcuts" : p == "about" ? "About White Rabbit" : "";
     }
     // Pages that fill the window themselves, instead of scrolling
@@ -219,6 +221,7 @@ export component AppWindow inherits Window {
                     if App.page == "startup": StartupView { }
                     if App.page == "effects": EffectsView { }
                     if App.page == "messages": MessagesView { }
+                    if App.page == "transitions": TransitionsView { }
                     if App.page == "music": MusicView { }
                     if App.page == "games": GamesView { }
                     if App.page == "math": MathView { }

@@ -1,0 +1,38 @@
+// App transition effects: how a panel changes from one app to the next (and starts Audio, Math or a
+// game, and comes back after the unplug animation). Its settings live with the effects (EffectsPage,
+// saved under "effects").
+import { Theme } from "../theme.slint";
+import { Group, Hint, Status, RadioButton, LedImage, Button } from "../widgets.slint";
+import { EffectsPage } from "effects.slint";
+
+export component TransitionsView inherits HorizontalLayout {
+    spacing: 16px;
+    VerticalLayout {
+        horizontal-stretch: 1;
+        spacing: 12px;
+        Group {
+            title: "Changing apps";
+            help: "Plays when a panel changes app, when Audio, Math or a game starts on it, and when the picture comes back after the unplug animation.";
+            RadioButton { text: "Slide the next app in from the bottom"; checked: EffectsPage.slide && EffectsPage.transition-look == ""; clicked => { EffectsPage.slide = true; EffectsPage.fade = false; EffectsPage.transition-look = ""; EffectsPage.changed(); } }
+            RadioButton { text: "Fade into the next app"; checked: !EffectsPage.slide && EffectsPage.fade && EffectsPage.transition-look == ""; clicked => { EffectsPage.slide = false; EffectsPage.fade = true; EffectsPage.transition-look = ""; EffectsPage.changed(); } }
+            RadioButton { text: "Pixel rain: the old app falls away as the new one floats up"; checked: EffectsPage.transition-look == "rain"; clicked => { EffectsPage.slide = false; EffectsPage.fade = false; EffectsPage.transition-look = "rain"; EffectsPage.changed(); } }
+            RadioButton { text: "Zipper: the old app unzips, the new one zips up"; checked: EffectsPage.transition-look == "zipper"; clicked => { EffectsPage.slide = false; EffectsPage.fade = false; EffectsPage.transition-look = "zipper"; EffectsPage.changed(); } }
+            RadioButton { text: "Cut straight to the next app"; checked: !EffectsPage.slide && !EffectsPage.fade && EffectsPage.transition-look == ""; clicked => { EffectsPage.slide = false; EffectsPage.fade = false; EffectsPage.transition-look = ""; EffectsPage.changed(); } }
+            HorizontalLayout {
+                alignment: start;
+                Button { text: "Try it"; clicked => { EffectsPage.try-transition(); } }
+            }
+        }
+        if EffectsPage.status != "": Status { text: EffectsPage.status; }
+    }
+    VerticalLayout {
+        alignment: start;
+        horizontal-stretch: 0;
+        Group {
+            width: 230px;
+            title: "Preview";
+            LedImage { source: EffectsPage.preview; width: 182px; height: 292px; }
+            Hint { text: "Left panel and right panel. Try it plays the change."; horizontal-alignment: center; }
+        }
+    }
+}

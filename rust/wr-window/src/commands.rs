@@ -219,7 +219,7 @@ pub fn pattern(name: &str) -> Vec<Vec<u8>> {
     }
 }
 
-pub const STARTUP_ANIMATIONS: [&str; 28] = [
+pub const STARTUP_ANIMATIONS: [&str; 29] = [
     "Percentage",
     "Zigzag",
     "Game of Life: Pattern 1",
@@ -248,6 +248,7 @@ pub const STARTUP_ANIMATIONS: [&str; 28] = [
     "Warp speed",
     "Power on",
     "Campfire",
+    "Pixel rain",
 ];
 
 /// Startup modes: 0 random from all, 1 always one, 2 random from a set, 3 none.

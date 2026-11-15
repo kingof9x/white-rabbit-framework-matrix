@@ -24,6 +24,7 @@ mod font;
 mod formula;
 mod games;
 mod jobs;
+mod lead_in;
 mod link;
 mod maths;
 mod pages;
@@ -52,6 +53,7 @@ pub fn start_page(tab: &str) -> &'static str {
         "draw" => "draw",
         "effects" => "effects",
         "messages" | "text" => "messages",
+        "transitions" => "transitions",
         "audio" | "music" => "music",
         "firmware" => "firmware",
         "shortcuts" => "shortcuts",

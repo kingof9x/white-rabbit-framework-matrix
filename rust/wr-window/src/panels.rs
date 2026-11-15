@@ -249,6 +249,8 @@ struct LenderState {
     borrowed: HashMap<String, Option<u8>>,
     /// Bumped on each borrow, so a delayed automatic return doesn't undo something newer
     generation: HashMap<String, u64>,
+    /// The monitor's last frame on each panel just borrowed, until the app transition takes it
+    last_frames: HashMap<String, crate::lead_in::Frame>,
 }
 
 pub type Generations = HashMap<String, u64>;
@@ -280,12 +282,21 @@ impl Lender {
             self.inner.lock().unwrap().borrowed.insert(device.clone(), level);
         }
         if !new.is_empty() {
-            if let Err(e) = sender.link.hold(&new) {
-                wr_core::warn!("Couldn't borrow the panels from the monitor: {e}");
+            match sender.link.hold(&new) {
+                Ok(frames) => self.inner.lock().unwrap().last_frames.extend(frames),
+                Err(e) => wr_core::warn!("Couldn't borrow the panels from the monitor: {e}"),
             }
         }
         let s = self.inner.lock().unwrap();
         panels.iter().map(|p| (p.device.clone(), s.generation[&p.device])).collect()
+    }
+
+    /// The monitor's last frames on these panels (in their order), if they were just borrowed from it.
+    pub fn take_last_frames(&self, panels: &[Panel]) -> Vec<Option<crate::lead_in::Frame>> {
+        let mut s = self.inner.lock().unwrap();
+        let frames = panels.iter().map(|p| s.last_frames.remove(&p.device)).collect();
+        s.last_frames.clear();
+        frames
     }
 
     /// Stops whatever this window started on these panels and lets the monitor draw again (worker thread).
