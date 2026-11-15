@@ -17,6 +17,7 @@ pub mod nprand;
 pub mod patterns;
 #[rustfmt::skip]
 mod patterns_data;
+pub mod plug_looks;
 pub mod pyrand;
 pub mod pyround;
 pub mod queue;

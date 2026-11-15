@@ -20,6 +20,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
 use crate::nprand::Generator;
+use crate::plug_looks::Look;
 use crate::pyround::{int_round, round_half_even};
 use crate::{Grid, HEIGHT, WIDTH};
 
@@ -171,6 +172,12 @@ pub struct EffectsSettings {
     /// both as one picture. Not in the Python app, so only saved when on.
     #[serde(skip_serializing_if = "is_false")]
     pub panels_together: bool,
+    /// The plug animations: "drain" (unplug) and "ripple" (plug in) are the originals, the others are
+    /// [`Look`] keys. Not in the Python app, so only saved when changed.
+    #[serde(skip_serializing_if = "is_drain")]
+    pub unplug_look: String,
+    #[serde(skip_serializing_if = "is_ripple")]
+    pub plug_look: String,
     /// Dim the panels with the LED chip's current instead of darker values (needs newer firmware).
     pub full_shades: bool,
 }
@@ -201,6 +208,8 @@ impl Default for EffectsSettings {
             slide: true,
             fade: false,
             panels_together: false,
+            unplug_look: DRAIN.to_string(),
+            plug_look: RIPPLE.to_string(),
             full_shades: false,
         }
     }
@@ -264,6 +273,16 @@ impl EffectsSettings {
                 s.show_messages = true;
             }
         }
+        if let Some(Value::String(key)) = get("unplug_look") {
+            if key == DRAIN || Look::from_key(key).is_some() {
+                s.unplug_look = key.clone();
+            }
+        }
+        if let Some(Value::String(key)) = get("plug_look") {
+            if key == RIPPLE || Look::from_key(key).is_some() {
+                s.plug_look = key.clone();
+            }
+        }
         if let Some(n) = get("text_speed").and_then(py_int) {
             s.text_speed = n.clamp(1.0, 10.0) as i64;
         }
@@ -305,6 +324,19 @@ fn is_ticker(style: &String) -> bool {
     style == "ticker"
 }
 
+/// The original unplug animation's key.
+pub const DRAIN: &str = "drain";
+/// The original plug-in animation's key.
+pub const RIPPLE: &str = "ripple";
+
+fn is_drain(key: &String) -> bool {
+    key == DRAIN
+}
+
+fn is_ripple(key: &String) -> bool {
+    key == RIPPLE
+}
+
 /// How the panel goes from one app to the next (and comes back after the unplug drain).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Transition {
@@ -332,6 +364,16 @@ impl EffectsSettings {
             Some(Side::Right) => self.plug_right,
             None => true,
         }
+    }
+
+    /// The unplug animation, None for the drain.
+    pub fn unplug(&self) -> Option<Look> {
+        Look::from_key(&self.unplug_look)
+    }
+
+    /// The plug-in animation, None for the ripple.
+    pub fn plug_in(&self) -> Option<Look> {
+        Look::from_key(&self.plug_look)
     }
 
     pub fn transition(&self) -> Transition {
@@ -1099,6 +1141,22 @@ pub enum Phase {
     Empty,
     /// The picture coming back: up from the bottom, fading in, or all at once (Effects tab).
     Rise,
+    /// One of the other unplug animations ([`Look`]) taking the picture away.
+    Out,
+    /// One of the other plug-in animations bringing the picture in.
+    In,
+}
+
+/// A [`Look`] playing on a panel.
+#[derive(Clone, Debug)]
+pub struct LookPlay {
+    pub look: Look,
+    /// The port is at the panel's left edge, so the picture is flipped for it.
+    pub flipped: bool,
+    /// The row the port is level with (the middle of the row).
+    pub row: f64,
+    /// Going out, the picture as it was when unplugged.
+    pub picture: Option<Picture>,
 }
 
 /// The effects on one panel.
@@ -1106,6 +1164,8 @@ pub enum Phase {
 pub struct SidePlayer {
     /// The drain, and whether its picture is flipped (a port on the left).
     pub drain: Option<(Drain, bool)>,
+    /// The other unplug and plug-in animations.
+    pub look: Option<LookPlay>,
     pub phase: Option<Phase>,
     pub phase_since: f64,
     /// The frame sliding away, and when it started.
@@ -1133,6 +1193,7 @@ impl SidePlayer {
 
     fn start_rise(&mut self, now: f64) {
         self.drain = None;
+        self.look = None;
         self.phase = Some(Phase::Rise);
         self.phase_since = now;
     }
@@ -1253,6 +1314,23 @@ impl Effects {
         let row = spot.map(|s| self.settings.port_rows.row(s)).unwrap_or(HEIGHT / 2);
         let (panel, at_left) = self.panel_for(side);
         if plugged_in {
+            if let Some(look) = self.settings.plug_in() {
+                // The picture comes in on the port's panel, or every panel for a port we can't place
+                self.wide = None;
+                let targets: Vec<Side> = match panel {
+                    Some(panel) => vec![panel],
+                    None => self.order(Side::Left),
+                };
+                for side in targets {
+                    let player = &mut self.players[side.index()];
+                    player.drain = None;
+                    player.slide = None;
+                    player.look = Some(LookPlay { look, flipped: at_left, row: row as f64 + 0.5, picture: None });
+                    player.phase = Some(Phase::In);
+                    player.phase_since = now;
+                }
+                return;
+            }
             // One ripple across all the panels, starting at the port's edge and running on to the other
             // panel. A port we can't place ripples out from between the panels.
             let order = self.order(Side::Left);
@@ -1262,7 +1340,8 @@ impl Effects {
                 Some(panel) => {
                     let together = self.wide.take().is_some();
                     for (i, player) in self.players.iter_mut().enumerate() {
-                        if (together || i == panel.index()) && matches!(player.phase, Some(Phase::Drain | Phase::Empty))
+                        if (together || i == panel.index())
+                            && matches!(player.phase, Some(Phase::Drain | Phase::Empty | Phase::Out | Phase::In))
                         {
                             player.start_rise(now);
                         }
@@ -1277,6 +1356,18 @@ impl Effects {
             return;
         }
         let Some(panel) = panel else { return };
+        if let Some(look) = self.settings.unplug() {
+            self.wide = None;
+            let player = &mut self.players[panel.index()];
+            let Some(base) = &player.last_base else { return };
+            let picture = if at_left { base.flipped() } else { base.clone() };
+            player.drain = None;
+            player.slide = None;
+            player.look = Some(LookPlay { look, flipped: at_left, row: row as f64 + 0.5, picture: Some(picture) });
+            player.phase = Some(Phase::Out);
+            player.phase_since = now;
+            return;
+        }
         if self.settings.panels_together && self.panels == [true, true] {
             if let (Some(left), Some(right)) = (&self.players[0].last_base, &self.players[1].last_base) {
                 // Both panels as one picture, the port at the outer edge of the panel on its side
@@ -1300,6 +1391,7 @@ impl Effects {
         let Some(base) = &player.last_base else { return };
         let frame = if at_left { base.flipped() } else { base.clone() };
         player.drain = Some((Drain::new(&frame, row as f64 + 0.5, 2.0, 11), at_left));
+        player.look = None;
         player.phase = Some(Phase::Drain);
         player.phase_since = now;
     }
@@ -1435,6 +1527,37 @@ impl Effects {
                         player.drain = None;
                         player.phase = Some(Phase::Empty);
                         player.phase_since = now;
+                    }
+                }
+            }
+            Some(Phase::Out) => {
+                let t = now - player.phase_since;
+                let frame = player.look.as_ref().and_then(|p| {
+                    let frame = p.look.out_frame(p.picture.as_ref()?, t, p.row, self.foreground as f64)?;
+                    Some(if p.flipped { frame.flipped() } else { frame })
+                });
+                match frame {
+                    Some(frame) => out = frame,
+                    None => {
+                        out = Picture::zeros(HEIGHT, WIDTH);
+                        player.look = None;
+                        player.phase = Some(Phase::Empty);
+                        player.phase_since = now;
+                    }
+                }
+            }
+            Some(Phase::In) => {
+                let t = now - player.phase_since;
+                let frame = player.look.as_ref().and_then(|p| {
+                    let picture = if p.flipped { out.flipped() } else { out.clone() };
+                    let frame = p.look.in_frame(&picture, t, p.row, self.foreground as f64)?;
+                    Some(if p.flipped { frame.flipped() } else { frame })
+                });
+                match frame {
+                    Some(frame) => out = frame,
+                    None => {
+                        player.look = None;
+                        player.phase = None;
                     }
                 }
             }
@@ -1644,6 +1767,60 @@ mod tests {
         let off = EffectsSettings::from_json(&serde_json::json!({"vertical_left": "HI"}));
         assert_eq!(off.vertical(Side::Left), None, "kept but not showing");
         assert!(serde_json::to_value(EffectsSettings::default()).unwrap().get("vertical_style").is_none());
+    }
+
+    #[test]
+    fn plug_looks_are_saved_only_when_picked_and_unknown_ones_are_ignored() {
+        let default = serde_json::to_value(EffectsSettings::default()).unwrap();
+        assert!(default.get("unplug_look").is_none() && default.get("plug_look").is_none());
+        let s = EffectsSettings::from_json(&serde_json::json!({"unplug_look": "zipper", "plug_look": "surge"}));
+        assert_eq!((s.unplug(), s.plug_in()), (Some(Look::Zipper), Some(Look::Surge)));
+        assert_eq!(serde_json::to_value(&s).unwrap()["unplug_look"], "zipper");
+        let odd = EffectsSettings::from_json(&serde_json::json!({"unplug_look": "fireworks", "plug_look": 3}));
+        assert_eq!((odd.unplug_look.as_str(), odd.plug_look.as_str()), (DRAIN, RIPPLE));
+    }
+
+    #[test]
+    fn a_picked_unplug_look_plays_then_the_picture_comes_back() {
+        let mut e = Effects::new();
+        e.configure(EffectsSettings { unplug_look: "glitch".into(), ..EffectsSettings::default() });
+        e.panel_present(Side::Right, true);
+        e.apply(Side::Right, &filled(160), true, 0.0);
+        e.plug(Some("right-middle"), false, 0.0);
+        assert_eq!(e.player(Side::Right).phase, Some(Phase::Out));
+        let mut t = 0.0;
+        while e.player(Side::Right).phase == Some(Phase::Out) && t < 5.0 {
+            t += FRAME_SECONDS;
+            e.apply(Side::Right, &filled(160), false, t);
+        }
+        assert_eq!(e.player(Side::Right).phase, Some(Phase::Empty));
+        assert!((t - Look::Glitch.out_seconds()).abs() < 0.1);
+        while e.player(Side::Right).active() && t < 10.0 {
+            t += FRAME_SECONDS;
+            e.apply(Side::Right, &filled(160), false, t);
+        }
+        assert_eq!(e.apply(Side::Right, &filled(160), false, t + 0.1), filled(160));
+    }
+
+    #[test]
+    fn a_picked_plug_in_look_brings_the_picture_in_on_the_ports_side() {
+        let mut e = Effects::new();
+        e.configure(EffectsSettings { plug_look: "ring".into(), ..EffectsSettings::default() });
+        e.panel_present(Side::Left, true);
+        e.panel_present(Side::Right, true);
+        e.apply(Side::Left, &filled(160), true, 0.0);
+        e.apply(Side::Right, &filled(160), true, 0.0);
+        e.plug(Some("left-back"), true, 0.0);
+        assert_eq!(e.player(Side::Left).phase, Some(Phase::In));
+        assert_eq!(e.player(Side::Right).phase, None);
+        // No water ripple with another look picked
+        assert!(!e.ripples_on(Side::Right));
+        // The ring starts at the left panel's left edge (the port's side): the far edge is still dark
+        let early = e.apply(Side::Left, &filled(160), true, 0.3);
+        assert!(early.v[0][5] > 0 && early.v[WIDTH - 1][30] == 0);
+        let done = e.apply(Side::Left, &filled(160), true, Look::Ring.in_seconds() + 0.05);
+        assert_eq!(done, filled(160));
+        assert!(!e.player(Side::Left).active());
     }
 
     #[test]

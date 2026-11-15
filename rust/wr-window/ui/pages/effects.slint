@@ -1,4 +1,4 @@
-// Effects: a ripple when something is plugged in, sliding between apps, and dimming (the text line's
+// Plug animation (the "effects" page): what the panels play when something is plugged in or out, sliding between apps, and dimming (the text line's
 // settings are here too, shown on the Display messages page). The monitor plays them; this page saves the settings and previews them.
 import { Theme } from "../theme.slint";
 import { Group, Hint, Body, Status, CheckBox, RadioButton, Slider, Dialog, AccentButton, LedImage, Button } from "../widgets.slint";
@@ -20,6 +20,11 @@ export global EffectsPage {
     in-out property <bool> slide: true;
     in-out property <bool> fade;
     in-out property <bool> panels-together;
+    // The animation choices ("Drain", "Power surge" ...) and the one picked, for unplugging and plugging in
+    in property <[string]> unplug-looks;
+    in-out property <int> unplug-look;
+    in property <[string]> plug-looks;
+    in-out property <int> plug-look;
     // Your own messages keep going round, taking turns, until turned off
     in-out property <bool> pinned;
     in-out property <[string]> messages: ["Back in 5 minutes"];
@@ -77,12 +82,32 @@ export component EffectsView inherits HorizontalLayout {
         horizontal-stretch: 1;
         spacing: 12px;
         Group {
-            title: "When something is plugged in";
-            help: "A ripple runs across the panel from the port you plug something into, and the picture drains out through the port when you unplug it. The panel goes back to what it was showing after about two seconds.";
+            title: "When something is plugged in or out";
+            help: "The panel next to the port plays an animation when you plug something in or unplug it. After an unplug animation the panel goes back to what it was showing.";
             CheckBox {
-                text: "Play the ripple and the drain";
+                text: "Play the plug animations";
                 checked <=> EffectsPage.plug-animation;
                 toggled => { EffectsPage.changed(); }
+            }
+            Row {
+                Label { text: "When unplugged:"; width: 120px; }
+                ComboBox {
+                    width: 220px;
+                    enabled: EffectsPage.plug-animation;
+                    model: EffectsPage.unplug-looks;
+                    current-index: EffectsPage.unplug-look;
+                    selected => { EffectsPage.unplug-look = self.current-index; EffectsPage.changed(); }
+                }
+            }
+            Row {
+                Label { text: "When plugged in:"; width: 120px; }
+                ComboBox {
+                    width: 220px;
+                    enabled: EffectsPage.plug-animation;
+                    model: EffectsPage.plug-looks;
+                    current-index: EffectsPage.plug-look;
+                    selected => { EffectsPage.plug-look = self.current-index; EffectsPage.changed(); }
+                }
             }
             Row {
                 Label { text: "For:"; }
@@ -99,7 +124,7 @@ export component EffectsView inherits HorizontalLayout {
                 CheckBox { text: "the left side of the laptop"; enabled: EffectsPage.plug-animation; checked <=> EffectsPage.plug-left; toggled => { EffectsPage.changed(); } }
                 CheckBox { text: "the right side"; enabled: EffectsPage.plug-animation; checked <=> EffectsPage.plug-right; toggled => { EffectsPage.changed(); } }
             }
-            CheckBox { text: "My two LED panels sit next to each other: drain both panels as one picture"; enabled: EffectsPage.plug-animation; checked <=> EffectsPage.panels-together; toggled => { EffectsPage.changed(); } }
+            CheckBox { text: "My two LED panels sit next to each other: drain both panels as one picture"; enabled: EffectsPage.plug-animation && EffectsPage.unplug-look == 0; checked <=> EffectsPage.panels-together; toggled => { EffectsPage.changed(); } }
             Row {
                 Label { text: "Try it at:"; }
                 ComboBox {
