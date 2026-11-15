@@ -1,5 +1,6 @@
 //! The weather app's readings, as `led_mon/plugins/time_weather_plugin.py` gets them: the location
-//! from the app's lat_lon or zip_info, otherwise from the internet address; then the weather from
+//! from Windows Location when the app asks for it (location.rs), else the app's lat_lon or zip_info,
+//! otherwise the internet address; then the weather from
 //! OpenWeather when OPENWEATHER_API_KEY is set, and from Open-Meteo otherwise or when that fails.
 //! Asked again every 30 seconds, on its own thread.
 
@@ -181,8 +182,13 @@ impl Client {
     }
 
     fn location(&self, s: &WeatherSettings, api_key: Option<&str>) -> Result<(f64, f64), String> {
-        // Windows' own location ("location_source: windows") isn't read here yet; the typed-in
-        // location or the internet address is used instead, as Python does when it is unavailable.
+        if s.location_source == "windows" {
+            // When Windows can't say (logged once by location.rs), the typed-in location or the
+            // internet address is used instead
+            if let Ok(loc) = crate::location::position() {
+                return Ok(loc);
+            }
+        }
         if let Some(loc) = s.lat_lon {
             return Ok(loc);
         }

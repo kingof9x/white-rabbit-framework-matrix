@@ -4,7 +4,7 @@
 //! see `background.rs`).
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use std::collections::HashMap;
@@ -25,6 +25,7 @@ use wr_core::render::Readings;
 use wr_core::warn;
 
 use crate::background::Background;
+use crate::fps::FpsReader;
 use crate::weather::WeatherSettings;
 
 pub struct WindowsReadings {
@@ -43,7 +44,7 @@ pub struct WindowsReadings {
     thermal: Background<Thermal>,
     weather: HashMap<String, Background<Option<Weather>>>,
     media: Background<NowPlaying>,
-    fps_warned: bool,
+    fps: Arc<Mutex<FpsReader>>,
 }
 
 /// Seconds since 1970, as Python's time.time().
@@ -76,7 +77,7 @@ impl WindowsReadings {
             media: Background::new("now-playing", Duration::from_secs(1), NowPlaying::default(), |_| {
                 crate::media::reader()
             }),
-            fps_warned: false,
+            fps: crate::fps::shared(),
         }
     }
 }
@@ -167,13 +168,8 @@ impl Readings for WindowsReadings {
         self.gpu_histories.entry(name.to_string()).or_default().get(now, || gpu::pick(&rows, name))
     }
 
-    fn fps(&mut self, _process: &str) -> Fps {
-        // Python runs PresentMon for this; it isn't ported yet, so the app shows "?"
-        if !self.fps_warned {
-            self.fps_warned = true;
-            wr_core::info!("The fps apps can't measure frames in this build yet; they show a question mark");
-        }
-        Fps::default()
+    fn fps(&mut self, process: &str) -> Fps {
+        self.fps.lock().unwrap_or_else(|e| e.into_inner()).read(process, Instant::now())
     }
 
     fn now_playing(&mut self) -> NowPlaying {
