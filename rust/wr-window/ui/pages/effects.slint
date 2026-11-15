@@ -15,6 +15,7 @@ export global EffectsPage {
     in-out property <bool> text-battery;
     in-out property <float> text-speed: 5;
     in-out property <bool> slide: true;
+    in-out property <bool> fade;
     in-out property <bool> full-shades;
     // "Left back" ... "Right front"
     in property <[string]> positions;
@@ -138,8 +139,10 @@ export component EffectsView inherits HorizontalLayout {
         }
         Group {
             title: "Changing apps";
-            RadioButton { text: "Slide the next app in from the bottom"; checked: EffectsPage.slide; clicked => { EffectsPage.slide = true; EffectsPage.changed(); } }
-            RadioButton { text: "Cut straight to the next app"; checked: !EffectsPage.slide; clicked => { EffectsPage.slide = false; EffectsPage.changed(); } }
+            RadioButton { text: "Slide the next app in from the bottom"; checked: EffectsPage.slide; clicked => { EffectsPage.slide = true; EffectsPage.fade = false; EffectsPage.changed(); } }
+            RadioButton { text: "Fade into the next app"; checked: !EffectsPage.slide && EffectsPage.fade; clicked => { EffectsPage.slide = false; EffectsPage.fade = true; EffectsPage.changed(); } }
+            RadioButton { text: "Cut straight to the next app"; checked: !EffectsPage.slide && !EffectsPage.fade; clicked => { EffectsPage.slide = false; EffectsPage.fade = false; EffectsPage.changed(); } }
+            Hint { text: "The picture also comes back this way after the unplug animation."; }
         }
         Group {
             title: "Dimming";

@@ -211,8 +211,9 @@ Little extras that play over whatever the panels show.
 - **Text line:** a line of small letters scrolls across the top of both
   panels when a new song starts, the charger goes in or out, or the battery is
   low, or with your own message.
-- **Changing apps:** slide the next app in from the bottom, or cut straight to
-  it.
+- **Changing apps:** slide the next app in from the bottom, fade into it, or
+  cut straight to it. After the unplug animation the picture comes back the
+  same way.
 - **Keep every shade when dim:** dark pictures keep their detail at low
   brightness. Needs the newest White Rabbit firmware.
 

@@ -138,6 +138,10 @@ pub struct EffectsSettings {
     pub text_speed: i64,
     /// Slide the next app in from the bottom when the panel changes app, instead of cutting to it.
     pub slide: bool,
+    /// With `slide` off: fade from one app to the next instead of cutting. Also how the picture comes
+    /// back after the unplug drain. Not in the Python app, so only saved when on.
+    #[serde(skip_serializing_if = "is_false")]
+    pub fade: bool,
     /// Dim the panels with the LED chip's current instead of darker values (needs newer firmware).
     pub full_shades: bool,
 }
@@ -157,6 +161,7 @@ impl Default for EffectsSettings {
             text_battery: true,
             text_speed: 5,
             slide: true,
+            fade: false,
             full_shades: false,
         }
     }
@@ -179,6 +184,7 @@ impl EffectsSettings {
             ("text_charger", &mut s.text_charger),
             ("text_battery", &mut s.text_battery),
             ("slide", &mut s.slide),
+            ("fade", &mut s.fade),
             ("full_shades", &mut s.full_shades),
         ] {
             if let Some(v) = get(key) {
@@ -211,6 +217,30 @@ impl EffectsSettings {
 impl<'de> Deserialize<'de> for EffectsSettings {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         Ok(EffectsSettings::from_json(&Value::deserialize(deserializer)?))
+    }
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+/// How the panel goes from one app to the next (and comes back after the unplug drain).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Transition {
+    Slide,
+    Fade,
+    Cut,
+}
+
+impl EffectsSettings {
+    pub fn transition(&self) -> Transition {
+        if self.slide {
+            Transition::Slide
+        } else if self.fade {
+            Transition::Fade
+        } else {
+            Transition::Cut
+        }
     }
 }
 
@@ -934,7 +964,7 @@ pub enum Phase {
     Drain,
     /// Dark for a moment.
     Empty,
-    /// The picture coming back up from the bottom.
+    /// The picture coming back: up from the bottom, fading in, or all at once (Effects tab).
     Rise,
 }
 
@@ -954,6 +984,7 @@ pub struct SidePlayer {
 
 impl SidePlayer {
     const SLIDE_SECONDS: f64 = 0.45;
+    const FADE_SECONDS: f64 = 0.4;
     const EMPTY_SECONDS: f64 = 0.2;
     const RISE_SECONDS: f64 = 0.25;
 
@@ -1095,7 +1126,7 @@ impl Effects {
 
     /// The panel on this side is changing app: slide the new one in over the last frame.
     pub fn start_slide(&mut self, side: Side, now: f64) {
-        if !self.settings.slide {
+        if self.settings.transition() == Transition::Cut {
             return;
         }
         let player = &mut self.players[side.index()];
@@ -1131,6 +1162,7 @@ impl Effects {
     /// redrawing its last frame to move an effect on.
     pub fn apply(&mut self, side: Side, grid: &Grid, new_frame: bool, now: f64) -> Grid {
         let i = side.index();
+        let transition = self.settings.transition();
         let base = Picture::from_grid(grid);
         let others_active = self.ripples_on(side) || self.text.active();
         let player = &mut self.players[i];
@@ -1147,7 +1179,17 @@ impl Effects {
         }
         let mut out = base;
 
-        if let Some((old, start)) = &player.slide {
+        if let (Some((old, start)), Transition::Fade) = (&player.slide, transition) {
+            // Cross-fade from the last frame of the old app to the new one
+            let k = ((now - start) / SidePlayer::FADE_SECONDS).clamp(0.0, 1.0);
+            if k >= 1.0 {
+                player.slide = None;
+            } else {
+                for (o, n) in out.data.iter_mut().zip(&old.data) {
+                    *o = *n * (1.0 - k) + *o * k;
+                }
+            }
+        } else if let Some((old, start)) = &player.slide {
             let k = ((now - start) / SidePlayer::SLIDE_SECONDS).min(1.0);
             let k = 1.0 - (1.0 - k).powf(3.0);
             // Clamped: Python can't slide backwards either (the clock only goes forwards)
@@ -1181,16 +1223,27 @@ impl Effects {
                     player.start_rise(now);
                 }
             }
-            Some(Phase::Rise) => {
-                let k = ((now - player.phase_since) / SidePlayer::RISE_SECONDS).min(1.0);
-                let shift = int_round(HEIGHT as f64 * (1.0 - k)).clamp(0, HEIGHT as i64) as usize;
-                let mut risen = Picture::zeros(HEIGHT, WIDTH);
-                risen.copy_rows(shift, &out, 0, HEIGHT - shift);
-                out = risen;
-                if k >= 1.0 {
-                    player.phase = None;
+            Some(Phase::Rise) => match transition {
+                Transition::Slide => {
+                    let k = ((now - player.phase_since) / SidePlayer::RISE_SECONDS).min(1.0);
+                    let shift = int_round(HEIGHT as f64 * (1.0 - k)).clamp(0, HEIGHT as i64) as usize;
+                    let mut risen = Picture::zeros(HEIGHT, WIDTH);
+                    risen.copy_rows(shift, &out, 0, HEIGHT - shift);
+                    out = risen;
+                    if k >= 1.0 {
+                        player.phase = None;
+                    }
                 }
-            }
+                Transition::Fade => {
+                    let k = ((now - player.phase_since) / SidePlayer::FADE_SECONDS).clamp(0.0, 1.0);
+                    out.data.iter_mut().for_each(|v| *v *= k);
+                    if k >= 1.0 {
+                        player.phase = None;
+                    }
+                }
+                // Straight back to the picture, as when a new app comes on with sliding off
+                Transition::Cut => player.phase = None,
+            },
             None => {}
         }
 
@@ -1237,6 +1290,59 @@ impl Effects {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn filled(v: i32) -> Grid {
+        let mut g = Grid::new();
+        for col in g.v.iter_mut() {
+            col.iter_mut().for_each(|p| *p = v);
+        }
+        g
+    }
+
+    fn with(slide: bool, fade: bool) -> Effects {
+        let mut e = Effects::new();
+        e.configure(EffectsSettings { slide, fade, ..EffectsSettings::default() });
+        e.panel_present(Side::Left, true);
+        e
+    }
+
+    #[test]
+    fn fade_cross_fades_between_apps() {
+        let mut e = with(false, true);
+        e.apply(Side::Left, &filled(200), true, 0.0);
+        e.start_slide(Side::Left, 0.0);
+        let half = e.apply(Side::Left, &filled(0), true, SidePlayer::FADE_SECONDS / 2.0);
+        assert_eq!(half.v[3][5], 100);
+        let done = e.apply(Side::Left, &filled(0), true, SidePlayer::FADE_SECONDS);
+        assert_eq!(done.v[3][5], 0);
+        assert!(!e.player(Side::Left).active());
+    }
+
+    #[test]
+    fn cut_skips_the_slide_and_comes_straight_back_after_unplug() {
+        let mut e = with(false, false);
+        e.apply(Side::Left, &filled(200), true, 0.0);
+        e.start_slide(Side::Left, 0.0);
+        assert!(!e.player(Side::Left).active());
+        // After the drain and the dark moment, the picture is back whole at once
+        e.players[0].phase = Some(Phase::Rise);
+        e.players[0].phase_since = 1.0;
+        let back = e.apply(Side::Left, &filled(200), true, 1.0);
+        assert_eq!(back.v[0][HEIGHT - 1], 200);
+        assert_eq!(back.v[0][0], 200);
+        assert!(!e.player(Side::Left).active());
+    }
+
+    #[test]
+    fn fade_setting_round_trips_and_stays_out_of_python_settings() {
+        let off = serde_json::to_value(EffectsSettings::default()).unwrap();
+        assert!(off.get("fade").is_none());
+        let on = EffectsSettings::from_json(&serde_json::json!({"slide": false, "fade": true}));
+        assert_eq!(on.transition(), Transition::Fade);
+        assert_eq!(serde_json::to_value(&on).unwrap()["fade"], true);
+        // Slide wins when both are on
+        assert_eq!(EffectsSettings::from_json(&serde_json::json!({"fade": true})).transition(), Transition::Slide);
+    }
 
     #[test]
     fn pairwise_sum_matches_a_plain_sum_on_small_arrays() {
