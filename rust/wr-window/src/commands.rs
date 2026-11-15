@@ -123,7 +123,11 @@ pub fn eq(vals: &[usize]) -> Vec<u8> {
 }
 
 pub fn glyph(c: char) -> [u8; 30] {
-    FONT.iter().find(|(k, _)| *k == c).or_else(|| FONT.iter().find(|(k, _)| *k == '?')).map(|(_, g)| *g).unwrap_or([0; 30])
+    FONT.iter()
+        .find(|(k, _)| *k == c)
+        .or_else(|| FONT.iter().find(|(k, _)| *k == '?'))
+        .map(|(_, g)| *g)
+        .unwrap_or([0; 30])
 }
 
 /// Up to five letters, one under the other (`show_string`).
@@ -197,9 +201,7 @@ pub fn pattern(name: &str) -> Vec<Vec<u8>> {
         "Zigzag" => firmware(0x04),
         "\"PANIC\"" => firmware(0x06),
         "\"LOTUS\" Top Down" => firmware(0x07),
-        "All brightness levels (1 LED each)" => {
-            greyscale(&grid_from(&|x, y| u8::try_from(x + WIDTH * y).unwrap_or(0)))
-        }
+        "All brightness levels (1 LED each)" => greyscale(&grid_from(&|x, y| u8::try_from(x + WIDTH * y).unwrap_or(0))),
         "Every Second Row" => nth_row(2),
         "Every Third Row" => nth_row(3),
         "Every Fourth Row" => nth_row(4),

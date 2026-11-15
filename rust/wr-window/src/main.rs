@@ -17,11 +17,13 @@ mod commands;
 mod dialogs;
 mod external;
 mod font;
+mod formula;
 mod games;
 mod jobs;
 mod link;
-mod panels;
+mod maths;
 mod pages;
+mod panels;
 mod paths;
 mod preview;
 mod report;
@@ -78,7 +80,11 @@ pub fn version() -> String {
     const PYPROJECT: &str = include_str!("../../../pyproject.toml");
     PYPROJECT
         .lines()
-        .find_map(|l| l.trim().strip_prefix("version").map(|r| r.trim().trim_start_matches('=').trim().trim_matches('"').to_string()))
+        .find_map(|l| {
+            l.trim()
+                .strip_prefix("version")
+                .map(|r| r.trim().trim_start_matches('=').trim().trim_matches('"').to_string())
+        })
         .unwrap_or_default()
 }
 
@@ -233,6 +239,13 @@ pub fn shoot_action(ui: &AppWindow, _ctx: &Rc<app::Ctx>, action: &str) {
         }
         // teach: the Effects page's port teacher
         "teach" => ui.global::<EffectsPage>().invoke_teach(),
+        // math-effect:N starts one of the Math page's "More maths"
+        a if a.starts_with("math-effect:") => {
+            let m = ui.global::<MathPage>();
+            m.set_effect(a[12..].parse().unwrap_or(0));
+            m.invoke_start_effect();
+        }
+        "math-graph" => ui.global::<MathPage>().invoke_show_graph(),
         // game:N starts a game on the Games & patterns page
         a if a.starts_with("game:") => ui.global::<GamesPage>().invoke_start(a[5..].parse().unwrap_or(0)),
         _ => wr_core::warn!("Unknown screenshot action {action}"),

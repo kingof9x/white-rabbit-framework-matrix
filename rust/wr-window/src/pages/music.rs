@@ -60,7 +60,8 @@ pub fn hearing_text(hearing: Option<&Value>) -> String {
     let mut parts = Vec::new();
     for side in ["left", "right"] {
         let Some(h) = hearing.get(side).filter(|h| h.as_object().is_some_and(|m| !m.is_empty())) else { continue };
-        let device = h.get("device").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).unwrap_or("no sound device yet");
+        let device =
+            h.get("device").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).unwrap_or("no sound device yet");
         let state = if let Some(problem) = h.get("problem").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
             problem.to_string()
         } else if h.get("silent").and_then(|v| v.as_bool()).unwrap_or(false) {
@@ -166,7 +167,8 @@ fn fill_microphones(app: &AppWindow, state: &mut State, names: Vec<String>) {
     }
     let page = app.global::<MusicPage>();
     page.set_microphones(ModelRc::new(VecModel::from(values)));
-    let index = if wanted.is_empty() { 0 } else { state.microphones.iter().position(|m| *m == wanted).map_or(0, |i| i + 1) };
+    let index =
+        if wanted.is_empty() { 0 } else { state.microphones.iter().position(|m| *m == wanted).map_or(0, |i| i + 1) };
     page.set_microphone(index as i32);
 }
 
@@ -215,7 +217,11 @@ fn show_music_mode(app: &AppWindow, reply: Option<Value>) {
     page.set_mode_status(
         if on { "On: both panels show the audio visualizer." } else { "Off: the panels show your layout." }.into(),
     );
-    page.set_mode_hearing(if on { hearing_text(reply.as_ref().and_then(|r| r.get("hearing"))).into() } else { "".into() });
+    page.set_mode_hearing(if on {
+        hearing_text(reply.as_ref().and_then(|r| r.get("hearing"))).into()
+    } else {
+        "".into()
+    });
 }
 
 fn find_microphones(ctx: &Ctx) {
@@ -321,7 +327,10 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
             }
             page.set_status("Saved. Music mode uses this look from now on.".into());
             // The monitor starts the visualizer again with the new look, if music mode is on
-            ctx2.in_background(|| link::request(json!({"cmd": "music", "action": "reload"}), Duration::from_secs(3)), |_, _| {});
+            ctx2.in_background(
+                || link::request(json!({"cmd": "music", "action": "reload"}), Duration::from_secs(3)),
+                |_, _| {},
+            );
         });
     }
     // Music mode switched here or elsewhere: show it

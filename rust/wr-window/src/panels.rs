@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 use wr_panel::hub::{Port, PortSystem};
-use wr_panel::ports::{discover, PortInfo, Pins};
+use wr_panel::ports::{discover, Pins, PortInfo};
 
 use crate::commands as cmd;
 use crate::link::{hex, unhex, Link, MAX_READ_SECONDS};
@@ -218,7 +218,9 @@ impl Sender {
             self.close_direct();
             let ports: Vec<Value> = by_port
                 .iter()
-                .map(|(port, chunks)| json!({"port": port, "writes": chunks.iter().map(|c| hex(c)).collect::<Vec<_>>()}))
+                .map(
+                    |(port, chunks)| json!({"port": port, "writes": chunks.iter().map(|c| hex(c)).collect::<Vec<_>>()}),
+                )
                 .collect();
             self.link.call(json!({"cmd": "serial_many", "ports": ports}))?;
             return Ok(());
@@ -273,7 +275,8 @@ impl Lender {
             }
         }
         for device in &new {
-            let level = sender.ask(device, cmd::command(cmd::BRIGHTNESS, &[]), None).ok().and_then(|r| r.first().copied());
+            let level =
+                sender.ask(device, cmd::command(cmd::BRIGHTNESS, &[]), None).ok().and_then(|r| r.first().copied());
             self.inner.lock().unwrap().borrowed.insert(device.clone(), level);
         }
         if !new.is_empty() {

@@ -14,7 +14,10 @@ use super::catalog::{self, Kind, Size, Target};
 use super::model::{self, EditorLayout, Entry, Page, SIDES};
 use super::readings::Renderer;
 use crate::app::Ctx;
-use crate::{commands as cmd, dialogs, link, panels, paths, preview, settings, App, AppRow, AppWindow, EditorPage, Field, PanelEdit};
+use crate::{
+    commands as cmd, dialogs, link, panels, paths, preview, settings, App, AppRow, AppWindow, EditorPage, Field,
+    PanelEdit,
+};
 
 const FRAME_SECONDS: f64 = 0.2;
 const PREVIEW_SECONDS: i64 = 30;
@@ -172,13 +175,16 @@ fn panel_edit(e: &mut Editor, s: usize) -> PanelEdit {
 
 fn port_index(e: &Editor, s: usize) -> usize {
     let side = SIDES[s];
-    let get = |k: String| e.layout.settings.get(&k).and_then(|v| match v {
-        Value::String(s) => Some(s.clone()),
-        Value::Number(n) => Some(n.to_string()),
-        _ => None,
-    });
+    let get = |k: String| {
+        e.layout.settings.get(&k).and_then(|v| match v {
+            Value::String(s) => Some(s.clone()),
+            Value::Number(n) => Some(n.to_string()),
+            _ => None,
+        })
+    };
     let ports = connected_ports();
-    let (_, current) = model::port_choices(&ports, get(format!("{side}-port")).as_deref(), get(format!("{side}-location")).as_deref());
+    let (_, current) =
+        model::port_choices(&ports, get(format!("{side}-port")).as_deref(), get(format!("{side}-location")).as_deref());
     current
 }
 
@@ -194,8 +200,11 @@ fn fill_ports(e: &mut Editor) {
     let ports = connected_ports();
     for (s, side) in SIDES.iter().enumerate() {
         let get = |k: String| e.layout.settings.get(&k).and_then(Value::as_str).map(String::from);
-        let (choices, _) =
-            model::port_choices(&ports, get(format!("{side}-port")).as_deref(), get(format!("{side}-location")).as_deref());
+        let (choices, _) = model::port_choices(
+            &ports,
+            get(format!("{side}-port")).as_deref(),
+            get(format!("{side}-location")).as_deref(),
+        );
         e.ports[s] = choices;
     }
 }
@@ -264,13 +273,16 @@ fn describe_sensors(status: Option<&Value>) -> String {
     if !status.get("reading").and_then(Value::as_bool).unwrap_or(false) {
         return "No panel is showing Temperatures or Fans right now, so nothing is being read.".into();
     }
-    let label = |k: &str| SOURCES.iter().find(|(key, _)| *key == k).map(|(_, l)| l.to_string()).unwrap_or(k.to_string());
+    let label =
+        |k: &str| SOURCES.iter().find(|(key, _)| *key == k).map(|(_, l)| l.to_string()).unwrap_or(k.to_string());
     let mut parts = Vec::new();
     for (what, count, from) in [("Temperatures", "temps", "temps_from"), ("Fans", "fans", "fans_from")] {
         match status.get(from).and_then(Value::as_str).filter(|s| !s.is_empty()) {
-            Some(source) => {
-                parts.push(format!("{what}: {} from {}", status.get(count).and_then(Value::as_i64).unwrap_or(0), label(source)))
-            }
+            Some(source) => parts.push(format!(
+                "{what}: {} from {}",
+                status.get(count).and_then(Value::as_i64).unwrap_or(0),
+                label(source)
+            )),
             None => parts.push(format!("{what}: none")),
         }
     }
@@ -291,9 +303,10 @@ fn show_settings(app: &AppWindow, e: &mut Editor) {
         fields.push(f);
         acts.push(a);
     };
-    let entry = e.selection.as_ref().and_then(|(s, i, slot)| {
-        e.layout.pages[*s].get(*i).map(|p| (p.slot(slot).cloned(), *s, *i, slot.clone()))
-    });
+    let entry = e
+        .selection
+        .as_ref()
+        .and_then(|(s, i, slot)| e.layout.pages[*s].get(*i).map(|p| (p.slot(slot).cloned(), *s, *i, slot.clone())));
     match &entry {
         None => {
             page.set_settings_title("No app selected".into());
@@ -317,7 +330,11 @@ fn show_settings(app: &AppWindow, e: &mut Editor) {
                 .settings
                 .iter()
                 .enumerate()
-                .filter(|(_, st)| cfg!(windows) || !matches!(st.kind, Kind::SensorSource | Kind::LocationSource) || std::env::var_os("WHITE_RABBIT_FAKE_PANELS").is_some())
+                .filter(|(_, st)| {
+                    cfg!(windows)
+                        || !matches!(st.kind, Kind::SensorSource | Kind::LocationSource)
+                        || std::env::var_os("WHITE_RABBIT_FAKE_PANELS").is_some()
+                })
                 .collect();
             if shown.is_empty() {
                 let mut f = field("status", "");
@@ -356,10 +373,17 @@ fn show_settings(app: &AppWindow, e: &mut Editor) {
                                     .chain(names.into_iter().map(|n| (json!(n), n)))
                                     .collect()
                             }
-                            Kind::Microphone => std::iter::once((json!(""), wr_music::capture::DEFAULT_MICROPHONE.to_string()))
-                                .chain(e.microphones.iter().map(|n| (json!(n), n.clone())))
+                            Kind::Microphone => {
+                                std::iter::once((json!(""), wr_music::capture::DEFAULT_MICROPHONE.to_string()))
+                                    .chain(e.microphones.iter().map(|n| (json!(n), n.clone())))
+                                    .collect()
+                            }
+                            _ => st
+                                .option_values()
+                                .into_iter()
+                                .enumerate()
+                                .map(|(i, v)| (v, st.option_label(i)))
                                 .collect(),
-                            _ => st.option_values().into_iter().enumerate().map(|(i, v)| (v, st.option_label(i))).collect(),
                         };
                         let (mut values, mut labels): (Vec<Value>, Vec<String>) = pairs.into_iter().unzip();
                         let empty = value.is_null() || value == json!("");
@@ -399,7 +423,10 @@ fn show_settings(app: &AppWindow, e: &mut Editor) {
                                 "No GPU usage could be read on this computer.".into()
                             };
                         }
-                        push(choice_field(st.label, labels, index.unwrap_or(usize::MAX), &help), Act::Choice(n, values));
+                        push(
+                            choice_field(st.label, labels, index.unwrap_or(usize::MAX), &help),
+                            Act::Choice(n, values),
+                        );
                         if st.kind == Kind::LocationSource && value == json!("windows") {
                             push(field("button", "Windows location settings"), Act::LocationSettings);
                         }
@@ -427,7 +454,11 @@ fn show_settings(app: &AppWindow, e: &mut Editor) {
                             values.push(json!(current));
                             labels.push(format!("{current} (no reading now)"));
                         }
-                        let index = if current.is_empty() { 0 } else { values.iter().position(|v| *v == json!(current)).unwrap_or(0) };
+                        let index = if current.is_empty() {
+                            0
+                        } else {
+                            values.iter().position(|v| *v == json!(current)).unwrap_or(0)
+                        };
                         let mut help = st.help.to_string();
                         if st.key == "sensor_1" && named.is_empty() {
                             help = "No sensors read yet. Check where temperatures are read from below, then press Refresh list.".into();
@@ -445,7 +476,8 @@ fn show_settings(app: &AppWindow, e: &mut Editor) {
                             labels.push(title.clone());
                         }
                         let current = value_text(&value);
-                        let found = values.iter().position(|v| v.as_str().is_some_and(|s| s.eq_ignore_ascii_case(&current)));
+                        let found =
+                            values.iter().position(|v| v.as_str().is_some_and(|s| s.eq_ignore_ascii_case(&current)));
                         let index = if current.is_empty() {
                             0
                         } else if let Some(i) = found {
@@ -473,7 +505,12 @@ fn show_settings(app: &AppWindow, e: &mut Editor) {
                         let ci = SOURCES.iter().position(|(k, _)| *k == choice).unwrap_or(0);
                         push(field("heading", "Temperatures and fans (all panels)"), Act::None);
                         push(
-                            choice_field("Read from", SOURCES.iter().map(|(_, l)| l.to_string()).collect(), ci, SOURCE_HELP[ci]),
+                            choice_field(
+                                "Read from",
+                                SOURCES.iter().map(|(_, l)| l.to_string()).collect(),
+                                ci,
+                                SOURCE_HELP[ci],
+                            ),
                             Act::SensorSource,
                         );
                         let refresh = saved.get("sensor_refresh_seconds").and_then(Value::as_f64).unwrap_or(2.0);
@@ -487,7 +524,12 @@ fn show_settings(app: &AppWindow, e: &mut Editor) {
                         });
                         push(choice_field("Read every", labels, ri, REFRESH_HELP), Act::SensorRefresh);
                         let mut f = field("status", "");
-                        f.text = if e.sensor_note.is_empty() { describe_sensors(e.sensors.as_ref()) } else { e.sensor_note.clone() }.into();
+                        f.text = if e.sensor_note.is_empty() {
+                            describe_sensors(e.sensors.as_ref())
+                        } else {
+                            e.sensor_note.clone()
+                        }
+                        .into();
                         push(f, Act::None);
                     }
                 }
@@ -520,14 +562,14 @@ fn select(app: &AppWindow, e: &mut Editor, s: usize, index: usize, slot: &str) {
     show_panels(app, e);
     show_settings(app, e);
     // The Temperatures app's sensor list comes from the monitor
-    let wants_sensors = e
-        .layout
-        .pages[s]
+    let wants_sensors = e.layout.pages[s]
         .get(index)
         .and_then(|p| p.slot(slot))
         .and_then(|en| en.get("name"))
         .and_then(Value::as_str)
-        .is_some_and(|n| catalog::get(n).settings.iter().any(|st| matches!(st.kind, Kind::Sensor | Kind::SensorSource)));
+        .is_some_and(|n| {
+            catalog::get(n).settings.iter().any(|st| matches!(st.kind, Kind::Sensor | Kind::SensorSource))
+        });
     if wants_sensors {
         ask_sensors(false);
     }
@@ -587,7 +629,8 @@ fn set_setting(app: &AppWindow, e: &mut Editor, n: usize, value: Value, refresh:
         }
     };
     let empty = value.is_null() || value == json!("") || value == json!([]);
-    if empty && matches!(st.kind, Kind::Text | Kind::Process | Kind::List | Kind::Gpu | Kind::Sensor | Kind::Microphone) {
+    if empty && matches!(st.kind, Kind::Text | Kind::Process | Kind::List | Kind::Gpu | Kind::Sensor | Kind::Microphone)
+    {
         target.remove(st.key);
     } else {
         target.insert(st.key.into(), value);
@@ -658,7 +701,10 @@ fn check_monitor() {
                     .and_then(Value::as_array)
                     .map(|a| a.iter().filter_map(Value::as_str).map(String::from).collect())
                     .unwrap_or_default();
-                format!("Monitor is running ({}).", if ports.is_empty() { "no panels".into() } else { ports.join(", ") })
+                format!(
+                    "Monitor is running ({}).",
+                    if ports.is_empty() { "no panels".into() } else { ports.join(", ") }
+                )
             }
             None => "The monitor isn't running. Apply saves the layout; Start monitor shows it on the panels.".into(),
         };
@@ -728,7 +774,11 @@ pub fn apply_on_close() {
 
 fn start_monitor() -> Result<(), String> {
     let exe = paths::app_dir().join(if cfg!(windows) { "WhiteRabbit.exe" } else { "WhiteRabbit" });
-    std::process::Command::new(&exe).arg("--background").spawn().map(|_| ()).map_err(|e| format!("{}: {e}", exe.display()))
+    std::process::Command::new(&exe)
+        .arg("--background")
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("{}: {e}", exe.display()))
 }
 
 // Wiring ----------------------------------------------------------------------------------------------
@@ -764,7 +814,11 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
         })
         .collect();
     page.set_apps(ModelRc::new(VecModel::from(rows)));
-    page.set_show_power(cfg!(windows) || std::env::var_os("WHITE_RABBIT_SHOW_POWER_SETTINGS").is_some() || std::env::var_os("WHITE_RABBIT_FAKE_PANELS").is_some());
+    page.set_show_power(
+        cfg!(windows)
+            || std::env::var_os("WHITE_RABBIT_SHOW_POWER_SETTINGS").is_some()
+            || std::env::var_os("WHITE_RABBIT_FAKE_PANELS").is_some(),
+    );
     {
         let mut ed = e.borrow_mut();
         fill_ports(&mut ed);
@@ -913,7 +967,13 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
         let Some(p) = e.layout.pages[s].get(i) else { return };
         let slot = match &e.selection {
             Some((ss, _, slot)) if *ss == s => slot.clone(),
-            _ => if p.full.is_some() { "full".into() } else { "top".into() },
+            _ => {
+                if p.full.is_some() {
+                    "full".into()
+                } else {
+                    "top".into()
+                }
+            }
         };
         if let Some(p) = e.layout.pages[s].get_mut(i) {
             *p.slot_mut(&slot) = None;
@@ -972,7 +1032,8 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
         match e.acts.get(i as usize).cloned() {
             Some(Act::Choice(n, values)) => {
                 if let Some(v) = values.get(index) {
-                    let refresh = matches!(v.as_str(), Some("windows")) || e.acts.iter().any(|a| matches!(a, Act::LocationSettings));
+                    let refresh = matches!(v.as_str(), Some("windows"))
+                        || e.acts.iter().any(|a| matches!(a, Act::LocationSettings));
                     set_setting(&app, &mut e, n, v.clone(), refresh);
                 }
             }
@@ -1000,7 +1061,13 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
         let mut e = ed.borrow_mut();
         let Some(Act::Plain(n)) = e.acts.get(i as usize).cloned() else { return };
         let Some((s, p, slot)) = e.selection.clone() else { return };
-        let name = e.layout.pages[s].get(p).and_then(|pg| pg.slot(&slot)).and_then(|en| en.get("name")).and_then(Value::as_str).unwrap_or("").to_string();
+        let name = e.layout.pages[s]
+            .get(p)
+            .and_then(|pg| pg.slot(&slot))
+            .and_then(|en| en.get("name"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
         let Some(st) = catalog::get(&name).settings.get(n) else { return };
         let raw = text.trim();
         let value = match st.kind {
@@ -1008,7 +1075,9 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
                 Ok(v) => json!(v),
                 Err(_) => return,
             },
-            Kind::List => Value::Array(raw.split(',').map(str::trim).filter(|p| !p.is_empty()).map(number_or_text).collect()),
+            Kind::List => {
+                Value::Array(raw.split(',').map(str::trim).filter(|p| !p.is_empty()).map(number_or_text).collect())
+            }
             _ => json!(raw),
         };
         set_setting(&app, &mut e, n, value, false);
@@ -1038,7 +1107,10 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
                 crate::app::ctx().in_background(
                     move || {
                         let level = level.round() as i64;
-                        let reply = link::request(json!({"cmd": "brightness", "follow_screen": follow, "level": level}), Duration::from_secs(3));
+                        let reply = link::request(
+                            json!({"cmd": "brightness", "follow_screen": follow, "level": level}),
+                            Duration::from_secs(3),
+                        );
                         if ok_reply(reply).is_none() {
                             let mut s = settings::load();
                             s.insert("follow_screen_brightness".into(), json!(follow));

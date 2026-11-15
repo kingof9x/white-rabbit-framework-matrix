@@ -75,7 +75,8 @@ pub fn clean_panel_names(names: &Map<String, Value>) -> Map<String, Value> {
     let mut out = Map::new();
     for side in PANEL_SIDES {
         if let Some(name) = names.get(side).and_then(Value::as_str) {
-            let name: String = name.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(PANEL_NAME_MAX).collect();
+            let name: String =
+                name.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(PANEL_NAME_MAX).collect();
             if !name.is_empty() {
                 out.insert(side.to_string(), Value::String(name));
             }

@@ -123,7 +123,7 @@ fn best_text(scores: &BTreeMap<String, u32>) -> String {
 }
 
 /// The picture as the panels' preview.
-fn render(frame: &Pic) -> slint::Image {
+pub fn render(frame: &Pic) -> slint::Image {
     let count = (frame.w / PANEL_WIDTH).max(1);
     let mut panels = vec![preview::dark(); count];
     for (p, levels) in panels.iter_mut().enumerate() {
@@ -137,7 +137,7 @@ fn render(frame: &Pic) -> slint::Image {
 }
 
 /// The commands that draw this frame on each panel (9 columns each, left to right).
-fn frame_writes(frame: &Pic, panels: &[Panel]) -> Vec<(String, Vec<Vec<u8>>)> {
+pub fn frame_writes(frame: &Pic, panels: &[Panel]) -> Vec<(String, Vec<Vec<u8>>)> {
     let bytes = frame.bytes();
     panels
         .iter()
@@ -158,7 +158,13 @@ fn frame_writes(frame: &Pic, panels: &[Panel]) -> Vec<(String, Vec<Vec<u8>>)> {
 }
 
 /// The game loop, on its own thread.
-fn play(mut session: Session, job: jobs::Job, shared: Arc<Mutex<Shared>>, panels: Vec<Panel>, parts: crate::app::Parts) {
+fn play(
+    mut session: Session,
+    job: jobs::Job,
+    shared: Arc<Mutex<Shared>>,
+    panels: Vec<Panel>,
+    parts: crate::app::Parts,
+) {
     let sender = parts.sender.clone();
     if !panels.is_empty() {
         parts.lender.borrow(&sender, &panels);
@@ -225,6 +231,7 @@ fn start(app: &AppWindow, kind: Kind) {
     if let Some(old) = state.borrow_mut().run.take() {
         old.job.stop();
     }
+    crate::pages::math::stop_for_other(app);
     let panels = ctx.selected_panels();
     let count = if panels.is_empty() { 2 } else { panels.len() };
     let layout = if kind.spans() { Span::load() } else { Span::default() };
@@ -256,8 +263,12 @@ fn start(app: &AppWindow, kind: Kind) {
     page.set_can_pause(true);
     page.set_preview_width(preview::size(count).0 as f32);
     page.set_controls(
-        format!("{} Esc pauses.{}", kind.controls(), if panels.is_empty() { " No panel is ticked, so it only shows here." } else { "" })
-            .into(),
+        format!(
+            "{} Esc pauses.{}",
+            kind.controls(),
+            if panels.is_empty() { " No panel is ticked, so it only shows here." } else { "" }
+        )
+        .into(),
     );
     let where_ = panels.iter().map(|p| p.called()).collect::<Vec<_>>().join(" and ");
     show(
@@ -272,6 +283,13 @@ fn start(app: &AppWindow, kind: Kind) {
     page.set_focus_preview(page.get_focus_preview() + 1);
     let parts = ctx.clone_parts();
     std::thread::spawn(move || play(session, job, shared, panels, parts));
+}
+
+/// Stops the game, if one runs, for another page that uses the panels.
+pub fn stop_for_other(app: &AppWindow) {
+    if page_state().borrow().run.is_some() {
+        stop_game(app);
+    }
 }
 
 /// Stops the game (if any). Returns the panels it played on.
@@ -406,6 +424,7 @@ fn key(app: &AppWindow, name: &str, down: bool) {
 /// Firmware things (Game of Life, patterns, text, fill) end a game first.
 fn firmware_act(app: &AppWindow, action: impl Fn(&Sender, &Panel) -> Result<(), String> + Send + Sync + 'static) {
     stop_game(app);
+    crate::pages::math::stop_for_other(app);
     ctx().act(
         move |s, p| {
             jobs::stop_panel_jobs(std::slice::from_ref(&p.device));
@@ -422,6 +441,7 @@ fn firmware_act(app: &AppWindow, action: impl Fn(&Sender, &Panel) -> Result<(), 
 /// The clock, countdown and equalizer: one thread per panel, until something else takes the panel.
 fn per_panel(app: &AppWindow, what: &'static str, seconds: u64) {
     stop_game(app);
+    crate::pages::math::stop_for_other(app);
     let sender = ctx().sender.clone();
     ctx().act(
         move |s, p| {
@@ -530,7 +550,8 @@ fn equalizer(sender: &Sender, device: &str, job: &jobs::Job) -> Result<(), Strin
 
 pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
     let page = app.global::<GamesPage>();
-    let strings = |v: Vec<&str>| ModelRc::new(VecModel::from(v.into_iter().map(SharedString::from).collect::<Vec<_>>()));
+    let strings =
+        |v: Vec<&str>| ModelRc::new(VecModel::from(v.into_iter().map(SharedString::from).collect::<Vec<_>>()));
     page.set_games(strings(KINDS.iter().map(|k| k.title()).collect()));
     page.set_life_starts(strings(GAME_OF_LIFE.iter().map(|(n, _)| *n).collect()));
     page.set_patterns(strings(cmd::PATTERNS.to_vec()));

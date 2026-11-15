@@ -4,11 +4,7 @@
 pub fn confirm(title: &str, text: &str) -> bool {
     #[cfg(windows)]
     {
-        rfd::MessageDialog::new()
-            .set_title(title)
-            .set_description(text)
-            .set_buttons(rfd::MessageButtons::YesNo)
-            .show()
+        rfd::MessageDialog::new().set_title(title).set_description(text).set_buttons(rfd::MessageButtons::YesNo).show()
             == rfd::MessageDialogResult::Yes
     }
     #[cfg(not(windows))]

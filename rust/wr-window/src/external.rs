@@ -315,7 +315,9 @@ fn known_folders() -> Vec<PathBuf> {
     {
         use windows_sys::core::GUID;
         use windows_sys::Win32::System::Com::CoTaskMemFree;
-        use windows_sys::Win32::UI::Shell::{FOLDERID_Desktop, FOLDERID_Documents, FOLDERID_Downloads, SHGetKnownFolderPath};
+        use windows_sys::Win32::UI::Shell::{
+            FOLDERID_Desktop, FOLDERID_Documents, FOLDERID_Downloads, SHGetKnownFolderPath,
+        };
         let ids: [&GUID; 3] = [&FOLDERID_Desktop, &FOLDERID_Downloads, &FOLDERID_Documents];
         let mut out = Vec::new();
         for id in ids {

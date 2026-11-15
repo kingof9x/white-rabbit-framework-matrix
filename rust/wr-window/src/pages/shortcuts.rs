@@ -61,11 +61,13 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
             return;
         }
         let on: Vec<String> = rows.iter().filter(|r| r.on).map(|r| r.keys.to_string()).collect();
-        let summary = if on.is_empty() { "All shortcuts are off.".to_string() } else { format!("On: {}", on.join(", ")) };
+        let summary =
+            if on.is_empty() { "All shortcuts are off.".to_string() } else { format!("On: {}", on.join(", ")) };
         ctx.in_background(
             || crate::link::request(json!({"cmd": "shortcuts"}), Duration::from_secs(5)),
             move |app, reply| {
-                let note = if reply.is_some() { "" } else { " The monitor isn't running; it will use this when it starts." };
+                let note =
+                    if reply.is_some() { "" } else { " The monitor isn't running; it will use this when it starts." };
                 app.global::<ShortcutsPage>().set_status(format!("Saved. {summary}{note}").into());
             },
         );

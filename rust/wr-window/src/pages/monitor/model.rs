@@ -155,7 +155,11 @@ pub fn from_config(config: &Value) -> (EditorLayout, Vec<String>) {
     let mut pages: [Vec<Page>; 2] = [Vec::new(), Vec::new()];
     for (s, side) in SIDES.iter().enumerate() {
         let list = |q: String| -> Vec<Entry> {
-            quads.get(&q).and_then(Value::as_array).map(|l| l.iter().map(|e| e.as_object().cloned().unwrap_or_default()).collect()).unwrap_or_default()
+            quads
+                .get(&q)
+                .and_then(Value::as_array)
+                .map(|l| l.iter().map(|e| e.as_object().cloned().unwrap_or_default()).collect())
+                .unwrap_or_default()
         };
         let top = list(format!("top-{side}"));
         let bottom = list(format!("bottom-{side}"));
@@ -177,7 +181,8 @@ pub fn from_config(config: &Value) -> (EditorLayout, Vec<String>) {
                 ));
             }
             let mut page = Page::with_duration(durations.first().copied().unwrap_or(default_duration));
-            let scope_panel = |a: Option<&Entry>| a.and_then(|a| a.get("scope")).and_then(Value::as_str) == Some("panel");
+            let scope_panel =
+                |a: Option<&Entry>| a.and_then(|a| a.get("scope")).and_then(Value::as_str) == Some("panel");
             if displays(t) && scope_panel(t) {
                 page.full = t.map(clean);
             } else if displays(b) && scope_panel(b) && !displays(t) {
@@ -268,9 +273,14 @@ pub fn to_config(layout: &EditorLayout) -> Value {
                 top.push(entry(full, side, d, true));
                 bottom.push(blank(side, "bottom", n, d));
             } else {
-                top.push(page.top.as_ref().map(|a| entry(a, side, d, false)).unwrap_or_else(|| blank(side, "top", n, d)));
+                top.push(
+                    page.top.as_ref().map(|a| entry(a, side, d, false)).unwrap_or_else(|| blank(side, "top", n, d)),
+                );
                 bottom.push(
-                    page.bottom.as_ref().map(|a| entry(a, side, d, false)).unwrap_or_else(|| blank(side, "bottom", n, d)),
+                    page.bottom
+                        .as_ref()
+                        .map(|a| entry(a, side, d, false))
+                        .unwrap_or_else(|| blank(side, "bottom", n, d)),
                 );
             }
         }
@@ -424,10 +434,8 @@ mod tests {
     fn the_same_app_twice_in_one_half_is_refused() {
         let mut layout = EditorLayout::default();
         let cpu = catalog::new_app("cpu", "left", None);
-        layout.pages[0] = vec![
-            Page { top: Some(cpu.clone()), ..Page::default() },
-            Page { top: Some(cpu), ..Page::default() },
-        ];
+        layout.pages[0] =
+            vec![Page { top: Some(cpu.clone()), ..Page::default() }, Page { top: Some(cpu), ..Page::default() }];
         let problems = validate(&layout);
         assert_eq!(problems.len(), 1);
         assert!(problems[0].contains("pages 1 and 2"));

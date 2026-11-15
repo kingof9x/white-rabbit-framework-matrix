@@ -162,7 +162,11 @@ impl Ctx {
             move |app, (generations, problems, panels)| {
                 status(
                     app,
-                    if problems.is_empty() { "Done.".into() } else { format!("Didn't work on the {}", problems.join("; ")) },
+                    if problems.is_empty() {
+                        "Done.".into()
+                    } else {
+                        format!("Didn't work on the {}", problems.join("; "))
+                    },
                 );
                 if let (Some(seconds), Some(generations)) = (return_after, generations) {
                     let me2 = me.clone();
@@ -362,8 +366,12 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
                 || request(json!({"cmd": "identify"}), Duration::from_secs(3)).is_some(),
                 |app, sent| {
                     app.global::<App>().set_home_status(
-                        if sent { "Look at the panels." } else { "The system monitor isn't running, so the panels can't be shown." }
-                            .into(),
+                        if sent {
+                            "Look at the panels."
+                        } else {
+                            "The system monitor isn't running, so the panels can't be shown."
+                        }
+                        .into(),
                     )
                 },
             );
@@ -436,7 +444,8 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
                 running.store(is_running, Ordering::SeqCst);
                 if is_running {
                     if let Some(reply) = request(json!({"cmd": "music", "action": "status"}), Duration::from_secs(3)) {
-                        music.store(reply.get("music_mode").and_then(Value::as_bool).unwrap_or(false), Ordering::SeqCst);
+                        music
+                            .store(reply.get("music_mode").and_then(Value::as_bool).unwrap_or(false), Ordering::SeqCst);
                     }
                 } else {
                     music.store(false, Ordering::SeqCst);
@@ -471,7 +480,8 @@ pub fn set_music_mode(ctx: &Rc<Ctx>, on: bool, done: Option<Box<dyn FnOnce(&AppW
             if on {
                 parts.lender.give_back(&parts.sender, &parts.panels.lock().unwrap().clone(), None);
             }
-            let reply = request(json!({"cmd": "music", "action": if on { "on" } else { "off" }}), Duration::from_secs(5));
+            let reply =
+                request(json!({"cmd": "music", "action": if on { "on" } else { "off" }}), Duration::from_secs(5));
             parts.music_on.store(
                 reply.as_ref().and_then(|r| r.get("music_mode")).and_then(Value::as_bool).unwrap_or(false),
                 Ordering::SeqCst,
@@ -511,7 +521,14 @@ pub fn open_path(target: &str) -> bool {
     let (op, file) = (wide("open"), wide(target));
     // SAFETY: the strings are null-terminated and live across the call.
     let r = unsafe {
-        ShellExecuteW(std::ptr::null_mut(), op.as_ptr(), file.as_ptr(), std::ptr::null(), std::ptr::null(), SW_SHOWNORMAL)
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            op.as_ptr(),
+            file.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        )
     };
     if (r as isize) <= 32 {
         wr_core::warn!("Could not open {target}");

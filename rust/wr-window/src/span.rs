@@ -42,7 +42,9 @@ impl Span {
         let mode = if MODES.iter().any(|(k, _)| *k == mode) { mode } else { SIDE_BY_SIDE };
         let gap = v
             .and_then(|v| v.get("gap_columns"))
-            .and_then(|g| g.as_i64().or_else(|| g.as_f64().map(|f| f as i64)).or_else(|| g.as_str()?.trim().parse().ok()))
+            .and_then(|g| {
+                g.as_i64().or_else(|| g.as_f64().map(|f| f as i64)).or_else(|| g.as_str()?.trim().parse().ok())
+            })
             .unwrap_or(DEFAULT_GAP);
         Span { mode: mode.into(), gap_columns: gap.clamp(MIN_GAP, MAX_GAP) as usize }
     }

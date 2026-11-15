@@ -8,8 +8,8 @@ use std::time::Duration;
 
 use slint::platform::software_renderer::{MinimalSoftwareWindow, PremultipliedRgbaColor, RepaintBufferType};
 use slint::platform::{EventLoopProxy, Platform, WindowAdapter, WindowEvent};
-use slint::EventLoopError;
 use slint::ComponentHandle;
+use slint::EventLoopError;
 
 use crate::{app, App, AppWindow};
 
@@ -105,7 +105,18 @@ pub fn shoot(args: &[String]) {
 /// The CI smoke test: open every page, change the look to each choice and back, then close.
 pub fn smoke_test(ui: &AppWindow, ctx: &Rc<app::Ctx>) {
     let pages = [
-        "home", "monitor", "games", "music", "math", "draw", "effects", "startup", "settings", "firmware", "shortcuts", "about",
+        "home",
+        "monitor",
+        "games",
+        "music",
+        "math",
+        "draw",
+        "effects",
+        "startup",
+        "settings",
+        "firmware",
+        "shortcuts",
+        "about",
     ];
     let weak = ui.as_weak();
     let ctx = ctx.clone();

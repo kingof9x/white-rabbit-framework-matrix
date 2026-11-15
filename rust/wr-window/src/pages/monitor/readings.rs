@@ -19,8 +19,8 @@ use wr_core::monitors::{core_groups, CpuSmoother, History};
 use wr_core::render::{render_panel_on, Readings};
 use wr_music::{to_leds, Visualizer};
 
-use super::model::{Entry, Page};
 use super::catalog;
+use super::model::{Entry, Page};
 
 pub const FOREGROUND: i32 = 160;
 pub const BACKGROUND: i32 = 35;
@@ -198,7 +198,12 @@ impl Readings for PreviewReadings {
         let t = self.t();
         let levels: Vec<f64> = (0..9).map(|i| 3.5 + 3.0 * (t * 3.0 + i as f64).sin()).collect();
         NowPlaying {
-            media: Media { title: "Song title".into(), artist: "Artist".into(), playing: true, cover: Some(cover.clone()) },
+            media: Media {
+                title: "Song title".into(),
+                artist: "Artist".into(),
+                playing: true,
+                cover: Some(cover.clone()),
+            },
             last_cover: Some(cover),
             levels: Some(levels),
         }
@@ -284,7 +289,9 @@ impl Renderer {
             let apps = PanelApps::Whole(to_app(&entry, true));
             render_panel_on(&mut grid, &apps, &mut self.readings, FOREGROUND, BACKGROUND, side);
         } else {
-            let half = |e: &Option<Entry>| e.as_ref().map(|e| to_app(&catalog::finalize(e.clone(), side), false)).unwrap_or_else(blank);
+            let half = |e: &Option<Entry>| {
+                e.as_ref().map(|e| to_app(&catalog::finalize(e.clone(), side), false)).unwrap_or_else(blank)
+            };
             let apps = PanelApps::Halves(half(&page.top), half(&page.bottom));
             render_panel_on(&mut grid, &apps, &mut self.readings, FOREGROUND, BACKGROUND, side);
         }
@@ -318,8 +325,8 @@ impl Renderer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::model;
+    use super::*;
 
     #[test]
     fn draws_every_app() {

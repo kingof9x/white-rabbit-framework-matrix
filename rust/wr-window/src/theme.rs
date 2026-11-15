@@ -114,9 +114,9 @@ pub fn accent_from_color(abgr: u32) -> (u32, u32) {
 #[cfg(windows)]
 mod win {
     use windows_sys::Win32::Foundation::ERROR_SUCCESS;
+    use windows_sys::Win32::Graphics::Gdi::GetSysColor;
     use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_BINARY, RRF_RT_REG_DWORD};
     use windows_sys::Win32::UI::Accessibility::{HCF_HIGHCONTRASTON, HIGHCONTRASTW};
-    use windows_sys::Win32::Graphics::Gdi::GetSysColor;
     use windows_sys::Win32::UI::WindowsAndMessaging::{SystemParametersInfoW, SPI_GETHIGHCONTRAST};
 
     fn wide(s: &str) -> Vec<u16> {
@@ -168,7 +168,8 @@ mod win {
         let mut hc: HIGHCONTRASTW = unsafe { std::mem::zeroed() };
         hc.cbSize = std::mem::size_of::<HIGHCONTRASTW>() as u32;
         // SAFETY: hc is a HIGHCONTRASTW with its size set.
-        let ok = unsafe { SystemParametersInfoW(SPI_GETHIGHCONTRAST, hc.cbSize, (&mut hc as *mut HIGHCONTRASTW).cast(), 0) };
+        let ok =
+            unsafe { SystemParametersInfoW(SPI_GETHIGHCONTRAST, hc.cbSize, (&mut hc as *mut HIGHCONTRASTW).cast(), 0) };
         ok != 0 && hc.dwFlags & HCF_HIGHCONTRASTON != 0
     }
 
@@ -195,7 +196,8 @@ pub fn read_windows() -> Windows {
         found.text_scale = (scale as f32 / 100.0).clamp(1.0, 2.25);
         found.high_contrast = win::high_contrast();
         // COLOR_WINDOW 5, COLOR_WINDOWTEXT 8, COLOR_BTNFACE 15, COLOR_BTNSHADOW 16, COLOR_GRAYTEXT 17
-        found.classic = [win::sys_color(5), win::sys_color(8), win::sys_color(15), win::sys_color(16), win::sys_color(17)];
+        found.classic =
+            [win::sys_color(5), win::sys_color(8), win::sys_color(15), win::sys_color(16), win::sys_color(17)];
     }
     if let Ok(v) = std::env::var("WHITE_RABBIT_APPEARANCE") {
         if v == "light" || v == "dark" {
@@ -275,8 +277,8 @@ pub fn apply(app: &crate::AppWindow, choice: &str, windows: &Windows) {
 pub fn title_bar(app: &crate::AppWindow, dark: bool) {
     #[cfg(windows)]
     {
-        use slint::ComponentHandle;
         use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        use slint::ComponentHandle;
         let wh = app.window().window_handle();
         let Ok(handle) = wh.window_handle() else { return };
         if let RawWindowHandle::Win32(h) = handle.as_raw() {

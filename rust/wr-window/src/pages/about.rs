@@ -108,12 +108,8 @@ fn download(url: &str, progress: &dyn Fn(u32)) -> Result<std::path::PathBuf, Str
         .build()
         .call()
         .map_err(|e| e.to_string())?;
-    let total: u64 = reply
-        .headers()
-        .get("Content-Length")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(0);
+    let total: u64 =
+        reply.headers().get("Content-Length").and_then(|v| v.to_str().ok()).and_then(|v| v.parse().ok()).unwrap_or(0);
     let mut body = reply.body_mut().with_config().limit(500 * 1024 * 1024).reader();
     let mut file = std::fs::File::create(&path).map_err(|e| e.to_string())?;
     let mut buf = vec![0u8; 256 * 1024];

@@ -52,7 +52,9 @@ pub fn running_apps() -> Vec<(String, String)> {
                 let full = String::from_utf16_lossy(&path[..len as usize]);
                 let exe = full.rsplit(['\\', '/']).next().unwrap_or(&full).to_string();
                 let skip = ["explorer.exe", "textinputhost.exe", "applicationframehost.exe", "systemsettings.exe"];
-                if skip.contains(&exe.to_lowercase().as_str()) || found.apps.iter().any(|(e, _)| e.eq_ignore_ascii_case(&exe)) {
+                if skip.contains(&exe.to_lowercase().as_str())
+                    || found.apps.iter().any(|(e, _)| e.eq_ignore_ascii_case(&exe))
+                {
                     return 1;
                 }
                 found.apps.push((exe, title));

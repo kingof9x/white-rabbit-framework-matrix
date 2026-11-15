@@ -108,6 +108,18 @@ impl Rng {
     pub fn below(&mut self, n: usize) -> usize {
         (self.next() % n.max(1) as u64) as usize
     }
+
+    /// lo <= x < hi
+    pub fn range(&mut self, lo: i64, hi: i64) -> i64 {
+        lo + self.below((hi - lo).max(1) as usize) as i64
+    }
+
+    pub fn shuffle<T>(&mut self, v: &mut [T]) {
+        for i in (1..v.len()).rev() {
+            let j = self.below(i + 1);
+            v.swap(i, j);
+        }
+    }
 }
 
 // 3 x 5 digits for scores
@@ -1168,7 +1180,8 @@ mod tests {
 
     #[test]
     fn high_scores_read_loosely() {
-        let m: Map<String, Value> = serde_json::from_str(r#"{"high_scores": {"snake": 4, "ledris": "7", "x": null}}"#).unwrap();
+        let m: Map<String, Value> =
+            serde_json::from_str(r#"{"high_scores": {"snake": 4, "ledris": "7", "x": null}}"#).unwrap();
         let h = high_scores(&m);
         assert_eq!(h.get("snake"), Some(&4));
         assert_eq!(h.get("ledris"), Some(&7));

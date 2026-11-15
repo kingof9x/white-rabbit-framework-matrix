@@ -133,17 +133,19 @@ fn show_modules(app: &AppWindow) {
     }
     for p in &panels {
         let info = modules.get(&p.device).cloned().unwrap_or_default();
-        lines.push(if info.in_use {
-            format!("{}: in use by another program. Close it, then click Check again.", p.label())
-        } else {
-            format!(
-                "{}: version {}, {} the startup animation setting",
-                p.label(),
-                info.version.unwrap_or_else(|| "unknown".into()),
-                if info.startup.is_some() { "has" } else { "doesn't have" }
-            )
-        }
-        .into());
+        lines.push(
+            if info.in_use {
+                format!("{}: in use by another program. Close it, then click Check again.", p.label())
+            } else {
+                format!(
+                    "{}: version {}, {} the startup animation setting",
+                    p.label(),
+                    info.version.unwrap_or_else(|| "unknown".into()),
+                    if info.startup.is_some() { "has" } else { "doesn't have" }
+                )
+            }
+            .into(),
+        );
     }
     app.global::<FirmwarePage>().set_installed(ModelRc::new(VecModel::from(lines)));
 }
@@ -159,9 +161,8 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
         let ctx = ctx.clone();
         page.on_refresh(move || {
             if let Some(app) = ctx.ui.upgrade() {
-                app.global::<FirmwarePage>().set_installed(ModelRc::new(VecModel::from(vec![SharedString::from(
-                    "Reading the panels...",
-                )])));
+                app.global::<FirmwarePage>()
+                    .set_installed(ModelRc::new(VecModel::from(vec![SharedString::from("Reading the panels...")])));
             }
             ctx.refresh_modules();
         });
@@ -182,7 +183,14 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
                 return;
             }
             let status: crate::app::Status = Arc::new(|app: &AppWindow, text: String| {
-                show(app, if text == "Done." { "Copy a .uf2 file onto the RPI-RP2 drive, or use Flash.".into() } else { text })
+                show(
+                    app,
+                    if text == "Done." {
+                        "Copy a .uf2 file onto the RPI-RP2 drive, or use Flash.".into()
+                    } else {
+                        text
+                    },
+                )
             });
             ctx.act(
                 |s, p| {
@@ -224,14 +232,16 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
             let file = path.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
             let where_ = panels.iter().map(|p| p.side.clone()).collect::<Vec<_>>().join(" and ");
             let plural = if panels.len() > 1 { "s" } else { "" };
-            if !dialogs::confirm("Flash firmware", &format!("Flash {file} onto the {where_} panel{plural}?\n\n{label}")) {
+            if !dialogs::confirm("Flash firmware", &format!("Flash {file} onto the {where_} panel{plural}?\n\n{label}"))
+            {
                 return;
             }
             show(&app, format!("Flashing {file}..."));
             app.global::<FirmwarePage>().set_busy(true);
             let ui = ctx.ui.clone();
             let done: crate::app::Status = Arc::new(move |app: &AppWindow, text: String| {
-                let text = if text == "Done." { format!("Flashed {file} onto the {where_} panel{plural}.") } else { text };
+                let text =
+                    if text == "Done." { format!("Flashed {file} onto the {where_} panel{plural}.") } else { text };
                 show(app, text);
                 app.global::<FirmwarePage>().set_busy(false);
                 // Give the panels back once they have restarted, then read their new versions

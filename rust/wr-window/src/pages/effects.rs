@@ -22,7 +22,10 @@ const CHARGER: &str = "That's the charger. Plug it in, then use 'Wrong port?' be
 
 /// "left-back" ... "right-front", the order of the port lists.
 fn positions() -> Vec<String> {
-    Side::ALL.iter().flat_map(|side| Spot::ALL.iter().map(move |spot| format!("{}-{}", side.name(), spot.name()))).collect()
+    Side::ALL
+        .iter()
+        .flat_map(|side| Spot::ALL.iter().map(move |spot| format!("{}-{}", side.name(), spot.name())))
+        .collect()
 }
 
 fn how(how: &str) -> &'static str {
@@ -134,7 +137,8 @@ fn got_reply(state: &Shared, app: &AppWindow, reply: &Option<Value>) {
     state.borrow_mut().last_plug = plug.clone();
     let page = app.global::<EffectsPage>();
     let what = plug.get("name").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).unwrap_or("Something");
-    let verb = if plug.get("plugged_in").and_then(|v| v.as_bool()).unwrap_or(false) { "plugged in" } else { "unplugged" };
+    let verb =
+        if plug.get("plugged_in").and_then(|v| v.as_bool()).unwrap_or(false) { "plugged in" } else { "unplugged" };
     let when = plug
         .get("time")
         .and_then(|v| v.as_f64())
@@ -188,7 +192,9 @@ fn show_teacher(app: &AppWindow, t: &Teacher) {
         );
         page.set_teach_can_skip(false);
     } else {
-        page.set_teach_ask(format!("Plug something into the {} port", position_label(Some(&all[t.step])).to_lowercase()).into());
+        page.set_teach_ask(
+            format!("Plug something into the {} port", position_label(Some(&all[t.step])).to_lowercase()).into(),
+        );
         page.set_teach_can_skip(true);
     }
 }
@@ -205,7 +211,9 @@ fn teacher_heard(ctx: &Ctx, state: &Shared, app: &AppWindow, reply: Option<Value
     let page = app.global::<EffectsPage>();
     let Some(reply) = reply else {
         if state.borrow().teacher.is_some() {
-            page.set_teach_heard("The monitor isn't running, so White Rabbit can't see plugs. Start it on the Home page.".into());
+            page.set_teach_heard(
+                "The monitor isn't running, so White Rabbit can't see plugs. Start it on the Home page.".into(),
+            );
         }
         return;
     };
@@ -226,20 +234,28 @@ fn teacher_heard(ctx: &Ctx, state: &Shared, app: &AppWindow, reply: Option<Value
     }
     let name = plug.get("name").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).unwrap_or("Something").to_string();
     let Some(key) = plug.get("key").and_then(|v| v.as_str()).filter(|k| !k.is_empty()).map(String::from) else {
-        page.set_teach_heard(format!("{name} was plugged in, but Windows didn't say where. Try something else.").into());
+        page.set_teach_heard(
+            format!("{name} was plugged in, but Windows didn't say where. Try something else.").into(),
+        );
         t.waiting_since = unix_now();
         return;
     };
     if let Some((same, _)) = t.done.iter().find(|(_, k)| k.as_deref() == Some(key.as_str())) {
         page.set_teach_heard(
-            format!("That is the same port as {}. Unplug it and use the port shown.", position_label(Some(same)).to_lowercase()).into(),
+            format!(
+                "That is the same port as {}. Unplug it and use the port shown.",
+                position_label(Some(same)).to_lowercase()
+            )
+            .into(),
         );
         t.waiting_since = unix_now();
         return;
     }
     let position = all[t.step].clone();
     ask_monitor(ctx, json!({"action": "learn", "key": key, "position": position}), |_, _| {});
-    page.set_teach_heard(format!("Got it: {name}. That is the {} port.", position_label(Some(&position)).to_lowercase()).into());
+    page.set_teach_heard(
+        format!("Got it: {name}. That is the {} port.", position_label(Some(&position)).to_lowercase()).into(),
+    );
     advance(app, t, Some(key));
 }
 

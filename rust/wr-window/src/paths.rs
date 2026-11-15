@@ -73,8 +73,5 @@ pub fn layout_save_file() -> PathBuf {
 
 /// The folder this exe is in (the installed app's folder, with the firmware and VERSION files).
 pub fn app_dir() -> PathBuf {
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(PathBuf::from))
-        .unwrap_or_else(|| PathBuf::from("."))
+    std::env::current_exe().ok().and_then(|p| p.parent().map(PathBuf::from)).unwrap_or_else(|| PathBuf::from("."))
 }
