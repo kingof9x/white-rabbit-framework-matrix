@@ -11,12 +11,13 @@ use wr_panel::ports::{discover, Pins};
 
 use crate::control::bridge::{pid_alive, Bridge};
 use crate::control::commands::Commands;
-use crate::control::winserial::WindowsRawPorts;
 use crate::monitor::{log_panics, pins_of, LayoutSource, Monitor, Shared};
 use crate::sensors::{ScreenBrightness, WindowsReadings};
 use crate::{paths, ui};
 use wr_core::{info, warn};
-use wr_panel::panel::{Claims, Panel, PortSystem};
+use wr_panel::hub::PortSystem;
+use wr_panel::panel::{Panel, Panels};
+use wr_panel::winports::WindowsPorts;
 
 pub fn run() -> i32 {
     wr_core::log::init(paths::log_file());
@@ -33,9 +34,7 @@ pub fn run() -> i32 {
 
     let source = LayoutSource::locate();
     let layout = source.load();
-    // The drawing threads reach the ports through the bridge, which shares them with the window
-    let bridge = Arc::new(Bridge::new(Arc::new(WindowsRawPorts)));
-    let ports: Arc<dyn PortSystem> = bridge.clone();
+    let ports: Arc<dyn PortSystem> = Arc::new(WindowsPorts);
 
     // When started at login, the USB devices may still be appearing
     let mut found = discover(&ports.list(), &pins_of(&layout));
@@ -62,11 +61,13 @@ pub fn run() -> i32 {
     *shared.settings.lock().unwrap() = Settings::load(&paths::settings_file());
 
     let pins: Arc<Mutex<Pins>> = Arc::new(Mutex::new(pins_of(&layout)));
-    let claims = Arc::new(Claims::default());
+    let panels = Panels::new(ports.clone(), pins.clone());
+    // The window's serial/hold/release commands share the drawing threads' open ports
+    let bridge = Arc::new(Bridge::new(panels.clone()));
     let queues = [Arc::new(FrameQueue::new()), Arc::new(FrameQueue::new())];
     let mut drawing = Vec::new();
     for (side, queue) in queues.iter().enumerate() {
-        let panel = Panel::new(side, ports.clone(), claims.clone(), pins.clone());
+        let panel = Panel::new(side, panels.clone());
         let queue = queue.clone();
         drawing.push(
             std::thread::Builder::new()
@@ -91,7 +92,7 @@ pub fn run() -> i32 {
             .name("holders".into())
             .spawn(move || loop {
                 std::thread::sleep(Duration::from_secs(2));
-                if !bridge.release_orphans(pid_alive).is_empty() {
+                if bridge.release_orphans(pid_alive) {
                     shared.redraw.store(true, Ordering::SeqCst);
                 }
             })

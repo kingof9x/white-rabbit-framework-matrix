@@ -12,8 +12,6 @@ pub mod wire;
 
 #[cfg(windows)]
 pub mod pipe;
-#[cfg(windows)]
-pub mod winserial;
 
 use std::io;
 use std::path::PathBuf;

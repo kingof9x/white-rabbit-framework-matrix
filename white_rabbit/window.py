@@ -262,10 +262,22 @@ class WhiteRabbitWindow:
         if self.page == key:
             return
         started = time.perf_counter()
-        if self.page is not None:
-            self.pages[self.page].pack_forget()
+        # A page stays in place once it has been shown, and showing it again just brings it to the front:
+        # much quicker than taking it down and laying all its controls out again
+        page = self.pages[key]
+        if not page.winfo_manager():
+            page.place(x=0, y=0, relwidth=1, relheight=1)
+        page.tkraise()
         self.page = key
-        self.pages[key].pack(fill="both", expand=True)
+        # Keys go to the page that shows, not to one behind it (a paused game, say)
+        try:
+            focus = self.root.focus_get()
+        except (KeyError, tk.TclError):
+            focus = None
+        while focus is not None and focus not in self.pages.values():
+            focus = focus.master
+        if focus is not None and focus is not page:
+            page.focus_set()
         parent, title = SUB_PAGES.get(key, (None, None))
         nav_key = parent or key
         for name, item in self.nav_items.items():
@@ -292,6 +304,14 @@ class WhiteRabbitWindow:
         show = getattr(self.pages[key], "page_shown", None)
         if callable(show):
             show()
+        # These read choices another page can change, which they used to do whenever they appeared
+        try:
+            if key == "math":
+                self.math_tab.reload_span()
+            elif key == "games":
+                self.play_tab.games.show_layout()
+        except Exception as e:
+            log.error(f"Could not refresh the {key} page: {e}")
         # How long a page takes to appear, for finding slow ones in the log
         self.root.update_idletasks()
         log.info(f"Page {key} shown in {1000 * (time.perf_counter() - started):.0f} ms")
