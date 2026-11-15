@@ -68,3 +68,19 @@ def test_plain_start_of_the_window_exe_hands_over(monkeypatch, tmp_path):
     main.run(["--background"])
     rust = os.path.join(str(folder), "WhiteRabbit.exe")
     assert started == [[rust], [rust, "--background"]]
+
+
+def test_tray_items_open_the_apps(monkeypatch):
+    from led_mon import app_settings, external_apps
+    from white_rabbit import main
+    opened, errors, asked = [], [], []
+    monkeypatch.setattr(app_settings, "load_settings", lambda: {})
+    monkeypatch.setattr(external_apps, "find_framework_control", lambda: "fc-target")
+    monkeypatch.setattr(external_apps, "find_libre_hardware_monitor", lambda configured: None)
+    monkeypatch.setattr(external_apps, "find_and_open_libre_hardware_monitor", lambda: asked.append(True))
+    monkeypatch.setattr(external_apps, "open_target", lambda t, name: opened.append(t) or None)
+    monkeypatch.setattr(platform_utils, "show_error", errors.append)
+    monkeypatch.setattr(platform_utils, "setup_logging", lambda: None)
+    main.run(["--open-framework-control"])
+    main.run(["--open-lhm"])
+    assert opened == ["fc-target"] and asked == [True] and errors == []

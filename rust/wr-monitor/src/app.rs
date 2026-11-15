@@ -110,6 +110,7 @@ pub fn run() -> i32 {
         ui: Box::new(ui::request),
     };
     crate::control::serve(Arc::new(commands));
+    start_plug_watcher(&shared);
     {
         // Give back the panels of a window that closed or crashed without releasing them
         let (bridge, shared) = (bridge.clone(), shared.clone());
@@ -146,4 +147,49 @@ pub fn run() -> i32 {
     }
     info!("Exiting");
     0
+}
+
+/// Plugging things in and out: a ripple from the port and a drain through it, and "Charging" /
+/// "On battery" on the text line (Python's `on_plug`).
+fn start_plug_watcher(shared: &Arc<Shared>) {
+    let learned = {
+        let shared = shared.clone();
+        Box::new(move || {
+            shared
+                .effects
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|fx| fx.effects().settings.learned_ports.clone())
+                .unwrap_or_default()
+        })
+    };
+    let fire = {
+        let shared = shared.clone();
+        Box::new(move |event: crate::plug::PlugEvent| {
+            let time = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs_f64())
+                .unwrap_or(0.0);
+            *shared.last_plug.lock().unwrap() = event.to_json(time);
+            let Some(fx) = shared.effects.lock().unwrap().clone() else { return };
+            let (wanted, say) = {
+                let e = fx.effects();
+                let s = &e.settings;
+                let wanted = match event.kind {
+                    "charger" => s.plug_charger,
+                    "headphones" => s.plug_headphones,
+                    _ => s.plug_usb,
+                };
+                (wanted, event.kind == "charger" && s.text_charger)
+            };
+            if wanted {
+                fx.plug(event.position.as_deref(), event.plugged_in);
+            }
+            if say {
+                fx.effects().say(if event.plugged_in { "Charging" } else { "On battery" });
+            }
+        })
+    };
+    crate::plugwin::start(Arc::new(crate::plug::PlugWatcher::new(learned, fire)));
 }

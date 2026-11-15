@@ -185,7 +185,7 @@ struct FrameworkTool {
     log: OnceLog,
 }
 
-fn find_framework_tool() -> Option<PathBuf> {
+pub fn find_framework_tool() -> Option<PathBuf> {
     let names = ["framework_tool.exe", "framework_tool"];
     let mut dirs: Vec<PathBuf> =
         std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();

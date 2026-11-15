@@ -14,6 +14,8 @@ pub struct Settings {
     pub turn_off_when_screen_unused: bool,
     /// The letters of the keyboard shortcuts that are turned off (Ctrl+Alt+Shift + letter).
     pub shortcuts_off: Vec<char>,
+    /// The old-TV effect when the panels turn off and back on.
+    pub tv_effect: bool,
 }
 
 impl Default for Settings {
@@ -24,6 +26,7 @@ impl Default for Settings {
             turn_off_with_lid: true,
             turn_off_when_screen_unused: true,
             shortcuts_off: vec![],
+            tv_effect: true,
         }
     }
 }
@@ -59,6 +62,9 @@ impl Settings {
         }
         if let Some(v) = map.get("turn_off_when_screen_unused") {
             s.turn_off_when_screen_unused = truthy(v);
+        }
+        if let Some(v) = map.get("tv_effect") {
+            s.tv_effect = truthy(v);
         }
         if let Some(Value::Object(sc)) = map.get("shortcuts") {
             s.shortcuts_off = SHORTCUT_LETTERS

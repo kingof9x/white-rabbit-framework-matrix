@@ -51,6 +51,9 @@ const ID_OPEN: usize = 5;
 const ID_ANIMATION: usize = 10;
 const ID_MUSIC: usize = 14;
 const ID_STARTUP: usize = 32;
+const ID_TV: usize = 33;
+const ID_LHM: usize = 24;
+const ID_FC: usize = 25;
 const ID_IDENTIFY: usize = 11;
 const ID_NEXT: usize = 12;
 const ID_FREEZE: usize = 13;
@@ -186,9 +189,9 @@ fn show_menu(hwnd: HWND) {
     let paused = shared.paused.load(Ordering::SeqCst);
     let frozen = shared.frozen.load(Ordering::SeqCst);
     let music = shared.music_mode.load(Ordering::SeqCst);
-    let (lid, screen_unused) = {
+    let (lid, screen_unused, tv) = {
         let settings = shared.settings.lock().unwrap();
-        (settings.turn_off_with_lid, settings.turn_off_when_screen_unused)
+        (settings.turn_off_with_lid, settings.turn_off_when_screen_unused, settings.tv_effect)
     };
     // SAFETY: the menu is created and destroyed here; strings live until the menu is shown.
     unsafe {
@@ -208,6 +211,9 @@ fn show_menu(hwnd: HWND) {
         add(MF_STRING | if frozen { MF_CHECKED } else { 0 }, ID_FREEZE, "Freeze app switching");
         add(MF_STRING | if music { MF_CHECKED } else { 0 }, ID_MUSIC, "Music mode");
         add(MF_SEPARATOR, 0, "");
+        add(MF_STRING, ID_LHM, "Libre Hardware Monitor");
+        add(MF_STRING, ID_FC, "Open Framework Control");
+        add(MF_SEPARATOR, 0, "");
         add(MF_STRING, ID_FOLDER, "Open config folder");
         add(MF_STRING, ID_LOG, "Open log");
         add(MF_STRING, ID_RELOAD, "Reload config");
@@ -218,6 +224,7 @@ fn show_menu(hwnd: HWND) {
             ID_SCREEN_UNUSED,
             "Turn off when laptop screen isn't used",
         );
+        add(MF_STRING | if tv { MF_CHECKED } else { 0 }, ID_TV, "Old-TV effect when turning off and on");
         add(MF_STRING | if startup::is_enabled() { MF_CHECKED } else { 0 }, ID_STARTUP, "Start with Windows");
         add(MF_SEPARATOR, 0, "");
         add(MF_STRING, ID_QUIT, "Quit");
@@ -257,6 +264,21 @@ fn command(hwnd: HWND, id: usize) {
             }
             shared.set_music_mode(on);
             shared.redraw.store(true, Ordering::SeqCst);
+        }
+        // Finding these apps (and asking where Libre Hardware Monitor is) is the Python app's
+        ID_LHM => {
+            launch::open_window(&["--open-lhm"]);
+        }
+        ID_FC => {
+            launch::open_window(&["--open-framework-control"]);
+        }
+        ID_TV => {
+            let enabled = !shared.settings.lock().unwrap().tv_effect;
+            if let Err(e) = save_key(&paths::settings_file(), "tv_effect", serde_json::Value::Bool(enabled)) {
+                warn!("Couldn't save the old-TV effect setting: {e}");
+            }
+            shared.settings.lock().unwrap().tv_effect = enabled;
+            info!("Old-TV effect {}", if enabled { "on" } else { "off" });
         }
         ID_STARTUP => {
             let enabled = !startup::is_enabled();
