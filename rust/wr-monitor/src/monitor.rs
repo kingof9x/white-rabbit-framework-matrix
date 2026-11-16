@@ -257,13 +257,18 @@ impl Monitor {
     fn reload(&mut self) {
         self.source = LayoutSource::locate();
         let layout = self.source.load();
+        self.reload_layout(layout);
+    }
+
+    fn reload_layout(&mut self, layout: Layout) {
         *self.pins.lock().unwrap() = pins_of(&layout);
         self.rotation.set_layout(layout);
         // Swap left and right (layout editor) changes which panel is which: follow it now
         if let Some(panels) = self.shared.panels.lock().unwrap().clone() {
             panels.align();
         }
-        self.shown = [None, None];
+        // `shown` stays: the next frame plays the app transition only if the layout now shows
+        // different apps on a panel
         info!("Layout read again");
     }
 
@@ -392,15 +397,14 @@ impl Monitor {
             let mut do_animate = None;
             if [changed.left, changed.right][side] {
                 do_animate = Some(animate);
-                // Slide the new app in over the old one (Effects tab). Not when the same apps come
-                // round again
-                let key = Some(apps.apps().iter().map(|a| a.name.clone()).collect::<Vec<_>>());
-                if !animate && self.shown[side] != key {
-                    if let Some(fx) = self.shared.effects.lock().unwrap().as_ref() {
-                        fx.start_slide(side);
-                    }
+            }
+            // The app transition (App transition effects page) only when the panel really shows
+            // different apps than last time: not when the same app comes round again, nor after
+            // the monitor starts or reads the layout again
+            if app_changed(&mut self.shown[side], apps) && !animate {
+                if let Some(fx) = self.shared.effects.lock().unwrap().as_ref() {
+                    fx.start_slide(side);
                 }
-                self.shown[side] = key;
             }
             if self.latch && apps.animate() {
                 do_animate = Some(true);
@@ -488,6 +492,16 @@ impl Monitor {
     }
 }
 
+/// Whether a panel now shows different apps than on the last frame drawn (`shown` remembers them).
+/// False for the first frame, when nothing was shown before.
+fn app_changed(shown: &mut Option<Vec<String>>, apps: &wr_core::layout::PanelApps) -> bool {
+    let key: Vec<String> = apps.apps().iter().map(|a| a.name.clone()).collect();
+    match shown.replace(key.clone()) {
+        Some(before) => before != key,
+        None => false,
+    }
+}
+
 /// Music mode's look and sound input from settings.json (Python's `app_settings.load_music`).
 fn load_music_settings() -> wr_music::Settings {
     let text = std::fs::read_to_string(crate::paths::settings_file()).unwrap_or_default();
@@ -506,6 +520,7 @@ pub fn log_panics() {
 mod tests {
     use super::*;
     use std::time::Duration;
+    use wr_core::effects::Side;
     use wr_core::layout::App;
 
     struct Fixed;
@@ -625,6 +640,53 @@ mod tests {
         for q in &m.queues {
             assert!(matches!(frames(q)[..], [Item::Frame(_, Some(_))]));
         }
+    }
+
+    /// A monitor with the effects overlay (sliding on) and this layout; each panel has had a frame.
+    fn with_layout(yaml: &str) -> (Monitor, Arc<wr_panel::overlay::EffectsOverlay>) {
+        let mut m = monitor();
+        let fx = wr_panel::overlay::EffectsOverlay::new(wr_core::effects::EffectsSettings::default());
+        *m.shared.effects.lock().unwrap() = Some(fx.clone());
+        m.rotation.set_layout(wr_core::layout::Layout::parse(yaml).unwrap());
+        m.step();
+        for side in [Side::Left, Side::Right] {
+            // What the drawing thread does: the panel's picture goes through the effects
+            fx.effects().apply(side, &Grid::new(), true, 0.0);
+        }
+        (m, fx)
+    }
+
+    fn sliding(fx: &wr_panel::overlay::EffectsOverlay) -> bool {
+        let e = fx.effects();
+        [Side::Left, Side::Right].iter().any(|&s| e.player(s).active())
+    }
+
+    const ONE_APP_EACH: &str = "duration: 10\nquadrants:\n  top-left:\n  - app:\n    name: cpu\n  bottom-left:\n  - app:\n    name: mem-bat\n  top-right:\n  - app:\n    name: disk\n  bottom-right:\n  - app:\n    name: net\n";
+
+    #[test]
+    fn one_app_per_panel_never_plays_the_app_transition() {
+        let (mut m, fx) = with_layout(ONE_APP_EACH);
+        // Its time comes round (next app), then the layout is read again: still the same apps
+        m.shared.next_app.store(true, Ordering::SeqCst);
+        m.step();
+        assert!(!sliding(&fx), "same app came round again");
+        // (What reading the layout file again does, without the real file)
+        m.reload_layout(wr_core::layout::Layout::parse(ONE_APP_EACH).unwrap());
+        m.step();
+        m.shared.next_app.store(true, Ordering::SeqCst);
+        m.step();
+        assert!(!sliding(&fx), "after reading the layout again");
+    }
+
+    #[test]
+    fn a_different_app_plays_the_app_transition() {
+        let two = ONE_APP_EACH.replace("    name: cpu\n", "    name: cpu\n  - app:\n    name: time\n");
+        let (mut m, fx) = with_layout(&two);
+        assert!(!sliding(&fx), "not on the first frame");
+        m.shared.next_app.store(true, Ordering::SeqCst);
+        m.step();
+        assert!(fx.effects().player(Side::Left).active(), "cpu -> time slides");
+        assert!(!fx.effects().player(Side::Right).active(), "the right panel didn't change");
     }
 
     #[test]
