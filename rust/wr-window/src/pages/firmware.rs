@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
-use crate::app::{ctx, Ctx};
+use crate::app::{ctx, Ctx, ModuleInfo};
 use crate::commands as cmd;
 use crate::panels::{Panel, Sender};
 use crate::{dialogs, paths, AppWindow, FirmwarePage};
@@ -21,6 +21,122 @@ pub const BUNDLED: [(&str, &str); 2] = [
     ("white-rabbit", "White Rabbit firmware (startup animation setting, extra Game of Life patterns, faster refresh)"),
     ("framework-0.2.0", "Framework's official firmware 0.2.0"),
 ];
+/// The folder of the White Rabbit firmware that comes with the app
+pub const WHITE_RABBIT: &str = "white-rabbit";
+/// What White Rabbit firmware keeps in its image, followed by its build number (2 bytes, little endian)
+const BUILD_TAG: &[u8] = b"WRFW-BUILD";
+const UF2_BLOCK: usize = 512;
+const UF2_MAGIC: [u32; 2] = [0x0A32_4655, 0x9E5D_5157];
+
+/// What firmware a panel has, worked out from what it answered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    /// White Rabbit firmware with this build number (0: built by hand, a test build)
+    WhiteRabbit(u16),
+    /// White Rabbit firmware from before it reported build numbers (it has the startup setting)
+    OlderWhiteRabbit,
+    /// Framework's firmware (no startup setting)
+    Framework,
+    Unknown,
+}
+
+pub fn kind(info: &ModuleInfo) -> Kind {
+    match (info.build, info.startup.is_some(), info.version.is_some()) {
+        (Some(n), _, _) => Kind::WhiteRabbit(n),
+        (None, true, _) => Kind::OlderWhiteRabbit,
+        (None, false, true) => Kind::Framework,
+        _ => Kind::Unknown,
+    }
+}
+
+/// "White Rabbit firmware build 15", for the Firmware page and Settings.
+pub fn long_name(info: &ModuleInfo) -> String {
+    let version = info.version.clone().unwrap_or_else(|| "unknown".into());
+    match kind(info) {
+        Kind::WhiteRabbit(0) => format!("White Rabbit firmware, a test build (version {version})"),
+        Kind::WhiteRabbit(n) => format!("White Rabbit firmware build {n}"),
+        Kind::OlderWhiteRabbit => "White Rabbit firmware, an older build from before build numbers".into(),
+        Kind::Framework => format!("Framework's official firmware {version}"),
+        Kind::Unknown => "unknown firmware".into(),
+    }
+}
+
+/// "White Rabbit build 15", for the panel cards.
+pub fn short_name(info: &ModuleInfo) -> String {
+    match kind(info) {
+        Kind::WhiteRabbit(0) => "White Rabbit test build".into(),
+        Kind::WhiteRabbit(n) => format!("White Rabbit build {n}"),
+        Kind::OlderWhiteRabbit => "White Rabbit, older build".into(),
+        Kind::Framework => format!("Framework {}", info.version.clone().unwrap_or_default()),
+        Kind::Unknown => "unknown".into(),
+    }
+}
+
+/// Whether this panel should get White Rabbit firmware build `newest`. Framework's firmware and test
+/// builds are left alone: someone put those on on purpose.
+pub fn needs_update(info: &ModuleInfo, newest: u16) -> bool {
+    !info.in_use
+        && match kind(info) {
+            Kind::WhiteRabbit(n) => n != 0 && n < newest,
+            Kind::OlderWhiteRabbit => true,
+            Kind::Framework | Kind::Unknown => false,
+        }
+}
+
+/// True when the file is a .uf2 firmware file.
+pub fn is_uf2(data: &[u8]) -> bool {
+    data.len() >= UF2_BLOCK
+        && data.len().is_multiple_of(UF2_BLOCK)
+        && uf2_word(data, 0) == UF2_MAGIC[0]
+        && uf2_word(data, 4) == UF2_MAGIC[1]
+}
+
+fn uf2_word(data: &[u8], at: usize) -> u32 {
+    u32::from_le_bytes([data[at], data[at + 1], data[at + 2], data[at + 3]])
+}
+
+/// The White Rabbit build number kept in a .uf2 file, if it has one. The firmware is split into
+/// blocks of 512 bytes, each carrying up to 476 bytes of it, so the pieces are put back together first.
+pub fn uf2_build(data: &[u8]) -> Option<u16> {
+    if !is_uf2(data) {
+        return None;
+    }
+    let mut blocks: Vec<(u32, &[u8])> = data
+        .chunks_exact(UF2_BLOCK)
+        .filter(|b| uf2_word(b, 0) == UF2_MAGIC[0] && uf2_word(b, 4) == UF2_MAGIC[1])
+        .map(|b| (uf2_word(b, 12), &b[32..32 + (uf2_word(b, 16) as usize).min(476)]))
+        .collect();
+    blocks.sort_by_key(|(addr, _)| *addr);
+    let image: Vec<u8> = blocks.iter().flat_map(|(_, d)| d.iter().copied()).collect();
+    let at = image.windows(BUILD_TAG.len()).position(|w| w == BUILD_TAG)? + BUILD_TAG.len();
+    image.get(at..at + 2).map(|n| u16::from_le_bytes([n[0], n[1]]))
+}
+
+/// "build-15" -> 15
+pub fn tag_build(tag: &str) -> Option<u16> {
+    tag.trim().strip_prefix("build-").and_then(|n| n.parse().ok())
+}
+
+/// The build number of the White Rabbit firmware that comes with the app: from the file itself, or
+/// from the release name the app's build wrote next to it.
+pub fn bundled_build(base: &Path) -> Option<u16> {
+    let folder = base.join(WHITE_RABBIT);
+    std::fs::read(folder.join(FIRMWARE_FILE))
+        .ok()
+        .and_then(|d| uf2_build(&d))
+        .filter(|n| *n != 0)
+        .or_else(|| std::fs::read_to_string(folder.join("VERSION")).ok().and_then(|t| tag_build(&t)))
+}
+
+/// The firmware choices' labels, with the build number of the White Rabbit firmware.
+fn choice_label(folder: &str, label: &str, base: &Path) -> String {
+    match (folder, bundled_build(base)) {
+        (WHITE_RABBIT, Some(n)) => {
+            label.replacen("White Rabbit firmware", &format!("White Rabbit firmware build {n}"), 1)
+        }
+        _ => label.to_string(),
+    }
+}
 const CHOOSE_FILE: &str = "A .uf2 file on this computer...";
 const FIRMWARE_FILE: &str = "ledmatrix.uf2";
 const BOOTLOADER_WAIT: Duration = Duration::from_secs(10);
@@ -41,7 +157,7 @@ pub fn releases_dir() -> PathBuf {
 pub fn bundled_firmware(base: &Path) -> Vec<(String, PathBuf)> {
     BUNDLED
         .iter()
-        .map(|(folder, label)| (label.to_string(), base.join(folder).join(FIRMWARE_FILE)))
+        .map(|(folder, label)| (choice_label(folder, label, base), base.join(folder).join(FIRMWARE_FILE)))
         .filter(|(_, p)| p.is_file())
         .collect()
 }
@@ -137,12 +253,7 @@ fn show_modules(app: &AppWindow) {
             if info.in_use {
                 format!("{}: in use by another program. Close it, then click Check again.", p.label())
             } else {
-                format!(
-                    "{}: version {}, {} the startup animation setting",
-                    p.label(),
-                    info.version.unwrap_or_else(|| "unknown".into()),
-                    if info.startup.is_some() { "has" } else { "doesn't have" }
-                )
+                format!("{}: {}", p.label(), long_name(&info))
             }
             .into(),
         );
@@ -153,6 +264,13 @@ fn show_modules(app: &AppWindow) {
 pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
     let page = app.global::<FirmwarePage>();
     let bundled = bundled_firmware(&releases_dir());
+    page.set_bundled(
+        match bundled_build(&releases_dir()) {
+            Some(n) => format!("White Rabbit firmware build {n} comes with this app. To look for newer firmware, use Check for updates on the Settings page."),
+            None => "To look for newer firmware, use Check for updates on the Settings page.".into(),
+        }
+        .into(),
+    );
     let mut choices: Vec<SharedString> = bundled.iter().map(|(l, _)| l.as_str().into()).collect();
     choices.push(CHOOSE_FILE.into());
     page.set_choices(ModelRc::new(VecModel::from(choices)));
@@ -229,6 +347,10 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
                     }
                 },
             };
+            let label = match (bundled.get(choice as usize), std::fs::read(&path).ok().and_then(|d| uf2_build(&d))) {
+                (None, Some(n)) if n != 0 => format!("{label}\n(White Rabbit firmware build {n})"),
+                _ => label,
+            };
             let file = path.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
             let where_ = panels.iter().map(|p| p.side.clone()).collect::<Vec<_>>().join(" and ");
             let plural = if panels.len() > 1 { "s" } else { "" };
@@ -238,33 +360,113 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
             }
             show(&app, format!("Flashing {file}..."));
             app.global::<FirmwarePage>().set_busy(true);
-            let ui = ctx.ui.clone();
-            let done: crate::app::Status = Arc::new(move |app: &AppWindow, text: String| {
-                let text =
-                    if text == "Done." { format!("Flashed {file} onto the {where_} panel{plural}.") } else { text };
-                show(app, text);
-                app.global::<FirmwarePage>().set_busy(false);
-                // Give the panels back once they have restarted, then read their new versions
-                let ctx = crate::app::ctx();
-                let panels = ctx.selected_panels();
-                ctx.after(6.0, move |_| {
-                    let ctx = crate::app::ctx();
-                    ctx.clone_parts().give_back(panels, None);
-                    ctx.refresh_modules();
-                });
-            });
-            ctx.act(
-                move |s, p| {
-                    let ui = ui.clone();
-                    let status = move |text: String| Ctx::later(&ui, move |app| show(app, text));
-                    flash(s, p, &path, &status).map(|_| ())
-                },
-                done,
-                Some(panels),
-                true,
-                None,
-                false,
+            let done_text = format!("Flashed {file} onto the {where_} panel{plural}.");
+            flash_panels(
+                &ctx,
+                panels,
+                path,
+                Arc::new(show_text),
+                Arc::new(move |app: &AppWindow, text: String| {
+                    show(app, if text == "Done." { done_text.clone() } else { text });
+                    app.global::<FirmwarePage>().set_busy(false);
+                }),
             );
         });
+    }
+}
+
+fn show_text(app: &AppWindow, text: String) {
+    show(app, text)
+}
+
+/// Flashes the firmware file onto these panels, one after the other. `progress` shows what's going
+/// on, `done` gets "Done." or what went wrong. Afterwards the panels go back to the monitor and their
+/// firmware is read again.
+pub fn flash_panels(
+    ctx: &Rc<Ctx>,
+    panels: Vec<Panel>,
+    path: PathBuf,
+    progress: crate::app::Status,
+    done: crate::app::Status,
+) {
+    let ui = ctx.ui.clone();
+    let flashed = panels.clone();
+    let done: crate::app::Status = Arc::new(move |app: &AppWindow, text: String| {
+        done(app, text);
+        // Give the panels back once they have restarted, then read their new versions
+        let panels = flashed.clone();
+        crate::app::ctx().after(6.0, move |_| {
+            let ctx = crate::app::ctx();
+            ctx.clone_parts().give_back(panels, None);
+            ctx.refresh_modules();
+        });
+    });
+    ctx.act(
+        move |s, p| {
+            let ui = ui.clone();
+            let progress = progress.clone();
+            let status = move |text: String| {
+                let progress = progress.clone();
+                Ctx::later(&ui, move |app| progress(app, text))
+            };
+            flash(s, p, &path, &status).map(|_| ())
+        },
+        done,
+        Some(panels),
+        true,
+        None,
+        false,
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A .uf2 file holding `image` at 0x10000000, 256 bytes per block like elf2uf2 writes.
+    fn uf2(image: &[u8]) -> Vec<u8> {
+        let chunks: Vec<&[u8]> = image.chunks(256).collect();
+        let mut out = Vec::new();
+        for (i, c) in chunks.iter().enumerate() {
+            let mut b = vec![0u8; UF2_BLOCK];
+            b[0..4].copy_from_slice(&UF2_MAGIC[0].to_le_bytes());
+            b[4..8].copy_from_slice(&UF2_MAGIC[1].to_le_bytes());
+            b[12..16].copy_from_slice(&(0x1000_0000u32 + 256 * i as u32).to_le_bytes());
+            b[16..20].copy_from_slice(&256u32.to_le_bytes());
+            b[20..24].copy_from_slice(&(i as u32).to_le_bytes());
+            b[24..28].copy_from_slice(&(chunks.len() as u32).to_le_bytes());
+            b[32..32 + c.len()].copy_from_slice(c);
+            b[508..512].copy_from_slice(&0x0AB1_6F30u32.to_le_bytes());
+            out.extend(b);
+        }
+        out
+    }
+
+    #[test]
+    fn build_in_uf2() {
+        // The tag split across two blocks
+        let mut image = vec![7u8; 250];
+        image.extend_from_slice(b"WRFW-BUILD");
+        image.extend_from_slice(&15u16.to_le_bytes());
+        image.extend(vec![1u8; 300]);
+        assert_eq!(uf2_build(&uf2(&image)), Some(15));
+        assert_eq!(uf2_build(&uf2(&[3u8; 600])), None);
+        assert_eq!(uf2_build(b"not a uf2 file"), None);
+    }
+
+    #[test]
+    fn names_and_updates() {
+        let wr = |b| ModuleInfo { version: Some("0.2.0".into()), build: b, startup: Some((0, 0, 0)), in_use: false };
+        let framework = ModuleInfo { version: Some("0.2.0".into()), ..Default::default() };
+        assert_eq!(long_name(&wr(Some(15))), "White Rabbit firmware build 15");
+        assert_eq!(kind(&wr(None)), Kind::OlderWhiteRabbit);
+        assert_eq!(long_name(&framework), "Framework's official firmware 0.2.0");
+        assert!(needs_update(&wr(None), 15));
+        assert!(needs_update(&wr(Some(14)), 15));
+        assert!(!needs_update(&wr(Some(15)), 15));
+        assert!(!needs_update(&wr(Some(0)), 15));
+        assert!(!needs_update(&framework, 15));
+        assert_eq!(tag_build("build-14"), Some(14));
+        assert_eq!(tag_build("v1.2"), None);
     }
 }

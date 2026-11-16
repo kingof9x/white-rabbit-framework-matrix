@@ -20,6 +20,8 @@ use crate::{settings, theme, App, AppWindow, PanelRow};
 #[derive(Clone, Debug, Default)]
 pub struct ModuleInfo {
     pub version: Option<String>,
+    /// White Rabbit firmware's build number, when the firmware reports one
+    pub build: Option<u16>,
     /// (mode, animation, set) when the firmware has the startup animation setting
     pub startup: Option<(u8, u8, u32)>,
     /// Another program had the port open
@@ -209,33 +211,18 @@ impl Ctx {
         let (sender, panels, modules) = (self.sender.clone(), self.panels(), self.modules.clone());
         self.in_background(
             move || {
-                let mut info = HashMap::new();
-                for p in &panels {
-                    let startup = sender.ask(&p.device, cmd::command(cmd::STARTUP_ANIMATION, &[]), Some(2.0));
-                    let version = sender.ask(&p.device, cmd::command(cmd::VERSION, &[]), None);
-                    let entry = match (startup, version) {
-                        (Ok(s), Ok(v)) => ModuleInfo {
-                            version: Some(cmd::parse_version(&v)),
-                            startup: cmd::parse_startup(&s),
-                            in_use: false,
-                        },
-                        (s, v) => {
-                            wr_core::info!("Could not read {}: {:?} {:?}", p.device, s.err(), v.err());
-                            ModuleInfo { version: None, startup: None, in_use: true }
-                        }
-                    };
-                    info.insert(p.device.clone(), entry);
-                }
-                *modules.lock().unwrap() = info;
+                *modules.lock().unwrap() = read_modules(&sender, &panels);
             },
-            move |app, ()| {
-                let me = ctx();
-                for f in me.on_modules.lock().unwrap().iter() {
-                    f(app);
-                }
-                me.update_bar(app);
-            },
+            |app, ()| ctx().modules_changed(app),
         );
+    }
+
+    /// Tells the pages that the panels' firmware information changed.
+    pub fn modules_changed(&self, app: &AppWindow) {
+        for f in self.on_modules.lock().unwrap().iter() {
+            f(app);
+        }
+        self.update_bar(app);
     }
 
     pub fn page_shown(&self, app: &AppWindow, key: &str) {
@@ -243,6 +230,29 @@ impl Ctx {
             f(app, key);
         }
     }
+}
+
+/// Asks each panel for its firmware version and startup setting (on a worker thread).
+pub fn read_modules(sender: &Sender, panels: &[Panel]) -> HashMap<String, ModuleInfo> {
+    let mut info = HashMap::new();
+    for p in panels {
+        let startup = sender.ask(&p.device, cmd::command(cmd::STARTUP_ANIMATION, &[]), Some(2.0));
+        let version = sender.ask(&p.device, cmd::command(cmd::VERSION, &[]), None);
+        let entry = match (startup, version) {
+            (Ok(s), Ok(v)) => ModuleInfo {
+                version: Some(cmd::parse_version(&v)),
+                build: cmd::parse_wr_build(&v),
+                startup: cmd::parse_startup(&s),
+                in_use: false,
+            },
+            (s, v) => {
+                wr_core::info!("Could not read {}: {:?} {:?}", p.device, s.err(), v.err());
+                ModuleInfo { in_use: true, ..Default::default() }
+            }
+        };
+        info.insert(p.device.clone(), entry);
+    }
+    info
 }
 
 /// The parts of the window's state that can go to another thread.
@@ -299,12 +309,12 @@ impl Parts {
                 } else {
                     "Showing the system monitor"
                 };
-                let version = modules.get(&p.device).and_then(|m| m.version.clone());
+                let firmware = modules.get(&p.device).filter(|m| !m.in_use).map(crate::pages::firmware::short_name);
                 PanelRow {
                     device: p.device.clone().into(),
                     label: p.label().into(),
-                    doing: match version {
-                        Some(v) => format!("{doing}.  Firmware {v}"),
+                    doing: match firmware {
+                        Some(v) => format!("{doing}.  Firmware: {v}"),
                         None => format!("{doing}."),
                     }
                     .into(),

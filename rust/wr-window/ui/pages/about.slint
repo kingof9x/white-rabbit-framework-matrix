@@ -1,4 +1,4 @@
-// About White Rabbit: the version, updates, the tip jar and the projects it comes from.
+// About White Rabbit: the version, the tip jar and the projects it comes from.
 import { Theme } from "../theme.slint";
 import { App } from "../state.slint";
 import { Group, Body, Hint, Status, AccentButton, Button } from "../widgets.slint";
@@ -12,14 +12,7 @@ export struct Credit {
 
 export global AboutPage {
     in property <string> version;
-    in property <string> update-status;
-    in property <bool> checking;
-    in property <bool> can-install;
-    in property <bool> show-page;
     in property <[Credit]> credits;
-    callback check();
-    callback install();
-    callback release-page();
 }
 
 component Link inherits Text {
@@ -38,6 +31,7 @@ export component AboutView inherits VerticalLayout {
         title: "White Rabbit";
         Body { text: AboutPage.version == "" ? "Version unknown" : "Version " + AboutPage.version; }
         Hint { text: "One app for the Framework 16 LED Matrix panels: the system monitor, games, patterns, startup animations and firmware updates."; }
+        Hint { text: "To look for a newer version, use Check for updates on the Settings page."; }
         HorizontalLayout {
             alignment: start;
             spacing: 8px;
@@ -52,17 +46,6 @@ export component AboutView inherits VerticalLayout {
             alignment: start;
             AccentButton { text: "Leave a tip on Ko-fi"; clicked => { App.open-url("https://ko-fi.com/kingof9x"); } }
         }
-    }
-    Group {
-        title: "Updates";
-        HorizontalLayout {
-            alignment: start;
-            spacing: 8px;
-            Button { text: "Check for updates"; enabled: !AboutPage.checking; clicked => { AboutPage.check(); } }
-            if AboutPage.can-install: AccentButton { text: "Download and install"; enabled: !AboutPage.checking; clicked => { AboutPage.install(); } }
-            if AboutPage.show-page: Button { text: "Open the download page"; clicked => { AboutPage.release-page(); } }
-        }
-        if AboutPage.update-status != "": Status { text: AboutPage.update-status; }
     }
     Group {
         title: "Based on";
