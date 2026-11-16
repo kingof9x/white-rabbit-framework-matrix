@@ -208,6 +208,13 @@ jobs:
             if (-not $info.CompanyName -or $info.FileVersion -match '^0\.0\.0') { throw "$exe has blank file details" }
             if ("$($info.ProductVersion)".Trim() -ne "${{ steps.version.outputs.version }}") { throw "$exe has version $($info.ProductVersion)" }
           }
+          # No Python may be shipped: fail if any file in the app folder is a PyInstaller bundle or Python itself
+          $python = Get-ChildItem dist\WhiteRabbit -Recurse -File | Where-Object {
+            $_.Name -match '^python\d*\.dll$|\.pyd$|\.pyc$|^base_library\.zip$' -or
+            (Select-String -Path $_.FullName -Pattern 'PyInstaller', '_MEIPASS', 'PYZ-00' -SimpleMatch -Quiet)
+          }
+          if ($python) { $python | Format-Table FullName; throw "Python/PyInstaller files found in the app" }
+          Write-Host "No Python or PyInstaller inside the app"
           # Portable: the same files in a zip; unzip anywhere and run WhiteRabbit.exe (nothing is installed)
           Compress-Archive -Path dist\WhiteRabbit\* -DestinationPath dist\WhiteRabbit-portable.zip -Force
           Get-Item dist\WhiteRabbit-setup.exe, dist\WhiteRabbit-portable.zip, dist\WhiteRabbit\*.exe | Format-Table Name, Length

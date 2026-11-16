@@ -1,7 +1,8 @@
 name: Virus scan
 
 # Run it by hand: Actions > Virus scan > Run workflow.
-# Uploads the release's WhiteRabbit-setup.exe and WhiteRabbit.exe to VirusTotal
+# Uploads the release's WhiteRabbit-setup.exe, plus WhiteRabbit.exe and WhiteRabbitWindow.exe from
+# WhiteRabbit-portable.zip, to VirusTotal,
 # and writes the results into the README. Needs the VIRUSTOTAL_API_KEY secret.
 on:
   workflow_dispatch:
