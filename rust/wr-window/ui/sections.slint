@@ -91,13 +91,30 @@ export global Sections {
     }
 }
 
-// "On" or "Off" and the switch
+// "On" or "Off" and the switch. It flips straight away and shows what was asked for until the
+// section catches up (audio reactivity and the system monitor ask WhiteRabbit.exe first), then follows
+// the section again, so it stays right when another switch turns this section off.
 export component SectionSwitch inherits HorizontalLayout {
     in property <string> key;
+    property <bool> actual: Sections.is-on(key);
+    property <bool> wanted;
+    property <bool> waiting;
+    property <bool> shown: waiting ? wanted : actual;
+    changed actual => {
+        if actual == wanted {
+            waiting = false;
+        }
+    }
     spacing: 12px;
     alignment: end;
+    // Give up waiting if the section didn't change (say the monitor isn't running)
+    Timer {
+        interval: 4s;
+        running: waiting;
+        triggered => { waiting = false; }
+    }
     Text {
-        text: Sections.is-on(key) ? "On" : "Off";
+        text: shown ? "On" : "Off";
         color: Sections.can-switch(key) ? Theme.text : Theme.text2;
         font-size: Theme.body;
         vertical-alignment: center;
@@ -105,9 +122,14 @@ export component SectionSwitch inherits HorizontalLayout {
     VerticalLayout {
         alignment: center;
         Switch {
+            controlled: true;
             enabled: Sections.can-switch(key);
-            checked: Sections.is-on(key);
-            toggled(on) => { Sections.toggle(key, on); }
+            checked: shown;
+            toggled(on) => {
+                wanted = on;
+                waiting = on != actual;
+                Sections.toggle(key, on);
+            }
         }
     }
 }

@@ -204,6 +204,8 @@ export component RadioButton inherits Rectangle {
 export component Switch inherits Rectangle {
     in property <bool> enabled: true;
     in-out property <bool> checked;
+    // Controlled: a click only asks (toggled), and the owner sets checked
+    in property <bool> controlled;
     callback toggled(bool);
     width: 40px;
     height: 20px;
@@ -218,8 +220,12 @@ export component Switch inherits Rectangle {
     ta := TouchArea {
         enabled: root.enabled;
         clicked => {
-            checked = !checked;
-            root.toggled(checked);
+            if controlled {
+                root.toggled(!checked);
+            } else {
+                checked = !checked;
+                root.toggled(checked);
+            }
         }
     }
     Rectangle {
