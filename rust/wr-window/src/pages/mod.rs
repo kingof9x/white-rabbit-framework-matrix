@@ -10,6 +10,7 @@ pub mod monitor;
 pub mod music;
 pub mod shortcuts;
 pub mod startup;
+pub mod updates;
 
 use std::rc::Rc;
 
@@ -27,4 +28,5 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
     monitor::editor::wire(ctx, app);
     shortcuts::wire(ctx, app);
     about::wire(ctx, app);
+    updates::wire(ctx, app);
 }

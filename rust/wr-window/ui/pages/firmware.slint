@@ -6,6 +6,7 @@ import { ComboBox } from "std-widgets.slint";
 
 export global FirmwarePage {
     in property <[string]> installed: ["Reading the panels..."];
+    in property <string> bundled;
     in property <[string]> choices;
     in-out property <int> choice;
     in property <string> status;
@@ -21,6 +22,7 @@ export component FirmwareView inherits VerticalLayout {
     Group {
         title: "Installed firmware";
         for line in FirmwarePage.installed: Body { text: line; }
+        if FirmwarePage.bundled != "": Hint { text: FirmwarePage.bundled; }
         HorizontalLayout {
             alignment: start;
             Button { text: "Check again"; clicked => { FirmwarePage.refresh(); } }

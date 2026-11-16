@@ -286,9 +286,22 @@ pub fn parse_version(answer: &[u8]) -> String {
     v
 }
 
+/// White Rabbit firmware's build number from the version answer: bytes 3-4 are "WR", 5-6 the
+/// number (little endian). None for Framework's firmware and for White Rabbit builds older than this.
+pub fn parse_wr_build(answer: &[u8]) -> Option<u16> {
+    (answer.len() >= 7 && &answer[3..5] == b"WR").then(|| u16::from_le_bytes([answer[5], answer[6]]))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wr_builds() {
+        assert_eq!(parse_wr_build(&[0, 0x20, 0, b'W', b'R', 15, 0, 0]), Some(15));
+        assert_eq!(parse_wr_build(&[0, 0x20, 0, 0, 0, 0, 0, 0]), None);
+        assert_eq!(parse_wr_build(&[0, 0x20, 0]), None);
+    }
 
     #[test]
     fn versions() {

@@ -1,7 +1,22 @@
 // Settings: the app's own settings, and the pages used less often.
 import { App } from "../state.slint";
-import { Card, SectionTitle, Button, Status } from "../widgets.slint";
+import { Card, SectionTitle, Button, AccentButton, Status } from "../widgets.slint";
 import { ComboBox } from "std-widgets.slint";
+
+// Check for updates: a newer White Rabbit and newer panel firmware. Only when the user clicks.
+export global UpdatesPage {
+    in property <bool> checking;
+    in property <string> app-status;
+    in property <bool> can-install;
+    in property <bool> show-page;
+    in property <string> firmware-status;
+    in property <bool> can-flash;
+    in property <string> flash-label;
+    callback check();
+    callback install();
+    callback release-page();
+    callback flash();
+}
 
 export component SettingsPage inherits VerticalLayout {
     spacing: 4px;
@@ -48,9 +63,33 @@ export component SettingsPage inherits VerticalLayout {
     Card { link: true; icon: @image-url("../icons/developer_board.svg"); title: "Firmware";
         help: "See the firmware on each panel, and install the White Rabbit firmware or Framework's."; clicked => { App.page = "firmware"; } }
     Rectangle { height: 14px; }
+    SectionTitle { text: "Updates"; }
+    Card {
+        icon: @image-url("../icons/arrow_sync.svg");
+        title: "Check for updates";
+        help: "Looks on GitHub for a newer White Rabbit and newer panel firmware. White Rabbit only checks when you click here.";
+        Button { text: "Check for updates"; enabled: !UpdatesPage.checking; clicked => { UpdatesPage.check(); } }
+    }
+    if UpdatesPage.app-status != "": Card {
+        icon: @image-url("../icons/app.png");
+        title: "White Rabbit";
+        help: UpdatesPage.app-status;
+        HorizontalLayout {
+            spacing: 8px;
+            if UpdatesPage.show-page: Button { text: "Download page"; clicked => { UpdatesPage.release-page(); } }
+            if UpdatesPage.can-install: AccentButton { text: "Download and install"; enabled: !UpdatesPage.checking; clicked => { UpdatesPage.install(); } }
+        }
+    }
+    if UpdatesPage.firmware-status != "": Card {
+        icon: @image-url("../icons/developer_board.svg");
+        title: "Panel firmware";
+        help: UpdatesPage.firmware-status;
+        if UpdatesPage.can-flash: AccentButton { text: UpdatesPage.flash-label; enabled: !UpdatesPage.checking; clicked => { UpdatesPage.flash(); } }
+    }
+    Rectangle { height: 14px; }
     SectionTitle { text: "App"; }
     Card { link: true; icon: @image-url("../icons/keyboard.svg"); title: "Keyboard shortcuts";
         help: "Shortcuts that work anywhere in Windows."; clicked => { App.page = "shortcuts"; } }
     Card { link: true; icon: @image-url("../icons/info.svg"); title: "About White Rabbit";
-        help: "Version, updates, credits and the tip jar."; clicked => { App.page = "about"; } }
+        help: "Version, credits and the tip jar."; clicked => { App.page = "about"; } }
 }

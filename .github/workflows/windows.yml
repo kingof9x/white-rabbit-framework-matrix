@@ -74,7 +74,14 @@ jobs:
           $app = "dist\WhiteRabbit"
           New-Item -ItemType Directory -Force "$app\res\releases\white-rabbit", "$app\res\releases\framework-0.2.0", "$app\LICENSES" | Out-Null
           Copy-Item rust\target\release\WhiteRabbit.exe, rust\target\release\WhiteRabbitWindow.exe $app
-          Invoke-WebRequest https://github.com/kingof9x/inputmodule-rs/releases/latest/download/ledmatrix.uf2 -OutFile "$app\res\releases\white-rabbit\ledmatrix.uf2"
+          # The newest firmware release, and its build-N tag so the app can say which build it carries
+          $headers = @{ Authorization = "Bearer ${{ github.token }}"; "X-GitHub-Api-Version" = "2022-11-28" }
+          $fw = Invoke-RestMethod -Headers $headers https://api.github.com/repos/kingof9x/inputmodule-rs/releases/latest
+          $uf2 = @($fw.assets | Where-Object { $_.name -eq 'ledmatrix.uf2' })
+          if ($uf2.Count -ne 1) { throw "No ledmatrix.uf2 in firmware release $($fw.tag_name)" }
+          Write-Host "Bundling firmware $($fw.tag_name)"
+          Invoke-WebRequest $uf2[0].browser_download_url -OutFile "$app\res\releases\white-rabbit\ledmatrix.uf2"
+          Set-Content "$app\res\releases\white-rabbit\VERSION" $fw.tag_name -NoNewline
           Invoke-WebRequest https://github.com/FrameworkComputer/inputmodule-rs/releases/download/v0.2.0/ledmatrix.uf2 -OutFile "$app\res\releases\framework-0.2.0\ledmatrix.uf2"
           Copy-Item "$app\res\releases\white-rabbit\ledmatrix.uf2" dist\ledmatrix.uf2
           Copy-Item LICENSE "$app\LICENSE.txt"

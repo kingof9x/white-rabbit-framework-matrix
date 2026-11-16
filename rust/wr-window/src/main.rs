@@ -261,6 +261,8 @@ pub fn shoot_action(ui: &AppWindow, _ctx: &Rc<app::Ctx>, action: &str) {
             d.invoke_open();
         }
         "math-graph" => ui.global::<MathPage>().invoke_show_graph(),
+        // updates-demo:CASE fills Settings > Updates with sample answers (no panels or internet needed)
+        a if a.starts_with("updates-demo:") => pages::updates::demo(ui, _ctx, &a[13..]),
         // game:N starts a game on the Games & patterns page
         a if a.starts_with("game:") => ui.global::<GamesPage>().invoke_start(a[5..].parse().unwrap_or(0)),
         _ => wr_core::warn!("Unknown screenshot action {action}"),
