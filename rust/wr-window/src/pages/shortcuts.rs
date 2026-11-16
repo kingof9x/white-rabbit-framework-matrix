@@ -16,7 +16,7 @@ pub const SHORTCUTS: [(&str, &str, &str); 5] = [
     ("n", "Next app", "Skips to the next app on both panels."),
     ("f", "Freeze app switching", "Keeps the current apps on the panels instead of rotating."),
     ("u", "Unfreeze app switching", "Goes back to rotating through the apps."),
-    ("m", "Audio mode", "Turns audio mode on or off: the audio visualizer on both panels."),
+    ("m", "Audio reactivity", "Turns audio reactivity on or off: the audio visualizer on both panels."),
 ];
 
 pub fn keys_text(letter: &str) -> String {

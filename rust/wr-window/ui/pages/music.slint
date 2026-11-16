@@ -45,23 +45,6 @@ component Label inherits Text {
 
 export component MusicView inherits VerticalLayout {
     spacing: 12px;
-    Card {
-        icon: @image-url("../icons/music_note_2.svg");
-        title: "Audio mode";
-        help: "Shows the audio visualizer on both panels, with the look picked below, until you turn it off. Also in the tray menu, and with " + MusicPage.shortcut + ".";
-        HorizontalLayout {
-            spacing: 12px;
-            alignment: end;
-            Text { text: App.music-mode ? "On" : "Off"; color: Theme.text; font-size: Theme.body; vertical-alignment: center; }
-            VerticalLayout {
-                alignment: center;
-                Switch {
-                    checked: App.music-mode;
-                    toggled(on) => { App.music-toggled(on); }
-                }
-            }
-        }
-    }
     if MusicPage.mode-status != "" || MusicPage.mode-hearing != "": VerticalLayout {
         padding-left: 4px;
         if MusicPage.mode-status != "": Status { text: MusicPage.mode-status; }

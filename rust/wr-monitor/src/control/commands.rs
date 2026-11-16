@@ -172,7 +172,7 @@ impl Commands {
             if on {
                 let released = self.bridge.release(None);
                 if !released.is_empty() {
-                    info!("Audio mode took back the panels lent to the window: {}", released.join(", "));
+                    info!("Audio reactivity took back the panels lent to the window: {}", released.join(", "));
                     self.shared.redraw.store(true, Ordering::SeqCst);
                 }
             }

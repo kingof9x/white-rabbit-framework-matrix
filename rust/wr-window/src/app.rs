@@ -274,7 +274,7 @@ impl Parts {
                 borrowed.iter().map(|p| p.called()).collect::<Vec<_>>().join(", ")
             )
         } else if music {
-            "Panels are showing audio mode".to_string()
+            "Panels are reacting to audio".to_string()
         } else {
             "Panels are showing the system monitor".to_string()
         };
@@ -283,6 +283,7 @@ impl Parts {
         g.set_any_borrowed(!borrowed.is_empty());
         g.set_monitor_running(running);
         g.set_music_mode(music);
+        g.set_monitor_showing(running && borrowed.is_empty() && !music);
         let checked = self.checked.lock().unwrap().clone();
         let modules = self.modules.lock().unwrap().clone();
         let rows: Vec<PanelRow> = panels
@@ -294,7 +295,7 @@ impl Parts {
                 } else if self.lender.is_borrowed(&p.device) {
                     "Showing something from this window"
                 } else if music {
-                    "Showing audio mode"
+                    "Reacting to audio"
                 } else {
                     "Showing the system monitor"
                 };
@@ -379,7 +380,19 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
     }
     {
         let ctx = ctx.clone();
-        g.on_music_toggled(move |on| set_music_mode(&ctx, on, None));
+        g.on_music_toggled(move |on| {
+            if on {
+                if let Some(app) = ctx.ui.upgrade() {
+                    crate::pages::games::stop_for_other(&app);
+                    crate::pages::math::stop_for_other(&app);
+                }
+            }
+            set_music_mode(&ctx, on, None)
+        });
+    }
+    {
+        let ctx = ctx.clone();
+        g.on_section_toggled(move |key, on| section_toggled(&ctx, &key, on));
     }
     {
         let ctx = ctx.clone();
@@ -490,7 +503,8 @@ pub fn set_music_mode(ctx: &Rc<Ctx>, on: bool, done: Option<Box<dyn FnOnce(&AppW
         },
         move |app, (parts, reply)| {
             if reply.is_none() && on {
-                app.global::<App>().set_home_status("Audio mode needs the system monitor, which isn't running.".into());
+                app.global::<App>()
+                    .set_home_status("Audio reactivity needs the system monitor, which isn't running.".into());
             }
             parts.update_bar(app);
             if let Some(done) = done {
@@ -498,6 +512,62 @@ pub fn set_music_mode(ctx: &Rc<Ctx>, on: bool, done: Option<Box<dyn FnOnce(&AppW
             }
         },
     );
+}
+
+/// The System monitor, Games & patterns and Math switches. These take over the panels, so turning one
+/// on turns the others (and audio reactivity) off.
+fn section_toggled(ctx: &Rc<Ctx>, key: &str, on: bool) {
+    let Some(app) = ctx.ui.upgrade() else { return };
+    let music_off = |ctx: &Rc<Ctx>| {
+        if ctx.music_on.load(Ordering::SeqCst) {
+            set_music_mode(ctx, false, None);
+        }
+    };
+    match (key, on) {
+        ("games", true) => {
+            music_off(ctx);
+            crate::pages::games::switch_on(&app);
+        }
+        ("games", false) => app.global::<crate::GamesPage>().invoke_stop(),
+        ("math", true) => {
+            music_off(ctx);
+            crate::pages::math::switch_on(&app);
+        }
+        ("math", false) => app.global::<crate::MathPage>().invoke_stop(),
+        ("monitor", true) => {
+            crate::pages::games::stop_for_other(&app);
+            crate::pages::math::stop_for_other(&app);
+            music_off(ctx);
+            ctx.give_back_all();
+            ctx.update_bar(&app);
+        }
+        ("monitor", false) => {
+            crate::pages::games::stop_for_other(&app);
+            crate::pages::math::stop_for_other(&app);
+            music_off(ctx);
+            // Borrow every panel from the monitor and leave it dark
+            let status: Status = Arc::new(|app: &AppWindow, text: String| {
+                app.global::<App>().set_home_status(
+                    if text == "Done." {
+                        "The panels are dark. Turn the System monitor back on to bring it back.".into()
+                    } else {
+                        text
+                    }
+                    .into(),
+                )
+            });
+            ctx.act(
+                |s, p| s.write(&p.device, &[cmd::draw_bits(&|_, _| false)]),
+                status,
+                Some(ctx.panels()),
+                true,
+                None,
+                false,
+            );
+        }
+        _ => {}
+    }
+    ctx.update_bar(&app);
 }
 
 /// Opens a web page in the default browser.

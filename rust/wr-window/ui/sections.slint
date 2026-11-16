@@ -1,0 +1,122 @@
+// The on/off switch each section has, on its own page and next to it on Home. Audio, the system
+// monitor, games and Math take over the panels (turning one on turns the others off); the rest turn a
+// feature on or off.
+import { Theme } from "theme.slint";
+import { App } from "state.slint";
+import { Card, Switch } from "widgets.slint";
+import { GamesPage } from "pages/games.slint";
+import { MathPage } from "pages/math.slint";
+import { DrawPage } from "pages/draw.slint";
+import { EffectsPage } from "pages/effects.slint";
+import { StartupPage } from "pages/startup.slint";
+import { MusicPage } from "pages/music.slint";
+
+export global Sections {
+    // Whether a section is on
+    public pure function is-on(key: string) -> bool {
+        return key == "monitor" ? App.monitor-showing
+            : key == "music" ? App.music-mode
+            : key == "games" ? GamesPage.running
+            : key == "math" ? MathPage.running
+            : key == "draw" ? DrawPage.live
+            : key == "messages" ? EffectsPage.text-line
+            : key == "effects" ? EffectsPage.plug-animation
+            : key == "transitions" ? EffectsPage.slide || EffectsPage.fade || EffectsPage.transition-look != ""
+            : key == "startup" ? StartupPage.supported && StartupPage.mode != 3
+            : false;
+    }
+    public pure function can-switch(key: string) -> bool {
+        return key == "startup" ? StartupPage.supported : true;
+    }
+    public pure function has-switch(key: string) -> bool {
+        return key == "monitor" || key == "music" || key == "games" || key == "math" || key == "draw"
+            || key == "messages" || key == "effects" || key == "transitions" || key == "startup";
+    }
+    // What the switch does, for the card at the top of the section's page
+    public pure function about(key: string) -> string {
+        return key == "monitor" ? "On: the panels show the system monitor. Off: the panels go dark until you turn something on."
+            : key == "music" ? "On: both panels show the audio visualizer, with the look picked below, until you turn it off. Also in the tray menu, and with " + MusicPage.shortcut + "."
+            : key == "games" ? "On: plays the last game you picked (Snake to start with) on the ticked panels. Off: stops it."
+            : key == "math" ? "On: shows the last Math picture again (or the effect picked below) on the ticked panels. Off: stops it."
+            : key == "draw" ? "On: the ticked panels show the drawing while you draw it."
+            : key == "messages" ? "On: the text line scrolls across the top of the panels when there's something to say."
+            : key == "effects" ? "On: the panels play an animation when something is plugged in or out."
+            : key == "transitions" ? "On: the panels slide, fade or play an effect when they change app. Off: they cut straight to it."
+            : key == "startup" ? (StartupPage.supported ? "On: the panels play an animation when the laptop turns on. Saved on the panels." : "Needs the White Rabbit firmware (Settings > Firmware).")
+            : "";
+    }
+    public pure function title(key: string) -> string {
+        return key == "monitor" ? "System monitor" : key == "music" ? "Audio reactivity" : key == "games" ? "Games & patterns"
+            : key == "math" ? "Math" : key == "draw" ? "Show while drawing" : key == "messages" ? "Text line"
+            : key == "effects" ? "Plug animation" : key == "transitions" ? "App transition effects"
+            : key == "startup" ? "Startup animation" : "";
+    }
+    public pure function icon(key: string) -> image {
+        return key == "monitor" ? @image-url("icons/desktop.svg") : key == "music" ? @image-url("icons/music_note_2.svg")
+            : key == "games" ? @image-url("icons/games.svg") : key == "math" ? @image-url("icons/math_formula.svg")
+            : key == "draw" ? @image-url("icons/paint_brush.svg") : key == "messages" ? @image-url("icons/text_line.svg")
+            : key == "effects" ? @image-url("icons/sparkle.svg") : key == "transitions" ? @image-url("icons/arrow_swap.svg")
+            : @image-url("icons/play_circle.svg");
+    }
+    // Turns a section on or off
+    public function toggle(key: string, on: bool) {
+        if key == "music" {
+            App.music-toggled(on);
+        } else if key == "draw" {
+            DrawPage.live = on;
+            DrawPage.live-changed(on);
+        } else if key == "messages" {
+            EffectsPage.text-line = on;
+            EffectsPage.changed();
+        } else if key == "effects" {
+            EffectsPage.plug-animation = on;
+            EffectsPage.changed();
+        } else if key == "transitions" {
+            EffectsPage.slide = on;
+            EffectsPage.fade = false;
+            EffectsPage.transition-look = "";
+            EffectsPage.changed();
+        } else if key == "startup" {
+            if on {
+                StartupPage.mode = StartupPage.on-mode;
+            } else {
+                StartupPage.on-mode = StartupPage.mode;
+                StartupPage.mode = 3;
+            }
+            StartupPage.save();
+        } else {
+            // monitor, games, math: the Rust side
+            App.section-toggled(key, on);
+        }
+    }
+}
+
+// "On" or "Off" and the switch
+export component SectionSwitch inherits HorizontalLayout {
+    in property <string> key;
+    spacing: 12px;
+    alignment: end;
+    Text {
+        text: Sections.is-on(key) ? "On" : "Off";
+        color: Sections.can-switch(key) ? Theme.text : Theme.text2;
+        font-size: Theme.body;
+        vertical-alignment: center;
+    }
+    VerticalLayout {
+        alignment: center;
+        Switch {
+            enabled: Sections.can-switch(key);
+            checked: Sections.is-on(key);
+            toggled(on) => { Sections.toggle(key, on); }
+        }
+    }
+}
+
+// The card at the top of a section's page
+export component SectionCard inherits Card {
+    in property <string> key;
+    icon: Sections.icon(key);
+    title: Sections.title(key);
+    help: Sections.about(key);
+    SectionSwitch { key: root.key; }
+}

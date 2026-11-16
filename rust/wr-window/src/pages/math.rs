@@ -165,6 +165,15 @@ fn play(app: &AppWindow, title: &str, make: Rc<dyn Fn() -> Step>) {
     std::thread::spawn(move || run(anim, layout, count, job, shared, panels, parts));
 }
 
+/// The Math switch turned on: shows the last picture again, or the effect picked on the page.
+pub fn switch_on(app: &AppWindow) {
+    let last = page_state().borrow().last.clone();
+    match last {
+        Some((title, make)) => play(app, &title, make),
+        None => app.global::<MathPage>().invoke_start_effect(),
+    }
+}
+
 /// Stops the animation, if one runs. Other pages call this before using the panels.
 pub fn stop_for_other(app: &AppWindow) {
     if let Some(run) = page_state().borrow_mut().run.take() {

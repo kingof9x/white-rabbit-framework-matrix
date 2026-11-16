@@ -1,6 +1,6 @@
 // Settings: the app's own settings, and the pages used less often.
 import { App } from "../state.slint";
-import { Card, SectionTitle, Button } from "../widgets.slint";
+import { Card, SectionTitle, Button, Status } from "../widgets.slint";
 import { ComboBox } from "std-widgets.slint";
 
 export component SettingsPage inherits VerticalLayout {
@@ -22,12 +22,29 @@ export component SettingsPage inherits VerticalLayout {
     }
     Rectangle { height: 14px; }
     SectionTitle { text: "Panels"; }
+    if App.panels.length == 0: Card {
+        icon: @image-url("../icons/grid.svg");
+        title: "No LED Matrix panels found";
+        help: "Check that the panels are in place, then open White Rabbit again.";
+    }
+    for panel in App.panels: Card {
+        icon: @image-url("../icons/grid.svg");
+        title: panel.label;
+        help: panel.doing;
+    }
     Card {
         icon: @image-url("../icons/rename.svg");
         title: "Panel names";
         help: "Give the left and right panels names of your own.";
         Button { text: "Name panels..."; clicked => { App.name-panels(); } }
     }
+    Card {
+        icon: @image-url("../icons/target_arrow.svg");
+        title: "Identify panels";
+        help: "Shows each panel's name on it, so you know which is which.";
+        Button { text: "Identify"; clicked => { App.identify(); } }
+    }
+    if App.home-status != "": Status { text: App.home-status; }
     Card { link: true; icon: @image-url("../icons/developer_board.svg"); title: "Firmware";
         help: "See the firmware on each panel, and install the White Rabbit firmware or Framework's."; clicked => { App.page = "firmware"; } }
     Rectangle { height: 14px; }
