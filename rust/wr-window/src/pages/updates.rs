@@ -22,9 +22,7 @@ use crate::{dialogs, AppWindow, UpdatesPage};
 
 pub const REPO: &str = "kingof9x/white-rabbit-framework-matrix";
 pub const FIRMWARE_REPO: &str = "kingof9x/inputmodule-rs";
-#[cfg_attr(not(windows), allow(dead_code))]
 const SETUP_ASSET: &str = "WhiteRabbit-setup.exe";
-#[cfg_attr(not(windows), allow(dead_code))]
 const FIRMWARE_ASSET: &str = "ledmatrix.uf2";
 
 /// "v1.2" -> [1, 2, 0, 0], so "1" and "1.0.0" count as the same version.
@@ -69,24 +67,28 @@ pub fn parse_release(release: &Value, asset: &str, repo: &str) -> Release {
     }
 }
 
+/// An HTTPS client using Windows' own TLS and certificates. ureq picks rustls unless told otherwise,
+/// and this app only builds in native-tls, so a request without this stopped the window (a panic).
 #[cfg(windows)]
-fn latest_release(repo: &str, asset: &str) -> Result<Release, String> {
+pub fn agent(timeout: Duration) -> ureq::Agent {
+    let tls = ureq::tls::TlsConfig::builder()
+        .provider(ureq::tls::TlsProvider::NativeTls)
+        .root_certs(ureq::tls::RootCerts::PlatformVerifier)
+        .build();
+    ureq::Agent::config_builder().timeout_global(Some(timeout)).tls_config(tls).build().into()
+}
+
+#[cfg(windows)]
+pub fn latest_release(repo: &str, asset: &str) -> Result<Release, String> {
     let url = format!("https://api.github.com/repos/{repo}/releases/latest");
-    let mut reply = ureq::get(&url)
+    let mut reply = agent(Duration::from_secs(15))
+        .get(&url)
         .header("Accept", "application/vnd.github+json")
         .header("User-Agent", "WhiteRabbit")
-        .config()
-        .timeout_global(Some(Duration::from_secs(15)))
-        .build()
         .call()
         .map_err(|e| e.to_string())?;
     let release: Value = reply.body_mut().read_json().map_err(|e| e.to_string())?;
     Ok(parse_release(&release, asset, repo))
-}
-
-#[cfg(not(windows))]
-fn latest_release(_repo: &str, _asset: &str) -> Result<Release, String> {
-    Err("Updates are checked on Windows only".into())
 }
 
 /// Downloads a file into a new temporary folder. progress(percent).
@@ -96,11 +98,9 @@ fn download(url: &str, name: &str, progress: &dyn Fn(u32)) -> Result<PathBuf, St
     let folder = std::env::temp_dir().join(format!("WhiteRabbit-update-{}", std::process::id()));
     std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
     let path = folder.join(name);
-    let mut reply = ureq::get(url)
+    let mut reply = agent(Duration::from_secs(300))
+        .get(url)
         .header("User-Agent", "WhiteRabbit")
-        .config()
-        .timeout_global(Some(Duration::from_secs(300)))
-        .build()
         .call()
         .map_err(|e| e.to_string())?;
     let total: u64 =
@@ -121,6 +121,11 @@ fn download(url: &str, name: &str, progress: &dyn Fn(u32)) -> Result<PathBuf, St
         }
     }
     Ok(path)
+}
+
+#[cfg(not(windows))]
+pub fn latest_release(_repo: &str, _asset: &str) -> Result<Release, String> {
+    Err("Updates are checked on Windows only".into())
 }
 
 #[cfg(not(windows))]
@@ -519,6 +524,21 @@ mod tests {
         );
         assert_eq!(r.version, "1.5");
         assert_eq!(r.asset_url.as_deref(), Some("b"));
+    }
+
+    /// Asks GitHub for real: `cargo test -- --ignored live_check`
+    #[test]
+    #[ignore]
+    #[cfg(windows)]
+    fn live_check() {
+        let app = latest_release(REPO, SETUP_ASSET).unwrap();
+        assert!(!app.version.is_empty());
+        let fw = latest_release(FIRMWARE_REPO, FIRMWARE_ASSET).unwrap();
+        assert!(tag_build(&fw.version).is_some(), "{fw:?}");
+        let path = download(fw.asset_url.as_deref().unwrap(), FIRMWARE_ASSET, &|_| {}).unwrap();
+        let data = std::fs::read(path).unwrap();
+        assert!(firmware::is_uf2(&data));
+        println!("firmware {} build in file: {:?}", fw.version, firmware::uf2_build(&data));
     }
 
     fn panel(side: &str) -> Panel {
