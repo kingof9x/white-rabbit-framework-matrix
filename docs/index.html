@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>White Rabbit: Framework 16 LED Matrix app</title>
-<meta name="description" content="A free Windows app for the Framework Laptop 16 LED Matrix: system monitor, music visualizer, games, math art, startup animations and firmware updates in one tray app.">
+<meta name="description" content="A free Windows app for the Framework Laptop 16 LED Matrix: system monitor, audio visualizer, games, math art, drawing, plug animations, startup animations and firmware updates in one small tray app, written in Rust.">
 <meta property="og:title" content="White Rabbit: Framework 16 LED Matrix app">
 <meta property="og:description" content="One Windows app for everything the Framework Laptop 16 LED Matrix can do.">
-<meta property="og:image" content="site/screens/1-panels.jpg">
+<meta property="og:image" content="site/screens/home.jpg">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 9'%3E%3Crect width='9' height='9' rx='2' fill='%23111'/%3E%3Cg fill='%23fff'%3E%3Ccircle cx='3' cy='2' r='.8'/%3E%3Ccircle cx='3' cy='3.5' r='.8'/%3E%3Ccircle cx='6' cy='2' r='.8'/%3E%3Ccircle cx='6' cy='3.5' r='.8'/%3E%3Ccircle cx='4.5' cy='6' r='1.8'/%3E%3C/g%3E%3C/svg%3E">
 <style>
 :root{
@@ -63,6 +63,16 @@ h1{font-size:clamp(36px,6vw,60px);line-height:1.05;margin:0 0 18px;letter-spacin
 section{padding:72px 0;border-bottom:1px solid var(--line)}
 h2{font-size:32px;margin:0 0 10px;letter-spacing:-.01em}
 .sub{color:var(--muted);margin:0 0 36px;max-width:44em}
+
+/* new in 1.5 */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin:0 0 28px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:22px}
+.stat b{display:block;font-size:40px;line-height:1.1;letter-spacing:-.02em}
+.stat span{color:var(--muted);font-size:14px}
+.stat.hi{border-color:#5a606c}
+.newlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px 28px;padding:0;margin:0;list-style:none}
+.newlist li{padding-left:18px;position:relative;color:#cfd3da}
+.newlist li::before{content:"";position:absolute;left:0;top:.65em;width:7px;height:7px;border-radius:50%;background:var(--led)}
 
 /* why */
 .why{display:grid;grid-template-columns:1fr 1fr;gap:28px;align-items:center}
@@ -142,7 +152,7 @@ footer a{color:var(--muted)}
     <div>
       <p class="eyebrow">For the Framework Laptop 16 LED Matrix</p>
       <h1>Follow the White Rabbit.</h1>
-      <p class="lead">One Windows tray app for everything the LED Matrix can do: a system monitor you lay out yourself, a music visualizer, games, math art, startup animations and firmware updates, all from one window.</p>
+      <p class="lead">One Windows tray app for everything the LED Matrix can do: a system monitor you lay out yourself, an audio visualizer, games, math art, your own drawings, plug-in animations, messages, startup animations and firmware updates, all from one window. Written in Rust, so it barely uses any memory.</p>
       <div class="btns">
         <a class="btn primary" href="https://github.com/kingof9x/white-rabbit-framework-matrix/releases/latest/download/WhiteRabbit-setup.exe">Download for Windows <small>installer</small></a>
         <a class="btn" href="https://github.com/kingof9x/white-rabbit-framework-matrix/releases/latest/download/WhiteRabbit-portable.zip">Portable .zip</a>
@@ -152,13 +162,36 @@ footer a{color:var(--muted)}
     <div class="hero-art">
       <figure>
         <div class="panelpair"><img src="site/panels/dancing-rabbit.gif" alt="Both LED panels showing the Dancing rabbit music look" width="258" height="372"></div>
-        <figcaption>Dancing rabbit, one of 21 music looks</figcaption>
+        <figcaption>Dancing rabbit, one of 22 audio looks</figcaption>
       </figure>
     </div>
   </div>
 </header>
 
 <main>
+
+<section id="new">
+  <div class="wrap">
+    <p class="eyebrow">New in 1.5</p>
+    <h2>All of White Rabbit is now Rust</h2>
+    <p class="sub">The background monitor and tray icon moved to Rust in 1.4, and in 1.5 the settings window followed. No Python is shipped any more, so there's no PyInstaller wrapper for antivirus programs to get suspicious of, and the panels show exactly the same pictures as before (checked pixel for pixel).</p>
+    <div class="stats">
+      <div class="stat"><b>66 MB</b><span>Memory the background part used before, in Python</span></div>
+      <div class="stat hi"><b>8 MB</b><span>Memory it uses now, in Rust (Task Manager, Framework Laptop 16, window closed)</span></div>
+      <div class="stat"><b>0</b><span>Python files shipped. The window only uses memory while it's open</span></div>
+    </div>
+    <ul class="newlist">
+      <li><b>On/off switches</b> for every section on the Home page and at the top of each page</li>
+      <li><b>Display messages:</b> up to 5 lines, small letters, left, center or right, and a vertical message on each panel</li>
+      <li><b>Plug animations:</b> pick one for unplugging and one for plugging in, including HDMI and DisplayPort screens, with per-side switches</li>
+      <li><b>App transition effects:</b> slide, fade, and the new Pixel rain and Zipper</li>
+      <li><b>Pixel rain</b> startup animation in the White Rabbit firmware</li>
+      <li><b>Draw on both panels,</b> one at a time or as one picture</li>
+      <li><b>Check for updates</b> in Settings for the app and the panel firmware, only when you click it, with firmware build numbers</li>
+      <li><b>Audio reactivity</b> (the new name for music mode), panel settings moved to Settings, and transition and crash fixes</li>
+    </ul>
+  </div>
+</section>
 
 <section id="why">
   <div class="wrap why">
@@ -178,12 +211,12 @@ footer a{color:var(--muted)}
 <section id="features">
   <div class="wrap">
     <h2>What it does</h2>
-    <p class="sub">Every tab of the app, in a sentence or two. The <a href="https://github.com/kingof9x/white-rabbit-framework-matrix#features">README</a> has the full details.</p>
+    <p class="sub">Every page of the app, in a sentence or two. The <a href="https://github.com/kingof9x/white-rabbit-framework-matrix#features">README</a> has the full details.</p>
     <div class="grid">
       <div class="card"><h3><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M7 14l3-3 3 2 4-5"/></svg>System monitor</h3>
         <p>Drag apps onto the left and right panel with a live preview: CPU, GPU, memory, battery, disk, network, temperatures, fans, FPS, clock, weather and pictures. Set up pages that take turns.</p></div>
       <div class="card"><h3><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>Audio visualizer</h3>
-        <p>21 looks that move with whatever the laptop plays, or with any microphone. Audio reactivity takes over both panels with one shortcut and hands them back when you're done.</p></div>
+        <p>22 looks that move with whatever the laptop plays, or with any microphone. Audio reactivity takes over both panels with one switch or shortcut and hands them back when you're done.</p></div>
       <div class="card"><h3><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="11" rx="4"/><path d="M7 11v3M5.5 12.5h3"/><circle cx="16" cy="11.5" r="1"/><circle cx="18" cy="13.5" r="1"/></svg>Games</h3>
         <p>Snake, Ledris, Breakout and Rabbit run, played on the panels with the arrow keys. With both panels ticked a game gets one 18 x 34 screen, and your best scores are kept.</p></div>
       <div class="card"><h3><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12c2-6 4-6 6 0s4 6 6 0 4-6 6 0"/></svg>Math art</h3>
@@ -191,11 +224,19 @@ footer a{color:var(--muted)}
       <div class="card"><h3><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v6M12 22v-4M4.9 4.9l4.2 4.2M14.9 14.9l4.2 4.2M2 12h6M22 12h-4"/></svg>Startup animation</h3>
         <p>Pick the animation the panels play when the laptop turns on: one favourite, a random one from a set you choose, or none. It's saved on the panel, so it works without the app.</p></div>
       <div class="card"><h3><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M12 7v7M9 11l3 3 3-3"/></svg>Firmware updates</h3>
-        <p>See which firmware each panel runs and flash the White Rabbit firmware, Framework's official one, or any .uf2 file. No bootloader buttons or file copying needed.</p></div>
+        <p>See which firmware each panel runs, with its build number, and flash the White Rabbit firmware, Framework's official one, or any .uf2 file. No bootloader buttons or file copying needed.</p></div>
+      <div class="card"><h3><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20l4-1 11-11-3-3L5 16z"/><path d="M14 6l3 3"/></svg>Draw</h3>
+        <p>Draw pictures and animations LED by LED, on one panel or across both as one picture, or import a PNG or GIF. Show them on the panels with the Picture app.</p></div>
+      <div class="card"><h3><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3v5M15 3v5M7 8h10v4a5 5 0 01-10 0zM12 17v4"/></svg>Plug animations</h3>
+        <p>Plug in the charger, headphones, a screen or any USB device and the panel by that port plays an animation. Pick one for plugging in and one for unplugging.</p></div>
+      <div class="card"><h3><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h13l-3-3M20 16H7l3 3"/></svg>App transitions</h3>
+        <p>How a panel changes from one app to the next: slide, fade, pixel rain, zipper, or a straight cut.</p></div>
+      <div class="card"><h3><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 10h10M7 14h6"/></svg>Display messages</h3>
+        <p>A line of small letters across the top when a song starts, the charger goes in or the battery is low, your own messages of up to 5 lines, or a vertical message on each panel.</p></div>
       <div class="card"><h3><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Lives in the tray</h3>
         <p>Starts with Windows, follows your screen brightness, and turns the panels off when you close the lid or the laptop sleeps. Keyboard shortcuts skip, freeze or turn on audio reactivity.</p></div>
       <div class="card"><h3><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></svg>Updates itself</h3>
-        <p>The Info tab checks GitHub for a newer version and can download and run the installer for you.</p></div>
+        <p><em>Check for updates</em> in Settings looks for a newer White Rabbit and newer panel firmware, only when you click it, and can download and run the installer for you.</p></div>
     </div>
   </div>
 </section>
@@ -218,9 +259,9 @@ footer a{color:var(--muted)}
 <section id="screens">
   <div class="wrap">
     <h2>Screenshots</h2>
-    <p class="sub">The White Rabbit window on Windows 11.</p>
+    <p class="sub">The White Rabbit 1.5 window. These pictures are drawn by the app itself away from Windows, so the font is a little different and the panel previews are empty.</p>
     <div class="tabs" role="tablist" id="tabs"></div>
-    <div class="shot"><a id="shotlink" href="site/screens/1-panels.jpg"><img id="shotimg" src="site/screens/1-panels.jpg" alt="" width="1342" height="791"></a><p id="shotcap"></p></div>
+    <div class="shot"><a id="shotlink" href="site/screens/home.jpg"><img id="shotimg" src="site/screens/home.jpg" alt="" width="1240" height="860"></a><p id="shotcap"></p></div>
   </div>
 </section>
 
@@ -237,7 +278,7 @@ footer a{color:var(--muted)}
       <li><b>Run the installer.</b> If Windows says "Windows protected your PC", click <em>More info</em> and then <em>Run anyway</em>. The app isn't code-signed yet.</li>
       <li><b>Quit the old apps</b> if you use them (led_mon and ledmatrixgui.exe), because they would be holding the panels. Coming from led_mon? Your layout, brightness and weather key are copied over the first time.</li>
       <li><b>That's it.</b> The panels show the system monitor, an icon appears in the tray, and the window opens. Open it again any time from the Start menu or the tray.</li>
-      <li><b>Optional: flash the White Rabbit firmware</b> for startup animations and extra patterns. On the Firmware tab tick one panel, pick <em>White Rabbit firmware</em>, click <em>Flash</em>, then do the other panel.</li>
+      <li><b>Optional: flash the White Rabbit firmware</b> for startup animations and extra patterns. Under <em>Settings &gt; Firmware</em> tick one panel, pick <em>White Rabbit firmware</em>, click <em>Flash</em>, then do the other panel.</li>
     </ol>
   </div>
 </section>
@@ -247,17 +288,19 @@ footer a{color:var(--muted)}
     <h2>Questions</h2>
     <p class="sub">The quick answers. The <a href="https://github.com/kingof9x/white-rabbit-framework-matrix#good-to-know">README</a> goes deeper.</p>
     <details><summary>Does it work without the custom firmware?</summary>
-      <p>Yes. The monitor, music visualizer, games and math art all work on Framework's official firmware. Only the startup animation setting and the extra Game of Life patterns need the White Rabbit firmware, and you can flash Framework's official 0.2.0 back from the Firmware tab at any time.</p></details>
+      <p>Yes. The monitor, music visualizer, games and math art all work on Framework's official firmware. Only the startup animation setting and the extra Game of Life patterns need the White Rabbit firmware, and you can flash Framework's official 0.2.0 back from <em>Settings &gt; Firmware</em> at any time.</p></details>
     <details><summary>The FPS counter shows nothing.</summary>
       <p>Windows only lets programs read frame timing when your account is in the <em>Performance Log Users</em> group. Run this once in <em>Terminal (Admin)</em>, then sign out and back in:<br><code>Add-LocalGroupMember -SID S-1-5-32-559 -Member "$env:USERDOMAIN\$env:USERNAME"</code></p></details>
     <details><summary>How do I get temperatures and fan speeds?</summary>
       <p>White Rabbit reads them from <a href="https://github.com/ozturkkl/framework-control">Framework Control</a>, <a href="https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases">Libre Hardware Monitor</a> or Framework's framework_tool, whichever it finds first. Framework Control needs no admin prompt and is the easiest.</p></details>
+    <details><summary>Windows or my antivirus warns about it.</summary>
+      <p>White Rabbit isn't code-signed yet, so Windows may say "Windows protected your PC": click <em>More info</em> and then <em>Run anyway</em>. Since 1.5 the whole app is Rust with no Python wrapper, which is what some antivirus programs used to flag. The source is all on GitHub.</p></details>
     <details><summary>The tray icon is hidden under the arrow.</summary>
       <p>On Windows 11 turn on <em>White Rabbit</em> in <em>Settings &gt; Personalization &gt; Taskbar &gt; Other system tray icons</em>, or drag the icon from the arrow onto the taskbar.</p></details>
     <details><summary>Something isn't working.</summary>
       <p>Right-click the tray icon and pick <em>Open log</em>, or run <code>WhiteRabbit.exe --diagnose</code> in a command prompt to see which panels the app finds. Then <a href="https://github.com/kingof9x/white-rabbit-framework-matrix/issues">open an issue</a> or post in the <a href="https://community.frame.work/t/led-matrix-windows-app-white-rabbit/85889">forum thread</a>.</p></details>
     <details><summary>Where does it come from?</summary>
-      <p>White Rabbit combines two MIT-licensed projects: <a href="https://github.com/MidnightJava/led-matrix">MidnightJava's led-matrix</a> (based on Jeremy's LED System Monitor) and <a href="https://github.com/FrameworkComputer/inputmodule-rs">Framework's inputmodule-rs</a>. The Math tab was inspired by mariobx's <a href="https://github.com/mariobx/Framework-LED-Matrix">Framework-LED-Matrix</a> and written from scratch. Thanks to everyone who worked on those.</p></details>
+      <p>White Rabbit combines two MIT-licensed projects: <a href="https://github.com/MidnightJava/led-matrix">MidnightJava's led-matrix</a> (based on Jeremy's LED System Monitor) and <a href="https://github.com/FrameworkComputer/inputmodule-rs">Framework's inputmodule-rs</a>. The Math page was inspired by mariobx's <a href="https://github.com/mariobx/Framework-LED-Matrix">Framework-LED-Matrix</a> and written from scratch. Thanks to everyone who worked on those.</p></details>
   </div>
 </section>
 
@@ -285,13 +328,18 @@ footer a{color:var(--muted)}
 <script>
 (function(){
   var shots=[
-    ["Panels","1-panels.jpg","The layout editor: drag apps onto each panel and set up pages that take turns."],
-    ["Audio","2-audio.jpg","Music mode, the 21 visualizer looks and a live preview of both panels."],
-    ["Math","3-math.jpg","Graphs, Game of Life and other simulations, with a preview that works without panels."],
-    ["Games & patterns","extra-games.jpg","Games, Game of Life patterns and the firmware's built-in patterns."],
-    ["Startup","4-startup-animation.jpg","Choose what the panels play when the laptop turns on."],
-    ["Firmware","extra-firmware.jpg","Check each panel's firmware and flash a new one."],
-    ["Info","extra-info.jpg","Credits, links and the update checker."]
+    ["Home","home.jpg","Every section with its on/off switch."],
+    ["System monitor","monitor.jpg","The layout editor: drag apps onto each panel and set up pages that take turns."],
+    ["Audio","audio.jpg","Audio reactivity, the 22 visualizer looks and a live preview of both panels."],
+    ["Games & patterns","games.jpg","Games, Game of Life patterns and the firmware's built-in patterns."],
+    ["Math","math.jpg","Graphs, Game of Life and other simulations, with a preview that works without panels."],
+    ["Draw","draw.jpg","Draw on both panels, make animations or import a PNG or GIF."],
+    ["Plug animation","plug-animation.jpg","Pick what plays when something is plugged in or out, and for which ports."],
+    ["Transitions","transitions.jpg","How a panel changes from one app to the next."],
+    ["Messages","messages.jpg","The text line, your own messages and vertical messages."],
+    ["Startup","startup.jpg","Choose what the panels play when the laptop turns on."],
+    ["Settings","settings.jpg","Look, panels, Check for updates, firmware and shortcuts."],
+    ["Dark mode","home-dark.jpg","The window follows Windows' light or dark mode and accent colour."]
   ];
   var tabs=document.getElementById('tabs'),img=document.getElementById('shotimg'),
       link=document.getElementById('shotlink'),cap=document.getElementById('shotcap');
@@ -300,7 +348,7 @@ footer a{color:var(--muted)}
     b.onclick=function(){show(i)};tabs.appendChild(b);
   });
   function show(i){
-    var s=shots[i];img.src=link.href='site/screens/'+s[1];img.alt='The '+s[0]+' tab';cap.textContent=s[2];
+    var s=shots[i];img.src=link.href='site/screens/'+s[1];img.alt='The '+s[0]+' page';cap.textContent=s[2];
     [].forEach.call(tabs.children,function(b,j){b.setAttribute('aria-selected',i===j)});
   }
   show(0);
