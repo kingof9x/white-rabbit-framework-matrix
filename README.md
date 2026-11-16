@@ -235,8 +235,9 @@ picture comes back after the unplug animation.
 
 A line of small letters scrolls across the top of both panels when a new song
 starts, the charger goes in or out, or the battery is low. Write your own
-message (up to 5 lines, shown one under the other) and *Show message* keeps
-it going round until you stop it.
+message (up to 5 lines, shown one under the other, small letters and empty
+lines kept as you type them, lined up left, center or right) and *Show message*
+keeps it going round until you stop it.
 
 *Vertical messages* give each panel a message of its own, running down the
 panel in place of what it shows (upright letters, letters on their side, or

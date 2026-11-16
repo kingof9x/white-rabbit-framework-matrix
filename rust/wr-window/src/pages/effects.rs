@@ -107,6 +107,9 @@ fn page_state() -> Shared {
 /// The vertical messages' letter styles, as the Letters list shows them.
 const VERTICAL_STYLES: [&str; 3] = ["ticker", "sideways", "stacked"];
 
+/// How your message's lines line up, as the list shows them.
+const ALIGNS: [&str; 3] = ["left", "center", "right"];
+
 /// The unplug animations in the list's order: the drain first, then the [`Look`]s.
 fn unplug_keys() -> Vec<String> {
     std::iter::once(DRAIN.to_string()).chain(Look::PLUG.iter().map(|l| l.key().to_string())).collect()
@@ -153,6 +156,7 @@ fn show_settings(app: &AppWindow, s: &EffectsSettings) {
     page.set_unplug_look(unplug_keys().iter().position(|k| *k == s.unplug_look).unwrap_or(0) as i32);
     page.set_plug_look(plug_keys().iter().position(|k| *k == s.plug_look).unwrap_or(0) as i32);
     page.set_pinned(s.show_messages);
+    page.set_messages_align(ALIGNS.iter().position(|a| *a == s.messages_align).unwrap_or(0) as i32);
     page.set_vertical_left(s.vertical_left.clone().into());
     page.set_vertical_right(s.vertical_right.clone().into());
     page.set_vertical_style(VERTICAL_STYLES.iter().position(|v| *v == s.vertical_style).unwrap_or(0) as i32);
@@ -358,7 +362,12 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
             new.panels_together = page.get_panels_together();
             new.unplug_look = pick(&unplug_keys(), page.get_unplug_look(), DRAIN);
             new.plug_look = pick(&plug_keys(), page.get_plug_look(), RIPPLE);
-            new.messages = page.get_messages().iter().map(|m| m.trim().to_string()).filter(|m| !m.is_empty()).collect();
+            // Empty lines stay as a gap between lines, unless every line is empty
+            new.messages = page.get_messages().iter().map(|m| m.trim().to_string()).collect();
+            if new.messages.iter().all(String::is_empty) {
+                new.messages.clear();
+            }
+            new.messages_align = ALIGNS[page.get_messages_align().clamp(0, 2) as usize].to_string();
             new.show_messages = page.get_pinned() && !new.messages.is_empty();
             new.vertical_left = page.get_vertical_left().trim().to_string();
             new.vertical_right = page.get_vertical_right().trim().to_string();
