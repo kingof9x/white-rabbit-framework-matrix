@@ -67,13 +67,35 @@ impl Overlay for EffectsOverlay {
     }
 
     fn panel_present(&self, side_index: usize, present: bool) {
-        self.effects().panel_present(side(side_index), present);
+        let mut e = self.effects();
+        let was = e.present(side(side_index));
+        e.panel_present(side(side_index), present);
+        if present && !was {
+            // Just came on: the first picture comes in with the app transition
+            e.start_intro(side(side_index));
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_panel_coming_on_plays_the_transition_once() {
+        let overlay = EffectsOverlay::new(EffectsSettings::default());
+        overlay.panel_present(0, true);
+        let mut grid = Grid::new();
+        grid.set(4, 30, 200);
+        // Sliding (the default) brings the picture up from the bottom: not all there at first
+        assert_ne!(overlay.apply(0, &grid, true), grid);
+        assert!(overlay.interval(0).is_some(), "keeps redrawing while it plays");
+        // Already on (swapping the panels round): nothing new
+        std::thread::sleep(Duration::from_millis(400));
+        overlay.apply(0, &grid, false);
+        overlay.panel_present(0, true);
+        assert_eq!(overlay.apply(0, &grid, true), grid);
+    }
 
     #[test]
     fn a_plug_ripple_keeps_the_panel_redrawing() {

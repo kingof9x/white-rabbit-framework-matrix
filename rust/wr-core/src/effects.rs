@@ -1315,6 +1315,9 @@ pub struct Effects {
     ripples: Vec<(Ripple, Vec<Side>)>,
     /// One drain across both panels (`panels_together`), shared by the two players.
     wide: Option<WideDrain>,
+    /// A panel just came on: bring its first picture in with the app transition (not dropped by
+    /// `forget`, so swapping the panels round at the start keeps it).
+    intro: [bool; 2],
 }
 
 /// The unplug drain over both panels side by side: left panel, the gap, right panel.
@@ -1360,6 +1363,7 @@ impl Effects {
             foreground: 160,
             ripples: Vec::new(),
             wide: None,
+            intro: [false; 2],
         }
     }
 
@@ -1379,6 +1383,19 @@ impl Effects {
 
     pub fn panel_present(&mut self, side: Side, present: bool) {
         self.panels[side.index()] = present;
+        if !present {
+            self.intro[side.index()] = false;
+        }
+    }
+
+    pub fn present(&self, side: Side) -> bool {
+        self.panels[side.index()]
+    }
+
+    /// The panel on this side just came on (White Rabbit starting, or the panel connecting again):
+    /// its first picture comes in with the chosen app transition instead of cutting on.
+    pub fn start_intro(&mut self, side: Side) {
+        self.intro[side.index()] = self.settings.transition() != Transition::Cut;
     }
 
     pub fn player(&self, side: Side) -> &SidePlayer {
@@ -1597,6 +1614,11 @@ impl Effects {
         let player = &mut self.players[i];
         if new_frame || player.last_base.is_none() {
             player.last_base = Some(base.clone());
+        }
+        if new_frame && std::mem::take(&mut self.intro[i]) && player.phase.is_none() {
+            // The first picture after the panel came on: in from dark with the app transition
+            player.slide = None;
+            player.start_rise(now);
         }
         let dt = match player.last_time {
             None => 0.0,
@@ -1817,6 +1839,29 @@ mod tests {
         assert_eq!(half.v[3][5], 100);
         let done = e.apply(Side::Left, &filled(0), true, SidePlayer::FADE_SECONDS);
         assert_eq!(done.v[3][5], 0);
+        assert!(!e.player(Side::Left).active());
+    }
+
+    #[test]
+    fn a_panel_coming_on_fades_its_first_picture_in() {
+        let mut e = with(false, true);
+        e.start_intro(Side::Left);
+        let first = e.apply(Side::Left, &filled(200), true, 0.0);
+        assert!(first.is_dark(), "starts dark");
+        let half = e.apply(Side::Left, &filled(200), false, SidePlayer::FADE_SECONDS / 2.0);
+        assert_eq!(half.v[3][5], 100);
+        let done = e.apply(Side::Left, &filled(200), false, SidePlayer::FADE_SECONDS);
+        assert_eq!(done.v[3][5], 200);
+        assert!(!e.player(Side::Left).active());
+        // Only once
+        assert_eq!(e.apply(Side::Left, &filled(120), true, 5.0).v[3][5], 120);
+    }
+
+    #[test]
+    fn a_panel_coming_on_cuts_on_with_cut() {
+        let mut e = with(false, false);
+        e.start_intro(Side::Left);
+        assert_eq!(e.apply(Side::Left, &filled(200), true, 0.0).v[3][5], 200);
         assert!(!e.player(Side::Left).active());
     }
 
