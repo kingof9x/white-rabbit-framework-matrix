@@ -92,6 +92,8 @@ struct State {
     scores: BTreeMap<String, u32>,
     /// Whether the game should be paused, as the window sees it (the game thread catches up)
     want_paused: bool,
+    /// The last game started, for the Games & patterns switch
+    last: Option<Kind>,
 }
 
 thread_local! {
@@ -247,6 +249,7 @@ fn start(app: &AppWindow, kind: Kind) {
     let count = if panels.is_empty() { 2 } else { panels.len() };
     let layout = if kind.spans() { Span::load() } else { Span::default() };
     let width = layout.picture_width(count);
+    state.borrow_mut().last = Some(kind);
     let best = state.borrow().scores.get(kind.key()).copied().unwrap_or(0);
     let to_panels: Box<dyn Fn(&Pic) -> Pic + Send> = Box::new(move |p: &Pic| layout.to_panels(p, count));
     let session = Session::new(kind.make(width, Rng::from_time()), best, to_panels, PANEL_WIDTH * count);
@@ -294,6 +297,14 @@ fn start(app: &AppWindow, kind: Kind) {
     page.set_focus_preview(page.get_focus_preview() + 1);
     let parts = ctx.clone_parts();
     std::thread::spawn(move || play(session, job, shared, panels, parts));
+}
+
+/// The Games & patterns switch turned on: plays the last game again (Snake the first time).
+pub fn switch_on(app: &AppWindow) {
+    let last = page_state().borrow().last;
+    if let Some(kind) = last.or_else(|| KINDS.first().copied()) {
+        start(app, kind);
+    }
 }
 
 /// Stops the game, if one runs, for another page that uses the panels.

@@ -5,6 +5,7 @@ import { Theme, ThemeSync } from "theme.slint";
 import { App, PanelRow } from "state.slint";
 import { SectionTitle, CheckBox, Hint, Dialog, AccentButton } from "widgets.slint";
 import { HomePage } from "pages/home.slint";
+import { Sections, SectionCard } from "sections.slint";
 import { SettingsPage } from "pages/settings.slint";
 import { FirmwarePage, FirmwareView } from "pages/firmware.slint";
 import { ShortcutsPage, ShortcutsView, ShortcutRow } from "pages/shortcuts.slint";
@@ -213,6 +214,11 @@ export component AppWindow inherits Window {
                     padding-right: 12px;
                     padding-bottom: 20px;
                     alignment: start;
+                    // The section's on/off switch, at the top of its page
+                    if Sections.has-switch(App.page): VerticalLayout {
+                        padding-bottom: 12px;
+                        SectionCard { key: App.page; }
+                    }
                     if App.page == "home": HomePage { }
                     if App.page == "settings": SettingsPage { }
                     if App.page == "firmware": FirmwareView { }
@@ -232,6 +238,10 @@ export component AppWindow inherits Window {
                 vertical-stretch: 1;
                 padding-right: 12px;
                 padding-bottom: 12px;
+                if App.page == "monitor": VerticalLayout {
+                    padding-bottom: 12px;
+                    SectionCard { key: "monitor"; }
+                }
                 if App.page == "monitor": EditorView { }
             }
         }

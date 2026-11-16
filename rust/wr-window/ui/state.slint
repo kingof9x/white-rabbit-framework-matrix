@@ -18,6 +18,8 @@ export global App {
     // At the bottom of the menu: what the panels show
     in property <string> bar-status;
     in-out property <bool> music-mode;
+    // The monitor is running and drawing (nothing borrowed, audio reactivity off)
+    in property <bool> monitor-showing;
     // The layout editor has changes not saved yet
     in property <bool> layout-dirty;
     // 0 system, 1 light, 2 dark, 3 classic
@@ -33,6 +35,8 @@ export global App {
     callback give-back-all();
     callback identify();
     callback music-toggled(bool);
+    // The System monitor, Games & patterns and Math switches ("monitor", "games", "math")
+    callback section-toggled(string, bool);
     callback theme-chosen(int);
     callback name-panels();
     callback save-names(string, string);

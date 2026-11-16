@@ -28,9 +28,13 @@ The newest version is on the [Releases](https://github.com/kingof9x/white-rabbit
   monitor, Games & patterns, Audio, Math, Draw, Plug animation, App transition effects, Display messages,
   Startup animation and Settings. Firmware, Keyboard shortcuts and About White Rabbit live under
   Settings.
-- **A Home page** that shows what each panel is doing right now, with the
-  things you do most in one place: audio mode on or off, Identify panels,
-  naming your panels, and giving the panels back to the system monitor.
+- **A Home page** with every section and its on/off switch: System monitor,
+  Audio reactivity, Games & patterns, Math, Draw, Display messages, Plug
+  animation, App transition effects and Startup animation. Each section's page
+  has the same switch at the top. System monitor, Audio reactivity, Games and
+  Math take over the panels, so turning one on turns the others off; System
+  monitor off leaves the panels dark. What each panel is doing, Panel names and
+  Identify panels are under *Settings > Panels*.
 - **Windows 11 style:** the window follows Windows' light or dark mode and
   your accent colour, with rounded cards like the Windows Settings app. Prefer
   the old look? Pick *Classic* under *Settings > App theme* (you can also force
@@ -74,7 +78,7 @@ while it is open; close it and only the small monitor keeps running.
 - **Plug-in ripple** across the panel from the port you plug something into
   ([more](#effects-page)).
 - **Falling-sand battery:** charging rains sand in, on battery it drains away.
-- **Calm idle music looks:** when the music stops, audio mode shows a quiet
+- **Calm idle music looks:** when the music stops, audio reactivity shows a quiet
   version of the look you picked instead of a pulsing dot, and wakes up when
   the music comes back ([more](#audio-page)).
 - **Panels turn off when the laptop screen isn't used**, for example docked with
@@ -129,7 +133,7 @@ and comes back when you press *Stop* or *Back to system monitor*.
   with *Old-TV effect when turning off and on* in the tray menu.
 - Runs in the tray and starts with Windows. Keyboard shortcuts
   (`Ctrl`+`Alt`+`Shift` + `I` / `N` / `F` / `U` / `M`) show the app names, skip to
-  the next app, freeze or unfreeze app switching, and turn audio mode on or
+  the next app, freeze or unfreeze app switching, and turn audio reactivity on or
   off. Each one can be turned off under *Settings > Keyboard shortcuts*.
 
 ![The System monitor page with the layout editor](docs/screenshots/white-rabbit-panels.png)
@@ -172,8 +176,8 @@ countdown and a random equalizer.
 An audio visualizer that moves with what the laptop is playing, or with what a
 microphone hears (pick any microphone Windows has).
 
-- **Audio mode** shows the visualizer on both panels until you turn it off.
-  Turn it on here, with *Audio mode* in the tray menu, or with
+- **Audio reactivity** shows the visualizer on both panels until you turn it off.
+  Turn it on here, with *Audio reactivity* in the tray menu, or with
   `Ctrl`+`Alt`+`Shift`+`M`. It uses the look last picked on this page.
 - **22 looks:** classic, spectrum analyzer, centre out, dots, spectrogram,
   level meter, waveform, mirror waveform, double waveform, radial bars,
@@ -182,7 +186,7 @@ microphone hears (pick any microphone Windows has).
   (the bass pushes ripples through water, the middle notes glow, the treble
   throws sparks). On the radial looks and
   most of the newer ones the left panel is a mirror image of the right one.
-- **When the music stops**, audio mode doesn't go dark or show a pulsing dot:
+- **When the music stops**, audio reactivity doesn't go dark or show a pulsing dot:
   it shows a calm, slowly moving version of the look you picked, and comes back
   to life as soon as it hears music again.
 - **Options:** one 18-bar spectrum across both panels, peak dots, shading,
@@ -277,7 +281,7 @@ thing, even with no panels connected.
   Breakout and Rabbit run (Ledris always plays side by side).
 
 **Name panels...** at the bottom of the window gives the left and right panels
-names (also on the Home page and under Settings). Identify panels (Home page, System monitor page or tray menu) then shows the first five
+names (also under Settings). Identify panels (Settings, System monitor page or tray menu) then shows the first five
 letters of each name on the panel for two seconds before the app names.
 
 ![The Math page](docs/screenshots/white-rabbit-math.png)

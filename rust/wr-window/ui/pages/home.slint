@@ -1,73 +1,39 @@
-// Home: what the panels are doing, and the things done most often.
+// Home: each section, with its on/off switch. Click a section to open its page.
 import { Theme } from "../theme.slint";
 import { App } from "../state.slint";
-import { Card, SectionTitle, Switch, Status, Button } from "../widgets.slint";
+import { Card, SectionTitle, Status } from "../widgets.slint";
+import { Sections, SectionSwitch } from "../sections.slint";
+
+component Section inherits Card {
+    in property <string> key;
+    link: true;
+    icon: Sections.icon(key);
+    clicked => { App.page = key; }
+    SectionSwitch { key: root.key; }
+}
 
 export component HomePage inherits VerticalLayout {
     spacing: 4px;
-    SectionTitle { text: "Your panels"; }
-    if App.panels.length == 0: Card {
-        icon: @image-url("../icons/grid.svg");
-        title: "No LED Matrix panels found";
-        help: "Check that the panels are in place, then open White Rabbit again.";
-    }
-    for panel in App.panels: Card {
-        icon: @image-url("../icons/grid.svg");
-        title: panel.label;
-        help: panel.doing;
-    }
-    Card {
-        icon: @image-url("../icons/rename.svg");
-        title: "Name your panels";
-        help: "Identify panels shows the names on the panels themselves.";
-        Button { text: "Name panels..."; clicked => { App.name-panels(); } }
-    }
+    SectionTitle { text: "Show on the panels"; }
+    Section { key: "monitor"; title: "System monitor";
+        help: "CPU, memory, battery, clock, weather and more. Click to pick what each panel shows."; }
+    Section { key: "music"; title: "Audio reactivity";
+        help: "The audio visualizer on both panels.  Ctrl+Alt+Shift+M"; }
+    Section { key: "games"; title: "Games & patterns";
+        help: "Snake, Ledris, Breakout and Rabbit run, or a pattern or text."; }
+    Section { key: "math"; title: "Math";
+        help: "Graphs, the Game of Life and other moving maths across both panels."; }
+    Section { key: "draw"; title: "Draw";
+        help: "Draw, animate or import a picture for a panel. On shows it while you draw."; }
     Rectangle { height: 14px; }
-    SectionTitle { text: "Quick actions"; }
-    Card {
-        icon: @image-url("../icons/music_note_2.svg");
-        title: "Audio mode";
-        help: "Both panels show the audio visualizer.  Ctrl+Alt+Shift+M";
-        HorizontalLayout {
-            spacing: 12px;
-            alignment: end;
-            Text { text: App.music-mode ? "On" : "Off"; color: Theme.text; font-size: Theme.body; vertical-alignment: center; }
-            VerticalLayout {
-                alignment: center;
-                Switch {
-                    checked: App.music-mode;
-                    toggled(on) => { App.music-toggled(on); }
-                }
-            }
-        }
-    }
-    Card {
-        icon: @image-url("../icons/target_arrow.svg");
-        title: "Identify panels";
-        help: "Shows each panel's name on it, so you know which is which.";
-        Button { text: "Identify"; clicked => { App.identify(); } }
-    }
-    Card {
-        icon: @image-url("../icons/arrow_undo.svg");
-        title: "Back to the system monitor";
-        help: "Stops a game, pattern or Math picture and lets the monitor draw again.";
-        Button { text: "Give the panels back"; enabled: App.any-borrowed; clicked => { App.give-back-all(); } }
-    }
-    Rectangle { height: 14px; }
-    SectionTitle { text: "Make the panels yours"; }
-    Card { link: true; icon: @image-url("../icons/desktop.svg"); title: "System monitor";
-        help: "Pick what each panel shows: CPU, memory, battery, clock, weather and more."; clicked => { App.page = "monitor"; } }
-    Card { link: true; icon: @image-url("../icons/games.svg"); title: "Games & patterns";
-        help: "Play Snake, Ledris, Breakout and Rabbit run, or show a pattern or text."; clicked => { App.page = "games"; } }
-    Card { link: true; icon: @image-url("../icons/music_note_2.svg"); title: "Audio";
-        help: "Choose how the audio visualizer looks and what it listens to."; clicked => { App.page = "music"; } }
-    Card { link: true; icon: @image-url("../icons/math_formula.svg"); title: "Math";
-        help: "Graphs, the Game of Life and other moving maths across both panels."; clicked => { App.page = "math"; } }
-    Card { link: true; icon: @image-url("../icons/paint_brush.svg"); title: "Draw";
-        help: "Draw, animate or import a picture for a panel."; clicked => { App.page = "draw"; } }
-    Card { link: true; icon: @image-url("../icons/sparkle.svg"); title: "Plug animation";
-        help: "What the panels play when something is plugged in or out, and dimming."; clicked => { App.page = "effects"; } }
-    Card { link: true; icon: @image-url("../icons/play_circle.svg"); title: "Startup animation";
-        help: "What the panels play when the laptop turns on."; clicked => { App.page = "startup"; } }
+    SectionTitle { text: "Extras"; }
+    Section { key: "messages"; title: "Display messages";
+        help: "The text line across the top of the panels, your own messages, and vertical messages."; }
+    Section { key: "effects"; title: "Plug animation";
+        help: "What the panels play when something is plugged in or out."; }
+    Section { key: "transitions"; title: "App transition effects";
+        help: "Slide, fade or an effect when a panel changes app."; }
+    Section { key: "startup"; title: "Startup animation";
+        help: "What the panels play when the laptop turns on."; }
     if App.home-status != "": Status { text: App.home-status; }
 }

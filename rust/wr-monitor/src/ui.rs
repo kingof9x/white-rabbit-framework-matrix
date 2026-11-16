@@ -64,7 +64,7 @@ const ID_LID: usize = 30;
 const ID_SCREEN_UNUSED: usize = 31;
 const ID_QUIT: usize = 40;
 
-/// The keyboard shortcuts (Ctrl+Alt+Shift + letter); M turns audio mode on or off.
+/// The keyboard shortcuts (Ctrl+Alt+Shift + letter); M turns audio reactivity on or off.
 const HOTKEYS: [char; 5] = ['i', 'n', 'f', 'u', 'm'];
 
 const PBT_APMSUSPEND: usize = 0x0004;
@@ -209,7 +209,7 @@ fn show_menu(hwnd: HWND) {
         add(MF_STRING, ID_IDENTIFY, "Identify panels");
         add(MF_STRING, ID_NEXT, "Next app");
         add(MF_STRING | if frozen { MF_CHECKED } else { 0 }, ID_FREEZE, "Freeze app switching");
-        add(MF_STRING | if music { MF_CHECKED } else { 0 }, ID_MUSIC, "Audio mode");
+        add(MF_STRING | if music { MF_CHECKED } else { 0 }, ID_MUSIC, "Audio reactivity");
         add(MF_SEPARATOR, 0, "");
         add(MF_STRING, ID_LHM, "Libre Hardware Monitor");
         add(MF_STRING, ID_FC, "Open Framework Control");

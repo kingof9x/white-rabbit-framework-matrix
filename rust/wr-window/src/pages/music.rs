@@ -55,7 +55,7 @@ pub fn to_json(s: &Settings) -> Value {
 /// One line about what music mode is hearing, from the monitor's reply.
 pub fn hearing_text(hearing: Option<&Value>) -> String {
     let Some(hearing) = hearing.filter(|h| h.as_object().is_some_and(|m| !m.is_empty())) else {
-        return "Audio mode is starting...".into();
+        return "Audio reactivity is starting...".into();
     };
     let mut parts = Vec::new();
     for side in ["left", "right"] {
@@ -72,9 +72,9 @@ pub fn hearing_text(hearing: Option<&Value>) -> String {
         parts.push(format!("{side} panel: {state} ({device})"));
     }
     if parts.is_empty() {
-        "Audio mode is starting...".into()
+        "Audio reactivity is starting...".into()
     } else {
-        format!("Audio mode is listening. {}", parts.join("; "))
+        format!("Audio reactivity is listening. {}", parts.join("; "))
     }
 }
 
@@ -209,7 +209,7 @@ fn page_state() -> Rc<RefCell<State>> {
 fn show_music_mode(app: &AppWindow, reply: Option<Value>) {
     let page = app.global::<MusicPage>();
     let Some(on) = reply.as_ref().and_then(|r| r.get("music_mode")).and_then(|v| v.as_bool()) else {
-        page.set_mode_status("The system monitor isn't running, so audio mode can't start.".into());
+        page.set_mode_status("The system monitor isn't running, so audio reactivity can't start.".into());
         page.set_mode_hearing("".into());
         return;
     };
@@ -325,7 +325,7 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
                 page.set_status("Couldn't save the change (see the log).".into());
                 return;
             }
-            page.set_status("Saved. Audio mode uses this look from now on.".into());
+            page.set_status("Saved. Audio reactivity uses this look from now on.".into());
             // The monitor starts the visualizer again with the new look, if music mode is on
             ctx2.in_background(
                 || link::request(json!({"cmd": "music", "action": "reload"}), Duration::from_secs(3)),
@@ -399,11 +399,11 @@ mod tests {
 
     #[test]
     fn hearing_line() {
-        assert_eq!(hearing_text(None), "Audio mode is starting...");
+        assert_eq!(hearing_text(None), "Audio reactivity is starting...");
         let h = json!({"left": {"device": "Speakers", "silent": true}, "right": {"problem": "No device"}});
         assert_eq!(
             hearing_text(Some(&h)),
-            "Audio mode is listening. left panel: too quiet (Speakers); right panel: No device (no sound device yet)"
+            "Audio reactivity is listening. left panel: too quiet (Speakers); right panel: No device (no sound device yet)"
         );
     }
 

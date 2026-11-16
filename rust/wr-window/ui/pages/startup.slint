@@ -8,6 +8,8 @@ export global StartupPage {
     in-out property <[bool]> picked;
     // As the firmware numbers them: 0 random from all, 1 always one, 2 random from the picked ones, 3 none
     in-out property <int> mode;
+    // The mode to go back to when the Startup animation switch is turned on again
+    in-out property <int> on-mode: 0;
     in-out property <int> animation;
     in property <bool> supported;
     in property <string> status: "Reading the panels...";
