@@ -288,7 +288,12 @@ letters of each name on the panel for two seconds before the app names.
 
 ### Draw page
 
-Draw your own pictures for a panel, one LED at a time, in shades of grey.
+Draw your own pictures for both panels, one LED at a time, in shades of grey.
+The editor shows the left and right panels side by side. Each panel is its own
+picture, and the whole-frame tools work on the one outlined in blue (draw on a
+panel to pick it). Tick **Panels sit next to each other: one picture** (the
+same setting as on the Plug animation page) to draw across both as one
+picture: lines, fills, mirror, moving and imports then go across both.
 
 - **Brush**: pen, eraser or fill (paint bucket), 1 x 1, 2 x 2 or 3 x 3 LEDs,
   six ready shades or any brightness on the slider. The left mouse button
@@ -297,7 +302,8 @@ Draw your own pictures for a panel, one LED at a time, in shades of grey.
   move the picture up, down, left or right.
 - **Frames**: add or copy frames to make an animation, set how long each
   frame shows, and press Play to watch it in the window.
-- **Import a PNG or GIF**: the picture is shrunk to 9 x 34 LEDs and turned
+- **Import a PNG or GIF**: the picture is shrunk to 9 x 34 LEDs (or 18 x 34
+  across both panels when they are one picture) and turned
   grey (the whole picture, filling the panel, or stretched). A GIF keeps all
   its frames and its speed.
 - **My drawings**: save, open and delete drawings. They are small files in
@@ -305,8 +311,10 @@ Draw your own pictures for a panel, one LED at a time, in shades of grey.
 - **Show on the ticked panels while I draw** shows the drawing on the panels
   as you work.
 
-To keep a drawing on a panel, put the **Picture** app on it on the System monitor page
-and pick *My drawing: (name)*. Animated drawings play there too. The monitor
+To keep a drawing on the panels, put the **Picture** app on both panels on the
+System monitor page and pick *My drawing: (name)*: each panel shows its half.
+A drawing with nothing on the right panel shows the same picture on whichever
+panel you put it on. Animated drawings play there too. The monitor
 draws about 10 frames a second, so frames shorter than 100 ms play a little
 slower on the panels than in the window.
 

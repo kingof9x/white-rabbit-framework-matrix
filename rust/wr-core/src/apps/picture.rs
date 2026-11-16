@@ -72,11 +72,44 @@ fn py_floordiv(a: f64, b: f64) -> f64 {
     }
 }
 
-/// A drawing's frames and how long each one shows.
+/// A drawing's frames and how long each one shows. A drawing made for both panels also has the right
+/// panel's frames (`"right"` in the file, the same number as `frames`); `frames` is then the left
+/// panel's. A drawing without them shows the same on either panel.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Drawing {
     pub frames: Vec<Frame>,
     pub delay_ms: i64,
+    pub right: Vec<Frame>,
+}
+
+/// A list of frames from a drawing file.
+fn frames_from_json(value: Option<&Value>) -> Result<Vec<Frame>, String> {
+    let frames_value = match value {
+        None => Vec::new(),
+        Some(Value::Array(a)) => a.clone(),
+        Some(_) => return Err("the frames are not a list".into()),
+    };
+    let mut frames = Vec::new();
+    for f in frames_value.iter().take(MAX_FRAMES) {
+        let rows = f.as_array().ok_or("a frame is not a list")?;
+        if rows.len() != HEIGHT {
+            return Err(format!("a frame has {} rows, not 34", rows.len()));
+        }
+        let mut frame = [[0u8; WIDTH]; HEIGHT];
+        for (y, row) in rows.iter().enumerate() {
+            let values = row.as_array().filter(|r| r.len() == WIDTH).ok_or("a frame is not 9 x 34")?;
+            for (x, v) in values.iter().enumerate() {
+                let v = match v {
+                    Value::Number(n) => n.as_f64().unwrap_or(0.0),
+                    Value::Bool(b) => *b as u8 as f64,
+                    _ => return Err("a frame has a value that is not a number".into()),
+                };
+                frame[y][x] = v.clamp(0.0, 255.0) as u8;
+            }
+        }
+        frames.push(frame);
+    }
+    Ok(frames)
 }
 
 impl Drawing {
@@ -84,35 +117,23 @@ impl Drawing {
     /// isn't 9 x 34 is an error, as in Python. A drawing without frames shows one dark frame.
     pub fn from_json(data: &Value) -> Result<Drawing, String> {
         let map = data.as_object().ok_or("not a drawing")?;
-        let frames_value = match map.get("frames") {
-            None => Vec::new(),
-            Some(Value::Array(a)) => a.clone(),
-            Some(_) => return Err("the frames are not a list".into()),
-        };
-        let mut frames = Vec::new();
-        for f in frames_value.iter().take(MAX_FRAMES) {
-            let rows = f.as_array().ok_or("a frame is not a list")?;
-            if rows.len() != HEIGHT {
-                return Err(format!("a frame has {} rows, not 34", rows.len()));
-            }
-            let mut frame = [[0u8; WIDTH]; HEIGHT];
-            for (y, row) in rows.iter().enumerate() {
-                let values = row.as_array().filter(|r| r.len() == WIDTH).ok_or("a frame is not 9 x 34")?;
-                for (x, v) in values.iter().enumerate() {
-                    let v = match v {
-                        Value::Number(n) => n.as_f64().unwrap_or(0.0),
-                        Value::Bool(b) => *b as u8 as f64,
-                        _ => return Err("a frame has a value that is not a number".into()),
-                    };
-                    frame[y][x] = v.clamp(0.0, 255.0) as u8;
-                }
-            }
-            frames.push(frame);
-        }
+        let mut frames = frames_from_json(map.get("frames"))?;
         if frames.is_empty() {
             frames.push([[0; WIDTH]; HEIGHT]);
         }
-        Ok(Drawing { frames, delay_ms: clamp_delay(map.get("delay_ms")) })
+        // The right panel's frames, as many as the left's
+        let mut right = frames_from_json(map.get("right")).unwrap_or_default();
+        if !right.is_empty() {
+            right.resize(frames.len(), [[0; WIDTH]; HEIGHT]);
+        }
+        Ok(Drawing { frames, delay_ms: clamp_delay(map.get("delay_ms")), right })
+    }
+
+    /// The frame showing on this panel ("left" or "right") after this many seconds of playing.
+    pub fn frame_on(&self, seconds: f64, side: &str) -> &Frame {
+        let step = py_floordiv(seconds * 1000.0, self.delay_ms as f64) as i64;
+        let frames = if side == "right" && !self.right.is_empty() { &self.right } else { &self.frames };
+        &frames[step.rem_euclid(frames.len() as i64) as usize]
     }
 
     /// The frame showing after this many seconds of playing (loops).
@@ -169,10 +190,10 @@ impl Player {
         self.cache.get(name).and_then(|(_, d)| d.as_ref())
     }
 
-    /// The frame to show now, or None if the drawing is missing.
-    pub fn frame(&mut self, name: &str) -> Option<Frame> {
+    /// The frame to show now on this panel ("left" or "right"), or None if the drawing is missing.
+    pub fn frame(&mut self, name: &str, side: &str) -> Option<Frame> {
         let seconds = self.started.elapsed().as_secs_f64();
-        self.get(name).map(|d| *d.frame_at(seconds))
+        self.get(name).map(|d| *d.frame_on(seconds, side))
     }
 }
 
@@ -223,15 +244,16 @@ pub fn load_snapshot(path: &str, panel: Option<&str>, file: &str) -> Option<Vec<
     text.and_then(|t| serde_json::from_str(&t).ok())
 }
 
-/// The snap app: a drawing ("drawing:<name>") or a built-in picture, on the whole panel.
-pub fn draw_app(grid: &mut Grid, app: &App, fill_value: i32) {
+/// The snap app: a drawing ("drawing:<name>") or a built-in picture, on the whole panel. `side` is the
+/// panel it is on, for drawings made for both panels.
+pub fn draw_app(grid: &mut Grid, app: &App, fill_value: i32, side: &str) {
     let file = app.arg_str("file").unwrap_or_default();
     if let Some(name) = file.strip_prefix(PREFIX) {
         let Some(folder) = FOLDER.lock().unwrap().clone() else { return };
         let mut player = PLAYER.lock().unwrap();
         let player = player.get_or_insert_with(|| Player::new(folder.clone()));
         player.folder = folder;
-        match player.frame(name) {
+        match player.frame(name, side) {
             Some(frame) => draw_frame(grid, &frame, fill_value),
             None => warn_once(&file, &format!("Drawing {name} not found")),
         }
