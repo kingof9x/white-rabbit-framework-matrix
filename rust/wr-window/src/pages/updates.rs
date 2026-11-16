@@ -25,9 +25,11 @@ pub const FIRMWARE_REPO: &str = "kingof9x/inputmodule-rs";
 const SETUP_ASSET: &str = "WhiteRabbit-setup.exe";
 const FIRMWARE_ASSET: &str = "ledmatrix.uf2";
 
-/// "v1.2" -> [1, 2, 0, 0], so "1" and "1.0.0" count as the same version.
+/// "v1.2" -> [1, 2, 0, 0], so "1" and "1.0.0" count as the same version. Anything after a - or +
+/// ("1.5-test.230") is left out, so a test build counts as the release it was made after.
 pub fn version_numbers(text: &str) -> [u64; 4] {
     let mut out = [0u64; 4];
+    let text = text.split(['-', '+']).next().unwrap_or("");
     let nums = text.split(|c: char| !c.is_ascii_digit()).filter(|s| !s.is_empty()).filter_map(|s| s.parse().ok());
     for (slot, n) in out.iter_mut().zip(nums) {
         *slot = n;
@@ -35,8 +37,16 @@ pub fn version_numbers(text: &str) -> [u64; 4] {
     out
 }
 
+/// True only when `latest` is a higher version than `current`. Never offers the same or an older
+/// version. A copy that doesn't know its version is offered nothing either: it may be newer.
 pub fn is_newer(latest: &str, current: &str) -> bool {
-    current.is_empty() || version_numbers(latest) > version_numbers(current)
+    let (l, c) = (version_numbers(latest), version_numbers(current));
+    l != [0; 4] && c != [0; 4] && l > c
+}
+
+/// "1.5-test.230": a test build, not a release.
+pub fn is_test_build(version: &str) -> bool {
+    version.contains("-test")
 }
 
 #[derive(Clone, Debug)]
@@ -266,7 +276,14 @@ pub fn show_results(
         Ok(release) => {
             let latest = if release.version.is_empty() { "unknown".to_string() } else { release.version.clone() };
             if !is_newer(&release.version, current) {
-                show_app(app, format!("You have the newest version ({current})."));
+                show_app(
+                    app,
+                    if is_test_build(current) {
+                        format!("You have a test build ({current}). The newest release is {latest}, so there's nothing newer to install.")
+                    } else {
+                        format!("You have the newest version ({current}).")
+                    },
+                );
             } else if release.asset_url.is_some() {
                 show_app(app, format!("Version {latest} is available (you have {current}). Your settings are kept."));
                 p.set_can_install(true);
@@ -510,7 +527,16 @@ mod tests {
         assert_eq!(version_numbers("v1.2"), [1, 2, 0, 0]);
         assert!(is_newer("1.5", "1.4.0"));
         assert!(!is_newer("1.4", "1.4.0"));
-        assert!(is_newer("1.4", ""));
+        // Never the same, older or unknown
+        assert!(!is_newer("1.4", ""));
+        assert!(!is_newer("1.4", "1.5"));
+        assert!(!is_newer("", "1.5"));
+        // A test build made after 1.5 is 1.5
+        assert!(!is_newer("1.4", "1.5-test.230"));
+        assert!(!is_newer("1.5", "1.5-test.230"));
+        assert!(is_newer("1.6", "1.5-test.230"));
+        assert!(is_test_build("1.5-test.230"));
+        assert!(!is_test_build("1.5"));
     }
 
     #[test]
