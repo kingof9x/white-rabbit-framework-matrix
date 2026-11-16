@@ -1,14 +1,18 @@
-// Draw: draw on one panel's 9 x 34 LEDs in shades of grey, make an animation out of several frames,
-// import a PNG or GIF, and save drawings for the Picture app to show on a panel.
+// Draw: draw on both panels' 9 x 34 LEDs in shades of grey (each on its own, or both as one picture
+// when the panels sit next to each other), make an animation out of several frames, import a PNG or
+// GIF, and save drawings for the Picture app to show on the panels.
 import { Theme } from "../theme.slint";
 import { Group, Hint, Status, Slider, Button, AccentButton, CheckBox, RadioButton } from "../widgets.slint";
 import { ComboBox, LineEdit, SpinBox, ListView, ScrollView } from "std-widgets.slint";
+import { EffectsPage } from "effects.slint";
 
 export global DrawPage {
-    // The editor: 9 x 34 LEDs, each `led` pixels, with `margin` round them
+    // The editor: both panels' 9 x 34 LEDs, each `led` pixels, `gap` between the panels and `margin`
+    // round them
     in property <image> editor;
     in property <length> led: 14px;
     in property <length> margin: 6px;
+    in property <length> gap: 16px;
     in property <[image]> thumbs;
     in property <int> index;
     in property <string> label: "Not saved yet";
@@ -52,6 +56,7 @@ export global DrawPage {
     callback new-drawing();
     callback delete-drawing();
     callback show-folder();
+    callback together-changed();
 }
 
 component Line inherits HorizontalLayout {
@@ -164,7 +169,7 @@ export component DrawView inherits FocusScope {
             alignment: start;
             Text { text: DrawPage.label; color: Theme.text2; font-size: Theme.caption; width: canvas.width; wrap: word-wrap; }
             canvas := Rectangle {
-                width: DrawPage.led * 9 + DrawPage.margin * 2;
+                width: DrawPage.led * 18 + DrawPage.gap + DrawPage.margin * 2;
                 height: DrawPage.led * 34 + DrawPage.margin * 2;
                 background: #111111;
                 border-radius: 4px;
@@ -175,7 +180,16 @@ export component DrawView inherits FocusScope {
                     image-rendering: pixelated;
                 }
                 property <bool> down;
-                function cell-x() -> int { return floor((ta.mouse-x - DrawPage.margin) / DrawPage.led); }
+                // Columns 0-8 are the left panel, 9-17 the right one (after the gap); the gap is -1
+                function cell-x() -> int {
+                    if ta.mouse-x < DrawPage.margin + DrawPage.led * 9 {
+                        return floor((ta.mouse-x - DrawPage.margin) / DrawPage.led);
+                    }
+                    if ta.mouse-x < DrawPage.margin + DrawPage.led * 9 + DrawPage.gap {
+                        return -1;
+                    }
+                    return 9 + floor((ta.mouse-x - DrawPage.margin - DrawPage.led * 9 - DrawPage.gap) / DrawPage.led);
+                }
                 function cell-y() -> int { return floor((ta.mouse-y - DrawPage.margin) / DrawPage.led); }
                 ta := TouchArea {
                     mouse-cursor: crosshair;
@@ -195,6 +209,18 @@ export component DrawView inherits FocusScope {
                     }
                 }
             }
+            HorizontalLayout {
+                width: canvas.width;
+                Text { text: "Left panel"; color: Theme.text2; font-size: Theme.caption; horizontal-alignment: center; width: DrawPage.led * 9 + DrawPage.margin + DrawPage.gap / 2; }
+                Text { text: "Right panel"; color: Theme.text2; font-size: Theme.caption; horizontal-alignment: center; }
+            }
+            Text {
+                width: canvas.width;
+                wrap: word-wrap;
+                color: Theme.text2;
+                font-size: Theme.caption;
+                text: EffectsPage.panels-together ? "Both panels are one picture: lines, fills and the whole-frame tools go across both." : "Each panel is its own picture. The whole-frame tools work on the one outlined in blue: draw on a panel to pick it.";
+            }
         }
         // Frames, import, the panels and saved drawings
         VerticalLayout {
@@ -210,14 +236,14 @@ export component DrawView inherits FocusScope {
                         padding: 4px;
                         alignment: start;
                         for t[i] in DrawPage.thumbs: Rectangle {
-                            width: 33px;
+                            width: 63px;
                             border-radius: 3px;
                             border-width: 2px;
                             border-color: i == DrawPage.index ? Theme.accent : transparent;
                             VerticalLayout {
                                 padding: 3px;
                                 spacing: 2px;
-                                Image { source: t; width: 27px; height: 102px; image-rendering: pixelated; }
+                                Image { source: t; width: 57px; height: 102px; image-rendering: pixelated; }
                                 Text { text: i + 1; color: Theme.text2; font-size: Theme.caption; horizontal-alignment: center; }
                             }
                             TouchArea { clicked => { DrawPage.pick-frame(i); } }
@@ -243,8 +269,9 @@ export component DrawView inherits FocusScope {
                         value <=> DrawPage.delay;
                         edited(v) => { DrawPage.delay-changed(v); }
                     }
-                    Label { text: "milliseconds"; }
-                    Rectangle { width: 8px; }
+                    Label { text: "ms"; }
+                }
+                Line {
                     AccentButton { text: DrawPage.playing ? "Stop" : "Play"; clicked => { DrawPage.play(); } }
                 }
             }
@@ -259,7 +286,7 @@ export component DrawView inherits FocusScope {
                         Label { text: "Shape"; }
                         ComboBox { model: DrawPage.fits; current-index <=> DrawPage.fit; }
                         CheckBox { text: "Swap dark and light (for dark drawings on white)"; checked <=> DrawPage.invert; }
-                        Hint { text: "The picture is shrunk to 9 x 34 LEDs and turned grey. A GIF keeps all its frames and its speed. It replaces what is in the editor (Undo brings it back)."; }
+                        Hint { text: EffectsPage.panels-together ? "The picture is shrunk to fit both panels (18 x 34 LEDs) and turned grey. A GIF keeps all its frames and its speed. It replaces what is in the editor (Undo brings it back)." : "The picture is shrunk to the panel outlined in blue (9 x 34 LEDs) and turned grey. A GIF keeps all its frames and its speed. It replaces that panel's picture (Undo brings it back)."; }
                     }
                     Group {
                         title: "On the panels";
@@ -268,7 +295,12 @@ export component DrawView inherits FocusScope {
                             checked: DrawPage.live;
                             toggled(on) => { DrawPage.live-changed(on); }
                         }
-                        Hint { text: "To keep a drawing on a panel, save it, then put the Picture app on the panel on the System monitor page and pick the drawing there."; }
+                        CheckBox {
+                            text: "Panels sit next to each other: one picture";
+                            checked <=> EffectsPage.panels-together;
+                            toggled => { EffectsPage.changed(); DrawPage.together-changed(); }
+                        }
+                        Hint { text: "To keep a drawing on the panels, save it, then put the Picture app on both panels on the System monitor page and pick the drawing there. Each panel shows its half; a drawing on the left panel only shows on whichever panel you put it on."; }
                     }
                 }
                 Group {

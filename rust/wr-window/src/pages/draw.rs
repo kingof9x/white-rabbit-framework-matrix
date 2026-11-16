@@ -1,5 +1,6 @@
-//! Draw (DrawTab in `draw_tab.py`): draw on one panel's 9 x 34 LEDs in shades of grey, make an
-//! animation out of several frames, import a PNG or GIF, and save drawings for the Picture app.
+//! Draw (DrawTab in `draw_tab.py`): draw on both panels' 9 x 34 LEDs in shades of grey, each panel on
+//! its own or both as one picture (when the panels sit next to each other), make an animation out of
+//! several frames, import a PNG or GIF, and save drawings for the Picture app.
 //!
 //! The idea of a drawing editor comes from Deo's LED Matrix Manager (MIT licence); this is our own code.
 
@@ -14,20 +15,26 @@ use wr_core::grid::{HEIGHT, WIDTH};
 
 use crate::app::{ctx, Ctx};
 use crate::commands as cmd;
-use crate::drawings::{self, Drawing, Frame, MAX_FRAMES};
+use crate::drawings::{self, Drawing, Pic, Wide, BOTH, MAX_FRAMES};
 use crate::panels::Panel;
-use crate::{dialogs, AppWindow, DrawPage};
+use crate::{dialogs, AppWindow, DrawPage, EffectsPage};
 
-const LED: usize = 14;
+const LED: usize = 12;
 const MARGIN: usize = 6;
+/// Window pixels between the two panels in the editor
+const GAP: usize = 16;
 /// Pixels per window pixel in the editor's picture, so it stays sharp on scaled screens
 const SCALE: usize = 2;
 const UNDO_STEPS: usize = 50;
 
-type Snapshot = (Vec<Frame>, usize, i64);
+type Snapshot = (Vec<Wide>, usize, i64);
 
 struct State {
-    drawing: Drawing,
+    drawing: Pic,
+    /// The panel the whole-frame tools work on when the panels are drawn on one at a time (0 left)
+    active: usize,
+    /// Columns the brush stroke stays in
+    stroke_cols: (usize, usize),
     index: usize,
     name: String,
     saved: Option<Drawing>,
@@ -43,10 +50,12 @@ struct State {
 
 impl Default for State {
     fn default() -> State {
-        let drawing = drawings::new_drawing();
+        let drawing = drawings::new_pic();
         State {
-            saved: Some(drawing.clone()),
+            saved: Some(drawings::to_drawing(&drawing)),
             drawing,
+            active: 0,
+            stroke_cols: (0, WIDTH),
             index: 0,
             name: String::new(),
             undo: Vec::new(),
@@ -71,7 +80,7 @@ fn page_state() -> Rc<RefCell<State>> {
 
 /// The newest frame waiting to go to the panels, and whether a send is under way.
 struct Pusher {
-    next: Mutex<Option<(Frame, Vec<Panel>)>>,
+    next: Mutex<Option<(Wide, Vec<Panel>)>>,
     busy: AtomicBool,
 }
 
@@ -86,17 +95,44 @@ fn shade(v: u8) -> u8 {
     (0x22 + v as u32 * (0xFF - 0x22) / 255) as u8
 }
 
-fn render_editor(frame: &Frame) -> Image {
-    let (w, h) = ((WIDTH * LED + 2 * MARGIN) * SCALE, (HEIGHT * LED + 2 * MARGIN) * SCALE);
+/// Where a column of both panels starts in the editor, in window pixels from the left margin.
+fn column_x(c: usize) -> usize {
+    c * LED + if c >= WIDTH { GAP } else { 0 }
+}
+
+/// Both panels side by side; `active` outlines the panel the tools work on.
+fn render_editor(frame: &Wide, active: Option<usize>) -> Image {
+    let (w, h) = ((BOTH * LED + GAP + 2 * MARGIN) * SCALE, (HEIGHT * LED + 2 * MARGIN) * SCALE);
     let mut buf = SharedPixelBuffer::<Rgba8Pixel>::new(w as u32, h as u32);
     let px = buf.make_mut_slice();
     for p in px.iter_mut() {
         *p = Rgba8Pixel { r: 0x11, g: 0x11, b: 0x11, a: 255 };
     }
+    // The space between the panels
+    let (g0, g1) = ((MARGIN + WIDTH * LED + 2) * SCALE, (MARGIN + WIDTH * LED + GAP - 2) * SCALE);
+    for y in 0..h {
+        for x in g0..g1 {
+            px[y * w + x] = Rgba8Pixel { r: 0x2a, g: 0x2a, b: 0x2a, a: 255 };
+        }
+    }
+    if let Some(panel) = active {
+        let x0 = (MARGIN + column_x(panel * WIDTH)) * SCALE - 3 * SCALE;
+        let x1 = (MARGIN + column_x(panel * WIDTH) + WIDTH * LED) * SCALE + 3 * SCALE;
+        let (y0, y1) = (MARGIN * SCALE - 3 * SCALE, (MARGIN + HEIGHT * LED) * SCALE + 3 * SCALE);
+        let blue = Rgba8Pixel { r: 0x3a, g: 0x8e, b: 0xe6, a: 255 };
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let edge = x < x0 + 2 * SCALE || x >= x1 - 2 * SCALE || y < y0 + 2 * SCALE || y >= y1 - 2 * SCALE;
+                if edge {
+                    px[y * w + x] = blue;
+                }
+            }
+        }
+    }
     for (r, row) in frame.iter().enumerate() {
         for (c, v) in row.iter().enumerate() {
             let s = shade(*v);
-            let (x0, y0) = ((MARGIN + c * LED + 1) * SCALE, (MARGIN + r * LED + 1) * SCALE);
+            let (x0, y0) = ((MARGIN + column_x(c) + 1) * SCALE, (MARGIN + r * LED + 1) * SCALE);
             for y in y0..y0 + (LED - 2) * SCALE {
                 for x in x0..x0 + (LED - 2) * SCALE {
                     px[y * w + x] = Rgba8Pixel { r: s, g: s, b: s, a: 255 };
@@ -107,27 +143,54 @@ fn render_editor(frame: &Frame) -> Image {
     Image::from_rgba8(buf)
 }
 
-fn render_thumb(frame: &Frame) -> Image {
-    let mut buf = SharedPixelBuffer::<Rgba8Pixel>::new(WIDTH as u32, HEIGHT as u32);
+/// Both panels with a dark column between them.
+fn render_thumb(frame: &Wide) -> Image {
+    let tw = BOTH + 1;
+    let mut buf = SharedPixelBuffer::<Rgba8Pixel>::new(tw as u32, HEIGHT as u32);
     let px = buf.make_mut_slice();
     for (r, row) in frame.iter().enumerate() {
+        px[r * tw + WIDTH] = Rgba8Pixel { r: 0x11, g: 0x11, b: 0x11, a: 255 };
         for (c, v) in row.iter().enumerate() {
             let s = shade(*v);
-            px[r * WIDTH + c] = Rgba8Pixel { r: s, g: s, b: s, a: 255 };
+            px[r * tw + c + (c >= WIDTH) as usize] = Rgba8Pixel { r: s, g: s, b: s, a: 255 };
         }
     }
     Image::from_rgba8(buf)
 }
 
+/// Both panels drawn as one picture (the panels sit next to each other).
+fn together(app: &AppWindow) -> bool {
+    app.global::<EffectsPage>().get_panels_together()
+}
+
+/// The columns the tools work on: both panels, or the active one.
+fn region(app: &AppWindow, s: &State) -> (usize, usize) {
+    if together(app) {
+        (0, BOTH)
+    } else {
+        (s.active * WIDTH, (s.active + 1) * WIDTH)
+    }
+}
+
+fn editor_image(app: &AppWindow, s: &State, frame: &Wide) -> Image {
+    render_editor(frame, (!together(app)).then_some(s.active))
+}
+
+/// The frame showing after this many seconds of playing (loops).
+fn frame_at(p: &Pic, seconds: f64) -> &Wide {
+    let step = (seconds * 1000.0 / p.delay_ms.max(1) as f64).floor() as usize;
+    &p.frames[step % p.frames.len()]
+}
+
 fn is_dirty(s: &State) -> bool {
-    s.saved.as_ref() != Some(&s.drawing)
+    s.saved.as_ref() != Some(&drawings::to_drawing(&s.drawing))
 }
 
 /// Shows the frame being edited (or `frame`, while playing), the label and the frame strip.
-fn redraw(app: &AppWindow, s: &State, frame: Option<&Frame>) {
+fn redraw(app: &AppWindow, s: &State, frame: Option<&Wide>) {
     let page = app.global::<DrawPage>();
     let current = frame.unwrap_or(&s.drawing.frames[s.index]);
-    page.set_editor(render_editor(current));
+    page.set_editor(editor_image(app, s, current));
     if frame.is_some() {
         push(current, &s.live_panels, app);
         return;
@@ -162,18 +225,20 @@ fn stop_playing(app: &AppWindow, s: &mut State) {
 }
 
 /// Changes the frame being edited, with undo.
-fn transform(app: &AppWindow, f: impl Fn(&Frame) -> Frame) {
+/// Changes the frame being edited in the columns the tools work on, with undo: f(frame, c0, c1).
+fn transform(app: &AppWindow, f: impl Fn(&Wide, usize, usize) -> Wide) {
     let st = page_state();
     let mut s = st.borrow_mut();
     stop_playing(app, &mut s);
     remember(&mut s);
     let i = s.index;
-    s.drawing.frames[i] = f(&s.drawing.frames[i]);
+    let (c0, c1) = region(app, &s);
+    s.drawing.frames[i] = f(&s.drawing.frames[i], c0, c1);
     redraw(app, &s, None);
 }
 
 /// Changes the list of frames: f(frames, index) -> (frames, index).
-fn change_frames(app: &AppWindow, f: impl Fn(Vec<Frame>, usize) -> (Vec<Frame>, usize)) {
+fn change_frames(app: &AppWindow, f: impl Fn(Vec<Wide>, usize) -> (Vec<Wide>, usize)) {
     let st = page_state();
     let mut s = st.borrow_mut();
     stop_playing(app, &mut s);
@@ -196,7 +261,7 @@ fn restore(app: &AppWindow, undo: bool) {
     let Some((frames, index, delay)) = source.pop() else { return };
     target.push((s.drawing.frames.clone(), s.index, s.drawing.delay_ms));
     s.index = index.min(frames.len() - 1);
-    s.drawing = Drawing { frames, delay_ms: delay };
+    s.drawing = Pic { frames, delay_ms: delay };
     redraw(app, s, None);
 }
 
@@ -206,15 +271,16 @@ fn paint(app: &AppWindow, s: &mut State, r: i64, c: i64) {
     let size = page.get_size().clamp(1, 3) as i64;
     let (top, left) = (r - (size - 1) / 2, c - (size - 1) / 2);
     let i = s.index;
+    let (c0, c1) = s.stroke_cols;
     for rr in top.max(0)..(top + size).min(HEIGHT as i64) {
-        for cc in left.max(0)..(left + size).min(WIDTH as i64) {
+        for cc in left.max(c0 as i64)..(left + size).min(c1 as i64) {
             s.drawing.frames[i][rr as usize][cc as usize] = value;
         }
     }
 }
 
 fn cell(x: i32, y: i32) -> Option<(i64, i64)> {
-    ((0..WIDTH as i32).contains(&x) && (0..HEIGHT as i32).contains(&y)).then_some((y as i64, x as i64))
+    ((0..BOTH as i32).contains(&x) && (0..HEIGHT as i32).contains(&y)).then_some((y as i64, x as i64))
 }
 
 fn press(app: &AppWindow, x: i32, y: i32, erase: bool) {
@@ -225,10 +291,14 @@ fn press(app: &AppWindow, x: i32, y: i32, erase: bool) {
     remember(&mut s);
     s.stroke = true;
     s.erase = erase;
+    // Drawing on a panel makes it the one the whole-frame tools work on
+    s.active = c as usize / WIDTH;
+    s.stroke_cols = region(app, &s);
     if app.global::<DrawPage>().get_tool() == 2 && !erase {
         let i = s.index;
         let value = app.global::<DrawPage>().get_shade().clamp(0, 255) as u8;
-        s.drawing.frames[i] = drawings::flood_fill(&s.drawing.frames[i], r as usize, c as usize, value);
+        let (c0, c1) = s.stroke_cols;
+        s.drawing.frames[i] = drawings::flood_fill(&s.drawing.frames[i], r as usize, c as usize, value, c0, c1);
         s.stroke = false;
         redraw(app, &s, None);
         return;
@@ -236,7 +306,7 @@ fn press(app: &AppWindow, x: i32, y: i32, erase: bool) {
     s.last_cell = Some((r, c));
     paint(app, &mut s, r, c);
     let frame = s.drawing.frames[s.index];
-    app.global::<DrawPage>().set_editor(render_editor(&frame));
+    app.global::<DrawPage>().set_editor(editor_image(app, &s, &frame));
     if app.global::<DrawPage>().get_live() {
         push(&frame, &s.live_panels, app);
     }
@@ -262,7 +332,7 @@ fn drag(app: &AppWindow, x: i32, y: i32) {
     }
     s.last_cell = Some((r1, c1));
     let frame = s.drawing.frames[s.index];
-    app.global::<DrawPage>().set_editor(render_editor(&frame));
+    app.global::<DrawPage>().set_editor(editor_image(app, &s, &frame));
     if app.global::<DrawPage>().get_live() {
         push(&frame, &s.live_panels, app);
     }
@@ -279,8 +349,9 @@ fn release(app: &AppWindow) {
     }
 }
 
-/// Sends the frame to the panels soon: at most one send at a time, the newest frame wins.
-fn push(frame: &Frame, panels: &[Panel], app: &AppWindow) {
+/// Sends the frame to the panels soon (each panel its half): at most one send at a time, the newest
+/// frame wins.
+fn push(frame: &Wide, panels: &[Panel], app: &AppWindow) {
     if !app.global::<DrawPage>().get_live() || panels.is_empty() {
         return;
     }
@@ -309,14 +380,19 @@ fn push(frame: &Frame, panels: &[Panel], app: &AppWindow) {
                 let _ = parts.sender.write(&p.device, &[cmd::animate(false)]);
             }
         }
-        let mut grid = [[0u8; cmd::HEIGHT]; cmd::WIDTH];
-        for (y, row) in frame.iter().enumerate() {
-            for (x, v) in row.iter().enumerate() {
-                grid[x][y] = *v;
-            }
-        }
-        let writes: Vec<(String, Vec<Vec<u8>>)> =
-            panels.iter().map(|p| (p.device.clone(), cmd::greyscale(&grid))).collect();
+        let writes: Vec<(String, Vec<Vec<u8>>)> = panels
+            .iter()
+            .map(|p| {
+                let half = drawings::half(&frame, (p.side == "right") as usize);
+                let mut grid = [[0u8; cmd::HEIGHT]; cmd::WIDTH];
+                for (y, row) in half.iter().enumerate() {
+                    for (x, v) in row.iter().enumerate() {
+                        grid[x][y] = *v;
+                    }
+                }
+                (p.device.clone(), cmd::greyscale(&grid))
+            })
+            .collect();
         if let Err(e) = parts.sender.write_many(&writes) {
             let text = format!("Couldn't show it on the panels: {e}");
             Ctx::later(&parts.ui, move |app| show(app, text));
@@ -353,6 +429,7 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
     let page = app.global::<DrawPage>();
     page.set_led(LED as f32);
     page.set_margin(MARGIN as f32);
+    page.set_gap(GAP as f32);
     let fits: Vec<SharedString> = drawings::FITS.iter().map(|(_, l)| SharedString::from(*l)).collect();
     page.set_fits(ModelRc::new(VecModel::from(fits)));
     refresh_names(app, None);
@@ -382,7 +459,7 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
                 s.live_panels.clear();
             }
             if let Some(started) = s.playing {
-                let frame = *s.drawing.frame_at(started.elapsed().as_secs_f64());
+                let frame = *frame_at(&s.drawing, started.elapsed().as_secs_f64());
                 redraw(&app, &s, Some(&frame));
             }
         });
@@ -406,10 +483,10 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
             page.set_tool(0);
         }
     });
-    page.on_clear(with_app(|app| transform(app, |_| drawings::blank())));
+    page.on_clear(with_app(|app| transform(app, |f, c0, c1| drawings::fill(f, 0, c0, c1))));
     page.on_fill(with_app(|app| {
         let v = app.global::<DrawPage>().get_shade().clamp(0, 255) as u8;
-        transform(app, move |_| [[v; WIDTH]; HEIGHT]);
+        transform(app, move |f, c0, c1| drawings::fill(f, v, c0, c1));
     }));
     page.on_swap(with_app(|app| transform(app, drawings::invert)));
     page.on_mirror(with_app(|app| transform(app, drawings::mirror)));
@@ -418,7 +495,7 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
     page.on_redo(with_app(|app| restore(app, false)));
     page.on_shift(|dy, dx| {
         if let Some(app) = crate::app::ctx().ui.upgrade() {
-            transform(&app, move |f| drawings::roll(f, dy as i64, dx as i64));
+            transform(&app, move |f, c0, c1| drawings::roll(f, dy as i64, dx as i64, c0, c1));
         }
     });
     page.on_pick_frame(|i| {
@@ -433,7 +510,7 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
     });
     page.on_add_blank(with_app(|app| {
         change_frames(app, |mut f, i| {
-            f.insert(i + 1, drawings::blank());
+            f.insert(i + 1, drawings::blank_wide());
             (f, i + 1)
         })
     }));
@@ -446,7 +523,12 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
     page.on_delete_frame(with_app(|app| {
         let one = page_state().borrow().drawing.frames.len() == 1;
         if one {
-            transform(app, |_| drawings::blank());
+            let st = page_state();
+            let mut s = st.borrow_mut();
+            stop_playing(app, &mut s);
+            remember(&mut s);
+            s.drawing.frames[0] = drawings::blank_wide();
+            redraw(app, &s, None);
         } else {
             change_frames(app, |mut f, i| {
                 f.remove(i);
@@ -497,14 +579,32 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
         };
         let page = app.global::<DrawPage>();
         let fit = drawings::FITS.get(page.get_fit().max(0) as usize).map(|f| f.0).unwrap_or("whole");
-        match drawings::import(&path, fit, page.get_invert()) {
+        let both = together(app);
+        match drawings::import(&path, fit, page.get_invert(), if both { BOTH } else { WIDTH }) {
             Ok(imported) => {
                 let st = page_state();
                 let mut s = st.borrow_mut();
                 stop_playing(app, &mut s);
                 remember(&mut s);
                 let count = imported.frames.len();
-                s.drawing = imported;
+                // Into both panels, or into the panel the tools work on (the other keeps its frames)
+                let c0 = if both { 0 } else { s.active * WIDTH };
+                let old = s.drawing.frames.clone();
+                let frames: Vec<Wide> = imported
+                    .frames
+                    .iter()
+                    .enumerate()
+                    .map(|(i, f)| {
+                        let mut w = if both { drawings::blank_wide() } else { old[i.min(old.len() - 1)] };
+                        for (y, row) in f.iter().enumerate() {
+                            for (x, v) in row.iter().enumerate() {
+                                w[y][c0 + x] = *v;
+                            }
+                        }
+                        w
+                    })
+                    .collect();
+                s.drawing = Pic { frames, delay_ms: imported.delay_ms };
                 s.index = 0;
                 redraw(app, &s, None);
                 show(
@@ -561,7 +661,8 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
         {
             return;
         }
-        let drawing = st.borrow().drawing.clone();
+        let drawing = drawings::to_drawing(&st.borrow().drawing);
+        let both = !drawing.right.is_empty();
         match drawings::save(&drawings::folder(), &name, &drawing) {
             Ok(name) => {
                 {
@@ -572,7 +673,13 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
                 page.set_name(name.as_str().into());
                 refresh_names(app, Some(&name));
                 redraw(app, &st.borrow(), None);
-                show(app, format!("Saved {name}. The Picture app on the System monitor page can show it now."));
+                show(
+                    app,
+                    format!(
+                        "Saved {name}. The Picture app on the System monitor page can show it now{}.",
+                        if both { " (put it on both panels: each shows its half)" } else { "" }
+                    ),
+                );
             }
             Err(e) => show(app, format!("Couldn't save: {e}")),
         }
@@ -588,8 +695,8 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
             Ok(drawing) => {
                 let mut s = st.borrow_mut();
                 stop_playing(app, &mut s);
-                s.saved = Some(drawing.clone());
-                s.drawing = drawing;
+                s.drawing = drawings::from_drawing(&drawing);
+                s.saved = Some(drawings::to_drawing(&s.drawing));
                 s.index = 0;
                 s.name = name.clone();
                 s.undo.clear();
@@ -608,8 +715,8 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
         let st = page_state();
         let mut s = st.borrow_mut();
         stop_playing(app, &mut s);
-        s.drawing = drawings::new_drawing();
-        s.saved = Some(s.drawing.clone());
+        s.drawing = drawings::new_pic();
+        s.saved = Some(drawings::to_drawing(&s.drawing));
         s.index = 0;
         s.name.clear();
         s.undo.clear();
@@ -640,6 +747,10 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
         refresh_names(app, None);
         redraw(app, &st.borrow(), None);
         show(app, format!("Deleted {name}."));
+    }));
+    page.on_together_changed(with_app(|app| {
+        let st = page_state();
+        redraw(app, &st.borrow(), None);
     }));
     page.on_show_folder(|| {
         let dir = drawings::folder();

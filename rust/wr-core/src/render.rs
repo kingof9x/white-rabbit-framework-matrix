@@ -152,7 +152,7 @@ pub fn render_panel_on(
             }
             name if crate::apps::DATA_APPS.contains(&name) => draw_data_app(grid, app, readings, fg, y),
             "text" => crate::apps::text::draw_app(grid, app, readings, fg),
-            "snap" => crate::apps::picture::draw_app(grid, app, fg),
+            "snap" => crate::apps::picture::draw_app(grid, app, fg, side),
             "battery-sand" => {
                 let speed = app.arg_str("sand_speed").unwrap_or_else(|| "normal".into());
                 let (battery, now) = (readings.battery(), readings.now());
