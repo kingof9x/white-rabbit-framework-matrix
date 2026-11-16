@@ -17,7 +17,12 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-FILES = ["WhiteRabbit-setup.exe", "WhiteRabbit.exe"]
+# The installer is a release file of its own. From 1.5 the two app exes come inside
+# WhiteRabbit-portable.zip (all Rust); releases up to 1.4 had a one-file WhiteRabbit.exe instead.
+INSTALLER = "WhiteRabbit-setup.exe"
+PORTABLE_ZIP = "WhiteRabbit-portable.zip"
+ZIPPED_EXES = ["WhiteRabbit.exe", "WhiteRabbitWindow.exe"]
+OLD_PORTABLE_EXE = "WhiteRabbit.exe"
 VT = "https://www.virustotal.com/api/v3"
 START = "<!-- virus-scan:start -->"
 END = "<!-- virus-scan:end -->"
@@ -70,9 +75,9 @@ def render(tag: str, release_url: str, results: dict[str, dict], when: datetime)
         lines.append(f"| `{name}` | {result} | [VirusTotal report]({r['link']}) |")
     lines += [
         "",
-        "White Rabbit isn't code-signed yet and is built with PyInstaller, which some antivirus",
-        "programs flag on sight, so a few warnings from lesser-known scanners are expected (false",
-        "positives). Windows Defender (listed as *Microsoft*) is the one most people will meet.",
+        "White Rabbit isn't code-signed yet, and some antivirus programs are wary of any unsigned",
+        "program, so a few warnings from lesser-known scanners can happen (false positives).",
+        "Windows Defender (listed as *Microsoft*) is the one most people will meet.",
         END,
     ]
     return "\n".join(lines)
@@ -141,6 +146,22 @@ def scan(session, path: Path) -> dict:
     return result
 
 
+def unzip_exes(zip_path: Path, folder: Path) -> list[Path]:
+    """Take the app exes out of the portable zip, so each one is scanned on its own."""
+    import zipfile
+
+    found = []
+    with zipfile.ZipFile(zip_path) as z:
+        names = {Path(n).name: n for n in z.namelist() if not n.endswith("/")}
+        for exe in ZIPPED_EXES:
+            if exe not in names:
+                sys.exit(f"{zip_path.name} has no {exe}")
+            out = folder / exe
+            out.write_bytes(z.read(names[exe]))
+            found.append(out)
+    return found
+
+
 def main() -> None:
     import requests
 
@@ -166,16 +187,13 @@ def main() -> None:
     print(f"Scanning release {release['tag_name']}")
 
     assets = {a["name"]: a for a in release["assets"]}
-    missing = [n for n in FILES if n not in assets]
-    if missing:
-        sys.exit(f"Release {release['tag_name']} has no {', '.join(missing)}")
+    if INSTALLER not in assets:
+        sys.exit(f"Release {release['tag_name']} has no {INSTALLER}")
 
-    vt = requests.Session()
-    vt.headers.update({"x-apikey": key})
-    results = {}
     folder = Path("scan-downloads")
     folder.mkdir(exist_ok=True)
-    for name in FILES:
+
+    def download(name: str) -> Path:
         path = folder / name
         with gh.get(
             assets[name]["url"], headers={"Accept": "application/octet-stream"}, stream=True
@@ -184,7 +202,17 @@ def main() -> None:
             with path.open("wb") as f:
                 for block in r.iter_content(1 << 20):
                     f.write(block)
-        results[name] = scan(vt, path)
+        return path
+
+    files = [download(INSTALLER)]
+    if PORTABLE_ZIP in assets:
+        files += unzip_exes(download(PORTABLE_ZIP), folder)
+    elif OLD_PORTABLE_EXE in assets:
+        files.append(download(OLD_PORTABLE_EXE))
+
+    vt = requests.Session()
+    vt.headers.update({"x-apikey": key})
+    results = {path.name: scan(vt, path) for path in files}
 
     section = render(release["tag_name"], release["html_url"], results, datetime.now(timezone.utc))
     readme = Path("README.md")

@@ -98,3 +98,22 @@ def test_vt_get_stops_on_a_bad_key(monkeypatch):
     import pytest
     with pytest.raises(SystemExit):
         virus_scan.vt_get(session, "u")
+
+
+def test_unzip_exes_takes_both_app_exes_out_of_the_portable_zip(tmp_path):
+    import zipfile
+
+    zip_path = tmp_path / "WhiteRabbit-portable.zip"
+    with zipfile.ZipFile(zip_path, "w") as z:
+        z.writestr("WhiteRabbit.exe", b"monitor")
+        z.writestr("WhiteRabbitWindow.exe", b"window")
+        z.writestr("PresentMon.exe", b"not ours")
+    out = tmp_path / "out"
+    out.mkdir()
+    paths = virus_scan.unzip_exes(zip_path, out)
+    assert [p.name for p in paths] == ["WhiteRabbit.exe", "WhiteRabbitWindow.exe"]
+    assert paths[1].read_bytes() == b"window"
+
+
+def test_readme_note_no_longer_mentions_pyinstaller():
+    assert "PyInstaller" not in section()
