@@ -18,23 +18,74 @@ The newest version is on the [Releases](https://github.com/kingof9x/white-rabbit
 <!-- virus-scan:start -->
 <!-- virus-scan:end -->
 
-## What's new
-
-### A new look
+## What's new in 1.5
 
 ![The Home page in light mode](docs/screenshots/white-rabbit-home.png)
+
+### All of White Rabbit is now Rust
+
+In 1.4 the part that is always running (the system monitor and the tray
+icon) moved to [Rust](https://www.rust-lang.org/). In 1.5 the settings window
+followed, rebuilt with [Slint](https://slint.dev), so **the whole app is Rust
+and no Python is shipped at all**. There is no PyInstaller wrapper any more,
+which is what made some antivirus programs flag the old version, and the
+installer is much smaller.
+
+| | Memory in Task Manager (background part) |
+|---|---|
+| Before (Python) | about **66 MB** |
+| Now (Rust) | about **8 MB** |
+
+*Measured on a Framework Laptop 16 in Task Manager, with the window closed.*
+The panels show exactly the same pictures as before: every app, music look and
+effect is checked pixel for pixel against the old version. `WhiteRabbit.exe`
+is the monitor and tray icon, and `WhiteRabbitWindow.exe` next to it is the
+window. The window only uses memory while it is open; close it and only the
+small monitor keeps running.
+
+### New and improved
+
+- **Home page on/off switches** for every section (System monitor, Audio
+  reactivity, Games & patterns, Math, Draw, Display messages, Plug animation,
+  App transition effects, Startup animation), and the same switch at the top
+  of each page. System monitor, Audio reactivity, Games and Math take over the
+  panels, so turning one on turns the others off; System monitor off leaves
+  the panels dark.
+- **Display messages page:** messages of up to 5 lines shown one under the
+  other, small letters and empty lines kept as you type them, lined up left,
+  center or right, and a vertical message of its own on each panel
+  ([more](#display-messages-page)).
+- **Plug animation page:** pick one animation for unplugging and one for
+  plugging in (drain, water ripple, power surge, pixel rain, old TV, ripple
+  ring, glitch). HDMI and DisplayPort screens count too, and you can turn the
+  animations off for the ports on one side ([more](#plug-animation-page)).
+- **App transition effects page:** how a panel changes from one app to the
+  next, with the new **Pixel rain** and **Zipper** effects
+  ([more](#app-transition-effects-page)).
+- **Pixel rain startup animation** in the White Rabbit firmware.
+- **Draw on both panels:** one panel at a time, or both as one picture
+  ([more](#draw-page)).
+- **Check for updates** under *Settings*: checks for a new White Rabbit and a
+  new panel firmware, and only when you click it (the app never checks by
+  itself). Panels with White Rabbit firmware now show its build number, so
+  you can see which one you have.
+- **Audio reactivity** is the new name for music mode.
+- **Panel settings moved to Settings** (*Settings > Panels*: what each panel is
+  doing, Panel names and Identify panels).
+- **Fixes:** the app transition no longer plays when only one app is on a
+  panel, and the window no longer closes when checking for updates.
+
+![The Home page in dark mode](docs/screenshots/white-rabbit-home-dark.png)
+
+## Earlier versions
+
+### A new look (1.4)
 
 - **A menu down the left side** instead of a row of tabs: Home, System
   monitor, Games & patterns, Audio, Math, Draw, Plug animation, App transition effects, Display messages,
   Startup animation and Settings. Firmware, Keyboard shortcuts and About White Rabbit live under
   Settings.
-- **A Home page** with every section and its on/off switch: System monitor,
-  Audio reactivity, Games & patterns, Math, Draw, Display messages, Plug
-  animation, App transition effects and Startup animation. Each section's page
-  has the same switch at the top. System monitor, Audio reactivity, Games and
-  Math take over the panels, so turning one on turns the others off; System
-  monitor off leaves the panels dark. What each panel is doing, Panel names and
-  Identify panels are under *Settings > Panels*.
+- **A Home page** with a card for every section.
 - **Windows 11 style:** the window follows Windows' light or dark mode and
   your accent colour, with rounded cards like the Windows Settings app. Prefer
   the old look? Pick *Classic* under *Settings > App theme* (you can also force
@@ -42,29 +93,7 @@ The newest version is on the [Releases](https://github.com/kingof9x/white-rabbit
 - **Faster:** pages open straight away when you click them, and the window
   no longer flashes white when it opens.
 
-![The Home page in dark mode](docs/screenshots/white-rabbit-home-dark.png)
-
-### Much lighter in the background (Rust)
-
-The part of White Rabbit that is always running, the system monitor and the
-tray icon, has been rewritten in [Rust](https://www.rust-lang.org/). It draws
-exactly the same pictures on the panels (every app, music look and effect is
-checked pixel for pixel against the old version), but it needs far less
-memory:
-
-| | Memory in Task Manager |
-|---|---|
-| Before (Python) | about **66 MB** |
-| Now (Rust, 1.4) | about **8 MB** |
-
-*Measured on a Framework Laptop 16 in Task Manager, with the window closed.*
-
-Since 1.5 the settings window is Rust too, so the whole app is Rust and no
-Python is shipped at all: `WhiteRabbit.exe` is the monitor and tray icon, and
-`WhiteRabbitWindow.exe` next to it is the window. The window only uses memory
-while it is open; close it and only the small monitor keeps running.
-
-### New features since the last README
+### Added in 1.4 and earlier
 
 - **Draw page:** draw your own pictures and animations, or import a PNG or GIF
   ([more](#draw-page)).
@@ -76,7 +105,7 @@ while it is open; close it and only the small monitor keeps running.
 - **Old-TV effect** when the panels turn off and on, and new **animations**
   (fire, plasma, DNA helix, snowfall, chevrons, bouncing ball).
 - **Plug-in ripple** across the panel from the port you plug something into
-  ([more](#effects-page)).
+  ([more](#plug-animation-page)).
 - **Falling-sand battery:** charging rains sand in, on battery it drains away.
 - **Calm idle music looks:** when the music stops, audio reactivity shows a quiet
   version of the look you picked instead of a pulsing dot, and wakes up when
@@ -247,6 +276,8 @@ keeps it going round until you stop it.
 panel in place of what it shows (upright letters, letters on their side, or
 two letters per row) until you stop them.
 
+![The Display messages page](docs/screenshots/white-rabbit-messages.png)
+
 ### Math page
 
 Graphs and simulations drawn in greyscale on the panels. With both panels
@@ -338,16 +369,23 @@ for other programs, and the change works straight away without restarting.
 
 ### Settings
 
-The window's look (follow Windows, light, dark or Classic), panel names, and
+The window's look (follow Windows, light, dark or Classic), the panels (what
+each one is doing, Panel names and Identify panels), *Check for updates*, and
 the way in to Firmware, Keyboard shortcuts and About White Rabbit (version,
-updates, credits and the tip jar).
+credits and the tip jar).
+
+*Check for updates* looks for a newer White Rabbit and a newer White Rabbit
+firmware, only when you click it; White Rabbit never checks by itself. If
+there is a new app, it can download and run the installer for you. If a panel
+runs an older White Rabbit firmware build, *Flash build N* updates it.
+Framework's official firmware is left alone.
 
 ![The Settings page](docs/screenshots/white-rabbit-settings.png)
 
-*Screenshots taken on Linux with simulated panels, so the window looks a little
-different from Windows: the font is different, the shortcuts show as `Alt` + key
-instead of `Ctrl`+`Alt`+`Shift` + key, and a few pages say they can't reach the
-panels or the microphone because there are none.*
+*Screenshots of White Rabbit 1.5, drawn by the window itself on Linux with
+simulated panels, so it looks a little different from Windows: the font is
+different, the panel previews are empty, and a few pages say they can't reach
+the panels or the microphone because there are none.*
 
 ## Install and use
 
@@ -471,9 +509,10 @@ current were inspired by patate's (slowpaste)
 [pixeled](https://github.com/slowpaste/pixeled). They are written from scratch
 for White Rabbit; no code was copied.
 
-The window's look is the [Sun Valley ttk theme](https://github.com/rdbende/Sun-Valley-ttk-theme)
-by rdbende (MIT, see [LICENSES/sv-ttk-LICENSE.txt](LICENSES/sv-ttk-LICENSE.txt)), coloured with
-your Windows accent colour.
+The window is made with [Slint](https://slint.dev) (under its royalty-free
+licence), and its icons are Microsoft's
+[Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons) (MIT, see
+[LICENSES/fluentui-system-icons-LICENSE.txt](LICENSES/fluentui-system-icons-LICENSE.txt)).
 
 Most of the Math page's graphs and simulations come from mariobx's
 [Framework-LED-Matrix](https://github.com/mariobx/Framework-LED-Matrix). That
@@ -489,7 +528,6 @@ and panel name ideas come from Deovandski's
 ## Project status
 
 **Status:** Active  
-**Waiting on:** Developer: the settings window rewrite in Rust (1.5)  
-**Notes:** One tray app combining led_mon and the LED Matrix controls. 1.4: new Windows 11 look and the background monitor and tray in Rust (about 8 MB instead of 66 MB). Next: the whole app in Rust.  
-**Last updated:** 2026-11-15
-
+**Waiting on:** Callum: testing 1.5 on the laptop  
+**Notes:** One tray app combining led_mon and the LED Matrix controls. 1.5: the whole app is Rust (no Python shipped; the background part uses about 8 MB instead of 66 MB), plus Display messages, Plug animation and App transition effects pages, Draw on both panels and Check for updates.  
+**Last updated:** 2026-11-16
