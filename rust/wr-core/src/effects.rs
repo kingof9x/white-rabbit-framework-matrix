@@ -151,6 +151,10 @@ pub struct EffectsSettings {
     pub messages: Vec<String>,
     #[serde(skip_serializing_if = "is_false")]
     pub show_messages: bool,
+    /// How the lines of your message line up with each other: "left", "center" or "right". Only saved
+    /// when not left.
+    #[serde(skip_serializing_if = "is_left")]
+    pub messages_align: String,
     /// A message of its own on each panel, running down the panel instead of what it shows, while
     /// `show_vertical` is on. `vertical_style`: "ticker", "sideways" or "stacked" (the Text app's
     /// styles). Not in the Python app, so only saved when set.
@@ -205,6 +209,7 @@ impl Default for EffectsSettings {
             text_speed: 5,
             messages: Vec::new(),
             show_messages: false,
+            messages_align: "left".into(),
             vertical_left: String::new(),
             vertical_right: String::new(),
             vertical_style: "ticker".into(),
@@ -248,12 +253,21 @@ impl EffectsSettings {
                 *flag = truthy(v);
             }
         }
-        let tidy = |v: &Value| -> Option<String> {
-            let text: String = v.as_str()?.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(120).collect();
-            (!text.is_empty()).then_some(text)
+        let squeeze = |v: &Value| -> Option<String> {
+            Some(v.as_str()?.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(120).collect())
         };
+        let tidy = |v: &Value| squeeze(v).filter(|t| !t.is_empty());
         if let Some(Value::Array(list)) = get("messages") {
-            s.messages = list.iter().filter_map(tidy).take(Self::MAX_MESSAGES).collect();
+            // Empty lines stay (they show as a gap between lines), unless every line is empty
+            s.messages = list.iter().filter_map(squeeze).take(Self::MAX_MESSAGES).collect();
+            if s.messages.iter().all(String::is_empty) {
+                s.messages.clear();
+            }
+        }
+        if let Some(Value::String(align)) = get("messages_align") {
+            if ["left", "center", "right"].contains(&align.as_str()) {
+                s.messages_align = align.clone();
+            }
         }
         if let Some(v) = get("show_messages") {
             s.show_messages = truthy(v);
@@ -328,6 +342,10 @@ fn is_false(b: &bool) -> bool {
 
 fn is_true(b: &bool) -> bool {
     *b
+}
+
+fn is_left(s: &str) -> bool {
+    s == "left"
 }
 
 fn is_ticker(style: &String) -> bool {
@@ -1010,26 +1028,61 @@ const FONT: &[(char, &str)] = &[
     ('$', "011110010011110"),
 ];
 
-/// A letter's 15 bits, row by row; letters we don't have are '?'.
+/// Small letters, 3 x 6: the bottom row is for the tails of g, j, p, q and y.
+const LOWER: &[(char, &str)] = &[
+    ('a', "000110011101111000"),
+    ('b', "100100110101110000"),
+    ('c', "000000011100011000"),
+    ('d', "001001011101011000"),
+    ('e', "000010101110011000"),
+    ('f', "011100111100100000"),
+    ('g', "000000011101011110"),
+    ('h', "100100110101101000"),
+    ('i', "010000110010111000"),
+    ('j', "001000001001101010"),
+    ('k', "100100101110101000"),
+    ('l', "110010010010111000"),
+    ('m', "000000110111101000"),
+    ('n', "000000110101101000"),
+    ('o', "000000111101111000"),
+    ('p', "000000110101110100"),
+    ('q', "000000011101011001"),
+    ('r', "000000011100100000"),
+    ('s', "000000011010110000"),
+    ('t', "010010111010011000"),
+    ('u', "000000101101011000"),
+    ('v', "000000101101010000"),
+    ('w', "000000101111111000"),
+    ('x', "000000101010101000"),
+    ('y', "000000101101011110"),
+    ('z', "000000111010111000"),
+];
+
+/// A letter's bits row by row, and its width (3 x 5 capitals, 3 x 6 small letters); letters we
+/// don't have are drawn as their capital, else '?'.
 fn glyph(ch: char) -> &'static str {
+    if let Some((_, g)) = LOWER.iter().find(|(k, _)| *k == ch) {
+        return g;
+    }
+    let ch = ch.to_uppercase().next().unwrap_or(ch);
     let find = |c: char| FONT.iter().find(|(k, _)| *k == c).map(|(_, g)| *g);
     find(ch).or_else(|| find('?')).unwrap()
 }
 
-/// One column of the text line, top row first.
-pub type TextColumn = [u8; FONT_H];
+/// One column of the text line, top row first (the last row only has the tails of small letters).
+pub type TextColumn = [u8; TEXT_ROWS];
 
-/// The text in capitals as columns of 0/1, one dark column between letters.
+/// The text as columns of 0/1, one dark column between letters. Small letters stay small.
 pub fn text_columns(text: &str) -> Vec<TextColumn> {
     let mut cols = Vec::new();
-    for ch in text.to_uppercase().chars() {
+    for ch in text.chars() {
         if !cols.is_empty() {
-            cols.push([0; FONT_H]);
+            cols.push([0; TEXT_ROWS]);
         }
         let bits = glyph(ch).as_bytes();
         for c in 0..FONT_W {
-            let mut col = [0; FONT_H];
-            for (r, v) in col.iter_mut().enumerate() {
+            let mut col = [0; TEXT_ROWS];
+            for (r, v) in col.iter_mut().enumerate().take(bits.len() / FONT_W) {
                 *v = (bits[r * FONT_W + c] == b'1') as u8;
             }
             cols.push(col);
@@ -1051,8 +1104,10 @@ pub struct TextLine {
     /// Columns a second.
     pub speed: f64,
     /// Your own message, its lines one under the other, shown again and again whenever nothing else is
-    /// waiting, until unpinned.
+    /// waiting, until unpinned. Empty lines show as a gap.
     pinned: Vec<String>,
+    /// How shorter lines of a message line up with the longest: 0 left, 0.5 center, 1 right.
+    align: f64,
 }
 
 impl Default for TextLine {
@@ -1066,12 +1121,13 @@ impl TextLine {
     const QUEUE: usize = 8;
 
     pub fn new() -> TextLine {
-        TextLine { queue: VecDeque::new(), current: None, speed: 18.0, pinned: Vec::new() }
+        TextLine { queue: VecDeque::new(), current: None, speed: 18.0, pinned: Vec::new(), align: 0.0 }
     }
 
-    /// Queues a message, its spaces squeezed to one and cut to 120 letters.
+    /// Queues a message in capitals, its spaces squeezed to one and cut to 120 letters.
     pub fn say(&mut self, text: &str) {
-        let text: String = text.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(120).collect();
+        let text: String =
+            text.split_whitespace().collect::<Vec<_>>().join(" ").to_uppercase().chars().take(120).collect();
         if !text.is_empty() {
             if self.queue.len() == Self::QUEUE {
                 self.queue.pop_front();
@@ -1085,14 +1141,22 @@ impl TextLine {
         self.speed = 6.0 + 3.0 * setting.clamp(1, 10) as f64;
     }
 
-    /// Keeps this message (its lines one under the other) going round until it is unpinned (an empty
-    /// list).
+    /// "left", "center" or "right": how the lines of your message line up.
+    pub fn set_align(&mut self, align: &str) {
+        self.align = match align {
+            "center" => 0.5,
+            "right" => 1.0,
+            _ => 0.0,
+        };
+    }
+
+    /// Keeps this message (its lines one under the other, as typed, empty ones as a gap) going round
+    /// until it is unpinned (an empty list, or only empty lines).
     pub fn pin(&mut self, texts: &[String]) {
-        let texts: Vec<String> = texts
-            .iter()
-            .map(|t| t.split_whitespace().collect::<Vec<_>>().join(" "))
-            .filter(|t| !t.is_empty())
-            .collect();
+        let mut texts: Vec<String> = texts.iter().map(|t| t.split_whitespace().collect::<Vec<_>>().join(" ")).collect();
+        if texts.iter().all(String::is_empty) {
+            texts.clear();
+        }
         if texts == self.pinned {
             return;
         }
@@ -1127,7 +1191,7 @@ impl TextLine {
             self.current = Some((next, now));
         }
         let (lines, start) = self.current.as_ref().unwrap();
-        let longest = lines.iter().map(Vec::len).max().unwrap_or(0);
+        let mut longest = lines.iter().map(Vec::len).max().unwrap_or(0);
         let mut x = width as f64 - (now - start) * self.speed;
         if x + (longest as f64) < 0.0 {
             // Gone off the left edge: the next message, if any
@@ -1135,13 +1199,15 @@ impl TextLine {
             let next = self.next()?;
             self.current = Some((next, now));
             x = width as f64;
+            longest = self.current.as_ref().unwrap().0.iter().map(Vec::len).max().unwrap_or(0);
         }
         let lines = &self.current.as_ref().unwrap().0;
         let mut out = vec![vec![0u8; width]; TEXT_ROWS * lines.len()];
         let xi = int_round(x);
         for (n, cols) in lines.iter().enumerate() {
+            let indent = int_round((longest - cols.len()) as f64 * self.align);
             for (c, col) in cols.iter().enumerate() {
-                let at = xi + c as i64;
+                let at = xi + indent + c as i64;
                 if (0..width as i64).contains(&at) {
                     for (r, &v) in col.iter().enumerate() {
                         out[n * TEXT_ROWS + r][at as usize] = v;
@@ -1303,6 +1369,7 @@ impl Effects {
     pub fn configure(&mut self, settings: EffectsSettings) {
         self.settings = settings;
         self.text.set_speed(self.settings.text_speed);
+        self.text.set_align(&self.settings.messages_align);
         if !self.settings.text_line {
             self.text.clear();
         }
@@ -1822,7 +1889,9 @@ mod tests {
         let mut e = Effects::new();
         let on = serde_json::json!({"messages": ["  Back   soon ", "", "Coffee"], "show_messages": true});
         e.configure(EffectsSettings::from_json(&on));
-        assert_eq!(e.settings.messages, vec!["Back soon", "Coffee"]);
+        assert_eq!(e.settings.messages, vec!["Back soon", "", "Coffee"]);
+        let blank = serde_json::json!({"messages": ["", " "], "show_messages": true});
+        assert!(EffectsSettings::from_json(&blank).messages.is_empty());
         assert!(e.text.active());
         e.configure(EffectsSettings::from_json(&serde_json::json!({"messages": ["Back soon"]})));
         assert!(!e.text.active(), "kept but not showing");
@@ -1993,6 +2062,36 @@ mod tests {
         assert_eq!(text_width(""), 0);
         assert_eq!(text_columns("~"), text_columns("?"));
         assert!(FONT.iter().all(|(_, g)| g.len() == FONT_W * FONT_H));
+        assert!(LOWER.iter().all(|(_, g)| g.len() == FONT_W * TEXT_ROWS));
+        // Small letters stay small; letters without a small form use the capital
+        assert_ne!(text_columns("a"), text_columns("A"));
+        assert_eq!(text_columns("é"), text_columns("É"));
+        // Only g, j, p, q and y reach the bottom row
+        let tails: String = LOWER.iter().filter(|(_, g)| g[15..].contains('1')).map(|(k, _)| *k).collect();
+        assert_eq!(tails, "gjpqy");
+    }
+
+    #[test]
+    fn message_lines_line_up_and_keep_blank_lines() {
+        let width = 40;
+        let first_lit = |rows: &[Vec<u8>], line: usize| {
+            (0..width).find(|&x| rows[line * TEXT_ROWS..(line + 1) * TEXT_ROWS].iter().any(|r| r[x] == 1))
+        };
+        for (align, want) in [("left", 0), ("center", 4), ("right", 8)] {
+            let mut t = TextLine::new();
+            t.set_align(align);
+            t.pin(&["AAA".to_string(), "".to_string(), "A".to_string()]);
+            t.strip(width, 0.0);
+            // Move the block fully on: AAA is 11 columns wide, A is 3
+            let rows = t.strip(width, 1.0).unwrap();
+            assert_eq!(rows.len(), 3 * TEXT_ROWS);
+            assert_eq!(first_lit(&rows, 1), None, "the empty line is a gap");
+            let (a, b) = (first_lit(&rows, 0).unwrap(), first_lit(&rows, 2).unwrap());
+            assert_eq!(b - a, want, "{align}");
+        }
+        let mut t = TextLine::new();
+        t.pin(&["".to_string(), " ".to_string()]);
+        assert!(!t.active(), "only empty lines show nothing");
     }
 
     #[test]

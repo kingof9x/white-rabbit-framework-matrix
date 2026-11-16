@@ -31,6 +31,7 @@ export global EffectsPage {
     in-out property <bool> pinned;
     in-out property <[string]> messages: ["Back in 5 minutes"];
     in property <int> max-messages: 10;
+    in-out property <int> messages-align; // 0 left, 1 center, 2 right
     // A message of its own running down each panel (Display messages page)
     in-out property <string> vertical-left;
     in-out property <string> vertical-right;
