@@ -63,7 +63,8 @@ small monitor keeps running.
 - **App transition effects page:** how a panel changes from one app to the
   next, with the new **Pixel rain** and **Zipper** effects
   ([more](#app-transition-effects-page)).
-- **Pixel rain startup animation** in the White Rabbit firmware.
+- **Six new startup animations** in the White Rabbit firmware: Pixel rain, Pixel
+  drop, Pixel swirl, Code wall, Warp rings and Rabbit hole rain.
 - **Draw on both panels:** one panel at a time, or both as one picture
   ([more](#draw-page)).
 - **Check for updates** under *Settings*: checks for a new White Rabbit and a

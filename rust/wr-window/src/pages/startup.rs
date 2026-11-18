@@ -62,7 +62,7 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
         page.on_save(move || {
             let Some(app) = ctx.ui.upgrade() else { return };
             let page = app.global::<StartupPage>();
-            let mask = page.get_picked().iter().enumerate().fold(0u32, |m, (i, on)| if on { m | 1 << i } else { m });
+            let mask = page.get_picked().iter().enumerate().fold(0u64, |m, (i, on)| if on { m | 1 << i } else { m });
             let mode = page.get_mode();
             if mode == RANDOM_SET && mask == 0 {
                 show(&app, "Tick at least one animation.");
