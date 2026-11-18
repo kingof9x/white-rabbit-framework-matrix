@@ -23,7 +23,7 @@ pub struct ModuleInfo {
     /// White Rabbit firmware's build number, when the firmware reports one
     pub build: Option<u16>,
     /// (mode, animation, set) when the firmware has the startup animation setting
-    pub startup: Option<(u8, u8, u32)>,
+    pub startup: Option<(u8, u8, u64)>,
     /// Another program had the port open
     pub in_use: bool,
 }

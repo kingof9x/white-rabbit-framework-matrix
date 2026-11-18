@@ -219,7 +219,7 @@ pub fn pattern(name: &str) -> Vec<Vec<u8>> {
     }
 }
 
-pub const STARTUP_ANIMATIONS: [&str; 29] = [
+pub const STARTUP_ANIMATIONS: [&str; 34] = [
     "Percentage",
     "Zigzag",
     "Game of Life: Pattern 1",
@@ -249,13 +249,22 @@ pub const STARTUP_ANIMATIONS: [&str; 29] = [
     "Power on",
     "Campfire",
     "Pixel rain",
+    "Pixel drop",
+    "Pixel swirl",
+    "Code wall",
+    "Warp rings",
+    "Rabbit hole rain",
 ];
 
 /// Startup modes: 0 random from all, 1 always one, 2 random from a set, 3 none.
-pub fn set_startup_animation(mode: u8, animation: u8, set: u32) -> Vec<u8> {
+/// Older firmware only understands 3 bytes of the set, so the 4th and 5th are only sent when they
+/// matter (and then the firmware must be new anyway).
+pub fn set_startup_animation(mode: u8, animation: u8, set: u64) -> Vec<u8> {
     let mut params = vec![mode, animation];
-    if mode == 2 && set >> 24 != 0 {
-        params.extend_from_slice(&set.to_le_bytes());
+    if mode == 2 && set >> 32 != 0 {
+        params.extend_from_slice(&set.to_le_bytes()[..5]);
+    } else if mode == 2 && set >> 24 != 0 {
+        params.extend_from_slice(&set.to_le_bytes()[..4]);
     } else {
         params.extend_from_slice(&(set & 0xFF_FFFF).to_le_bytes()[..3]);
     }
@@ -263,15 +272,16 @@ pub fn set_startup_animation(mode: u8, animation: u8, set: u32) -> Vec<u8> {
 }
 
 /// The answer to the startup animation question: (mode, animation, set), None for old firmware.
-pub fn parse_startup(answer: &[u8]) -> Option<(u8, u8, u32)> {
+pub fn parse_startup(answer: &[u8]) -> Option<(u8, u8, u64)> {
     if answer.len() < 5 || answer[0] > 3 {
         return None;
     }
-    let mut set = [0u8; 4];
-    for (i, b) in answer[2..answer.len().min(6)].iter().enumerate() {
+    // Older firmware answers with 3 or 4 bytes of the set and 0s after them
+    let mut set = [0u8; 8];
+    for (i, b) in answer[2..answer.len().min(7)].iter().enumerate() {
         set[i] = *b;
     }
-    Some((answer[0], answer[1], u32::from_le_bytes(set)))
+    Some((answer[0], answer[1], u64::from_le_bytes(set)))
 }
 
 /// "0.2.0" from the version answer.
@@ -314,7 +324,9 @@ mod tests {
     fn startup_bytes() {
         assert_eq!(set_startup_animation(1, 5, 0x0FFF_FFFF), vec![0x32, 0xAC, 0x21, 1, 5, 0xFF, 0xFF, 0xFF]);
         assert_eq!(set_startup_animation(2, 0, 0x0100_0001), vec![0x32, 0xAC, 0x21, 2, 0, 1, 0, 0, 1]);
+        assert_eq!(set_startup_animation(2, 0, 0x02_0000_0001), vec![0x32, 0xAC, 0x21, 2, 0, 1, 0, 0, 0, 2]);
         assert_eq!(parse_startup(&[2, 3, 1, 0, 0, 1]), Some((2, 3, 0x0100_0001)));
+        assert_eq!(parse_startup(&[2, 3, 1, 0, 0, 1, 3, 0]), Some((2, 3, 0x03_0100_0001)));
         assert_eq!(parse_startup(&[9, 0, 0, 0, 0]), None);
     }
 
