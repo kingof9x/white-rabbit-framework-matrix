@@ -44,3 +44,17 @@ He is not a git expert, so keep his side to: open the PR, test the build, merge.
 If anything here can't be done (no push access, the PR can't be opened, the build is red),
 say so plainly at once rather than at the end.
 <!-- github-workflow:end -->
+
+<!-- rust-fast-loop:start (same in all kingof9x Rust repos) -->
+## Rust: fast build loop in agent sessions
+
+The Rust code lives in `rust`. Keep compiles short while you work:
+
+- Check your work with `cargo check` and `cargo test` (debug builds). Use `cargo clippy` if the CI runs it.
+- **Never build with `--release` (or `--profile ci`) in a session.** Release builds are slow on purpose and
+  only happen in CI: every PR gets a test build, and Callum makes real releases with Run workflow.
+- Build only the crate you changed (`-p <crate>`) when the workspace has several.
+- Dev builds use reduced debug info (`[profile.dev] debug = "line-tables-only"` in `Cargo.toml`) to
+  compile and link faster. Don't turn it back up unless a debugger session needs it.
+- Don't add new dependencies casually: each one adds compile time in every session and CI run.
+<!-- rust-fast-loop:end -->
