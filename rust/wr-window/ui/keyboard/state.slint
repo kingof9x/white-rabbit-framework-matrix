@@ -1,0 +1,289 @@
+// What the Rust side tells the window, and what the window asks of it, shared by every page.
+
+export struct DeviceRow {
+    // "Keyboard", "Macropad"
+    name: string,
+    // "Connected", "Not found", "Needs the f16custom firmware"
+    status: string,
+    ok: bool,
+    // Send applies to this device
+    checked: bool,
+}
+
+// One line of key legend over the keyboard picture. Positions and sizes are fractions of the
+// picture's width, so the legends stay on their keys at any window size.
+export struct Legend {
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    text: string,
+    color: color,
+    fs: float,
+    left: bool,
+}
+
+export struct EffectItem {
+    key: string,
+    number: string,
+    label: string,
+}
+
+export struct EffectGroup {
+    name: string,
+    items: [EffectItem],
+}
+
+export struct AudioLookItem { key: string, name: string, about: string }
+
+export global Kb {
+    in-out property <string> page: "home";
+    in property <string> title: "Framework 16 Keyboard Control";
+
+    // Devices, at the bottom of the menu
+    in property <[DeviceRow]> devices;
+    in property <string> bar-status;
+    in property <bool> live;
+    in property <string> status;
+
+    // Your setup. Keyboard 0 clear RGB, 1 black RGB, 2 black with white backlight.
+    // Side module 0 none, 1 RGB macropad, 2 numpad.
+    in-out property <int> kb-type;
+    in-out property <int> side;
+    in-out property <bool> module-left;
+    in property <string> setup-note;
+    in property <string> setup-summary;
+    callback setup-changed();
+
+    // The keyboard picture
+    in property <image> deck-image;
+    in property <float> deck-aspect: 0.4;
+    in property <[Legend]> legends;
+    in property <string> deck-caption;
+    in-out property <length> deck-width;
+    // x, y as fractions of the picture's width; kind 0 press, 1 drag
+    callback deck-pointer(float, float, int);
+
+    // Effects, as buttons (Show) and as a list (Effects; index 0 = off, painted keys only)
+    in property <[EffectGroup]> effect-groups;
+    in property <[string]> effect-names;
+
+    // Show
+    in-out property <string> show-effect: "b13";
+    in property <string> show-effect-name;
+    in-out property <int> show-hue;
+    in-out property <int> show-sat;
+    in-out property <int> show-val;
+    in-out property <int> show-speed;
+    in property <color> show-full;
+    in property <color> show-picked;
+    in property <string> show-hex;
+    in-out property <int> paint-tool;
+    in-out property <int> paint-mode: 1;   // 0 steady, 1 brightness follows, 2 tint
+    in-out property <int> brush-hue;
+    in-out property <int> brush-sat;
+    in property <color> brush-full;
+    in property <color> brush-picked;
+    in property <string> brush-hex;
+    in property <string> paint-count;
+    in property <bool> pc-live;
+    callback show-changed();
+    callback paint-example();
+    callback paint-clear();
+    callback send-show(bool);
+    callback stop-pc();
+
+    // Effects
+    in-out property <bool> join;
+    in property <bool> has-module;
+    in property <string> module-name;
+    in property <bool> kb-rgb;
+    in property <bool> mod-rgb;
+    in property <string> kb-about;
+    in property <string> mod-about;
+    in property <string> effects-summary;
+    in-out property <int> kb-effect;
+    in-out property <int> kb-hue;
+    in-out property <int> kb-sat;
+    in-out property <int> kb-val;
+    in-out property <int> kb-speed;
+    in property <color> kb-full;
+    in property <color> kb-picked;
+    in property <string> kb-hex;
+    in-out property <int> mod-effect;
+    in-out property <int> mod-hue;
+    in-out property <int> mod-sat;
+    in-out property <int> mod-val;
+    in-out property <int> mod-speed;
+    in property <color> mod-full;
+    in property <color> mod-picked;
+    in property <string> mod-hex;
+    callback effects-changed();
+    callback join-toggled(bool);
+    callback copy-settings(int);
+    callback send-effects(bool);
+
+    // Macropad
+    in property <int> layer;
+    callback layer-chosen(int);
+    in property <string> pad-key;
+    in property <string> pad-a;
+    in property <string> pad-b;
+    in property <string> pad-note;
+
+    // Hotkey lock
+    in property <bool> hotkey-lock;
+    callback lock-toggled(bool);
+
+    // Firmware: 0 keyboard, 1 macropad; -1 none waiting for "Yes"
+    in-out property <int> confirm-bootloader: -1;
+    in property <bool> kb-present;
+    in property <bool> mod-present;
+    callback bootloader(int);
+    callback rescan();
+    // Firmware updates from the app: which device (0 keyboard, 1 macropad), what it is doing.
+    in-out property <int> confirm-flash: -1;
+    in property <int> flash-which: -1;
+    in property <bool> flash-busy;
+    in property <bool> flash-failed;
+    in property <string> flash-status;
+    // "E:" when a device is waiting in flashing mode, "" when none.
+    in property <string> waiting-drive;
+    callback flash-latest(int);
+    callback flash-file(int);
+    callback flash-waiting(int);
+
+    // 0 system, 1 light, 2 dark, 3 classic
+    in-out property <int> theme-choice;
+    callback theme-chosen(int);
+
+    // Keys: what each key does (saved on the device)
+    in-out property <int> keys-kb-view;     // 0 normal, 1 with Fn held
+    in-out property <int> keys-pad-view;    // 0 layer A, 1 layer B
+    in property <bool> key-selected;
+    in property <string> key-title;
+    in property <string> key-now;
+    in property <string> key-default;
+    in property <string> key-note;
+    in property <bool> key-editable;
+    in property <int> key-kind;             // 0 default, 1 nothing, 2 a key, 3 open an app
+    in property <[string]> key-choices;
+    in-out property <int> key-choice;
+    in property <bool> key-mods-ok;         // Ctrl/Shift/Alt/Super can be added
+    in-out property <bool> key-ctrl;
+    in-out property <bool> key-shift;
+    in-out property <bool> key-alt;
+    in-out property <bool> key-super;
+    in-out property <string> key-app;
+    in property <int> keys-changed;
+    in-out property <bool> confirm-reset;
+    callback keys-view-chosen(int, int);    // which (0 keyboard, 1 macropad), view
+    callback key-kind-chosen(int);
+    callback key-choice-chosen(int);
+    callback key-mod-toggled(int, bool);    // 0 ctrl, 1 shift, 2 alt, 3 super
+    callback key-app-edited(string);
+    callback key-app-browse();
+    callback keys-reset();
+
+    // Macropad corner combos
+    in property <bool> combos-known;        // the macropad answered (new enough firmware)
+    in property <bool> combo-top-on;
+    in property <bool> combo-bottom-on;
+    in property <[string]> combo-top-choices;
+    in property <[string]> combo-bottom-choices;
+    in-out property <int> combo-top-choice;
+    in-out property <int> combo-bottom-choice;
+    in property <bool> combo-top-app-shown;
+    in property <bool> combo-bottom-app-shown;
+    in-out property <string> combo-top-app;
+    in-out property <string> combo-bottom-app;
+    callback combo-toggled(int, bool);      // 0 top, 1 bottom
+    callback combo-choice-chosen(int, int);
+    callback combo-app-edited(int, string);
+    callback combo-app-browse(int);
+
+    // Running in the background
+    in property <bool> has-tray;
+    in property <bool> tray;
+    in property <bool> autostart;
+    callback tray-toggled(bool);
+    callback autostart-toggled(bool);
+
+    // Macropad: top corners keep the layer color; brightness balance (percent)
+    in property <bool> corner-lights;
+    callback corner-lights-toggled(bool);
+
+    // Updates
+    in property <string> version;
+    in property <string> update-status;
+    in property <bool> update-available;
+    in property <bool> update-busy;
+    in property <bool> auto-update;
+    callback update-check();
+    callback update-install();
+    callback update-auto-toggled(bool);
+
+    // Lighting page: what it edits. 0 both (joined), 1 keyboard, 2 side module
+    in-out property <int> target;
+    callback target-chosen(int);
+    callback paint-mode-chosen(int);
+    // Color codes: hue / saturation of "#RRGGBB" on the firmware's scale, -1 if not a color
+    pure callback hex-hue(string) -> int;
+    pure callback hex-sat(string) -> int;
+
+    // Brightness matching: LED driver current and red/green/blue gains per device
+    in property <bool> kb-cal-known;
+    in property <bool> mod-cal-known;
+    in-out property <int> kb-cal-current;
+    in-out property <int> kb-cal-r;
+    in-out property <int> kb-cal-g;
+    in-out property <int> kb-cal-b;
+    in-out property <int> mod-cal-current;
+    in-out property <int> mod-cal-r;
+    in-out property <int> mod-cal-g;
+    in-out property <int> mod-cal-b;
+    in-out property <bool> white-test;
+    callback cal-changed(int);              // 0 keyboard, 1 macropad
+    callback cal-reset(int);
+    callback white-test-toggled(bool);
+
+    // Audio mode
+    in property <bool> audio-on;
+    in property <string> audio-status;
+    in property <[AudioLookItem]> audio-looks;
+    in-out property <string> audio-look;
+    in-out property <int> audio-sensitivity: 5;
+    in property <bool> audio-hotkey;
+    callback audio-toggled(bool);
+    callback audio-changed();
+    callback audio-hotkey-toggled(bool);
+    // What audio mode listens to: 0 what the PC plays, 1 a microphone (from audio-devices)
+    in property <int> audio-input;
+    in property <[string]> audio-devices;  // index 0 = "Default microphone"
+    in-out property <int> audio-device;
+    callback audio-input-chosen(int);
+    callback audio-device-chosen(int);
+    callback audio-devices-refresh();
+    // Audio colors: 0 automatic, 1 rainbow, 2 meter, 3 fire, 4 ocean, 5 one color (hue/sat below)
+    in-out property <int> audio-colors;
+    in-out property <int> audio-hue: 170;
+    in-out property <int> audio-sat: 255;
+    in property <color> audio-full;
+    in property <color> audio-picked;
+    in property <string> audio-hex;
+    callback audio-colors-changed();
+    // Key presses on top of the show: 0 off, 1 light up the key, 2 ripple, 3 splash
+    in property <int> audio-keys;
+    callback audio-keys-chosen(int);
+    // How loud the sound is right now, 0..1
+    in property <float> audio-level;
+    // Ctrl+Alt+Shift+M (from the shortcut watcher)
+    callback audio-shortcut();
+
+    // Keyboard F12 shortcuts, and the macropad's top combo as the whole top row
+    in property <bool> shortcuts-known;
+    in property <bool> shortcuts-on;
+    callback shortcuts-toggled(bool);
+    in property <bool> combo-top-row;
+    callback combo-top-row-chosen(bool);
+}

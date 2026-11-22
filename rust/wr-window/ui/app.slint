@@ -19,8 +19,16 @@ import { TransitionsView } from "pages/transitions.slint";
 import { GamesPage, GamesView } from "pages/games.slint";
 import { MathPage, MathView } from "pages/math.slint";
 import { DrawPage, DrawView } from "pages/draw.slint";
+import { Kb, DeviceRow, Legend, EffectItem, EffectGroup, AudioLookItem } from "keyboard/state.slint";
+import { Deck } from "keyboard/parts.slint";
+import { KbLightingPage } from "keyboard/lighting.slint";
+import { KbAudioPage } from "keyboard/audio.slint";
+import { KbKeysPage } from "keyboard/keys.slint";
+import { KbMacropadPage } from "keyboard/macropad.slint";
+import { KbSetupPage } from "keyboard/setup.slint";
+import { Hardware, HwRow } from "pages/hardware.slint";
 
-export { Theme, App, PanelRow, EditorPage, AppRow, PanelEdit, Field, MusicPage, StartupPage, EffectsPage, GamesPage, MathPage, DrawPage, FirmwarePage, UpdatesPage, ShortcutsPage, ShortcutRow, AboutPage, Credit }
+export { Hardware, HwRow, Kb, DeviceRow, Legend, EffectItem, EffectGroup, AudioLookItem, Theme, App, PanelRow, EditorPage, AppRow, PanelEdit, Field, MusicPage, StartupPage, EffectsPage, GamesPage, MathPage, DrawPage, FirmwarePage, UpdatesPage, ShortcutsPage, ShortcutRow, AboutPage, Credit }
 
 component NavItem inherits Rectangle {
     in property <image> icon;
@@ -103,6 +111,7 @@ export component AppWindow inherits Window {
 
     property <[{key: string, label: string, icon: image}]> nav: [
         { key: "home", label: "Home", icon: @image-url("icons/home.svg") },
+        { key: "-", label: "LED Matrix", icon: @image-url("") },
         { key: "monitor", label: "System monitor", icon: @image-url("icons/desktop.svg") },
         { key: "games", label: "Games & patterns", icon: @image-url("icons/games.svg") },
         { key: "music", label: "Audio", icon: @image-url("icons/music_note_2.svg") },
@@ -112,18 +121,45 @@ export component AppWindow inherits Window {
         { key: "transitions", label: "App transition effects", icon: @image-url("icons/arrow_swap.svg") },
         { key: "messages", label: "Display messages", icon: @image-url("icons/text_line.svg") },
         { key: "startup", label: "Startup animation", icon: @image-url("icons/play_circle.svg") },
+        { key: "-", label: "Keyboard & macropad", icon: @image-url("") },
+        { key: "lighting", label: "Lighting", icon: @image-url("icons/keyboard.svg") },
+        { key: "kbaudio", label: "Audio show", icon: @image-url("icons/music_note_2.svg") },
+        { key: "keys", label: "Key mapping", icon: @image-url("icons/key_edit.svg") },
+        { key: "macropad", label: "Macropad", icon: @image-url("icons/grid.svg") },
+        { key: "-", label: "", icon: @image-url("") },
         { key: "settings", label: "Settings", icon: @image-url("icons/settings.svg") },
     ];
 
-    // Firmware, Keyboard shortcuts and About open from Settings
+    // Which hardware is plugged in: the pages for hardware that isn't are hidden
+    property <bool> has-panels: App.panels.length > 0;
+    property <bool> has-keyboard: Kb.kb-present;
+    property <bool> has-macropad: Kb.mod-present;
+    function led-page(p: string) -> bool {
+        return p == "monitor" || p == "games" || p == "music" || p == "math" || p == "draw" || p == "effects"
+            || p == "transitions" || p == "messages" || p == "startup";
+    }
+    function kb-page(p: string) -> bool {
+        return p == "lighting" || p == "kbaudio" || p == "keys" || p == "macropad";
+    }
+    function shown(key: string, label: string) -> bool {
+        if key == "-" && label == "LED Matrix" { return has-panels; }
+        if key == "-" && label == "Keyboard & macropad" { return has-keyboard; }
+        if led-page(key) { return has-panels; }
+        if key == "macropad" { return has-keyboard && has-macropad; }
+        if kb-page(key) { return has-keyboard; }
+        return true;
+    }
+    // Firmware, Keyboard shortcuts, About and the keyboard setup open from Settings
     function nav-key(p: string) -> string {
-        return p == "firmware" || p == "shortcuts" || p == "about" ? "settings" : p;
+        return p == "firmware" || p == "shortcuts" || p == "about" || p == "kbsetup" ? "settings" : p;
     }
     function title-of(p: string) -> string {
         return p == "home" ? "Home" : p == "settings" ? "Settings" : p == "monitor" ? "System monitor"
             : p == "games" ? "Games & patterns" : p == "music" ? "Audio" : p == "math" ? "Math" : p == "draw" ? "Draw"
             : p == "effects" ? "Plug animation" : p == "messages" ? "Display messages" : p == "transitions" ? "App transition effects" : p == "startup" ? "Startup animation" : p == "firmware" ? "Firmware"
-            : p == "shortcuts" ? "Keyboard shortcuts" : p == "about" ? "About White Rabbit" : "";
+            : p == "shortcuts" ? "Keyboard shortcuts" : p == "about" ? "About White Rabbit"
+            : p == "lighting" ? "Lighting" : p == "kbaudio" ? "Audio show" : p == "keys" ? "Key mapping" : p == "macropad" ? "Macropad"
+            : p == "kbsetup" ? "Keyboard & macropad" : "";
     }
     // Pages that fill the window themselves, instead of scrolling
     function full-page(p: string) -> bool {
@@ -131,7 +167,10 @@ export component AppWindow inherits Window {
     }
 
     property <string> page: App.page;
-    changed page => { App.page-shown(page); }
+    changed page => {
+        App.page-shown(page);
+        Kb.page = page == "kbaudio" ? "audio" : page == "kbsetup" ? "setup" : page;
+    }
 
     ThemeSync { }
 
@@ -151,15 +190,23 @@ export component AppWindow inherits Window {
                 Logo { }
                 Text { text: App.title; color: Theme.text2; font-size: Theme.caption; vertical-alignment: center; }
             }
-            for item in nav: NavItem {
-                icon: item.icon;
-                label: item.label + (item.key == "monitor" && App.layout-dirty ? " *" : "");
-                selected: nav-key(App.page) == item.key;
-                clicked => { App.page = item.key; }
+            for item in nav: VerticalLayout {
+                if item.key != "-" && shown(item.key, item.label): NavItem {
+                    icon: item.icon;
+                    label: item.label + (item.key == "monitor" && App.layout-dirty ? " *" : "");
+                    selected: nav-key(App.page) == item.key;
+                    clicked => { App.page = item.key; }
+                }
+                if item.key == "-" && shown(item.key, item.label): VerticalLayout {
+                    padding-left: 16px;
+                    padding-top: item.label == "" ? 6px : 12px;
+                    padding-bottom: 4px;
+                    if item.label != "": Text { text: item.label; color: Theme.text2; font-size: Theme.caption; font-weight: 600; }
+                }
             }
             Rectangle { vertical-stretch: 1; }
             // Which panels the controls act on
-            VerticalLayout {
+            if has-panels: VerticalLayout {
                 padding-left: 10px;
                 padding-right: 6px;
                 padding-bottom: 6px;
@@ -208,6 +255,16 @@ export component AppWindow inherits Window {
                 }
                 Text { text: title-of(App.page); color: Theme.text; font-size: Theme.title; font-weight: 600; }
             }
+            // The keyboard picture stays put above the keyboard pages, so you can see what you change
+            // while the controls scroll underneath (at most 760 px wide, about 240 px tall).
+            if kb-page(App.page) || App.page == "kbsetup": Rectangle {
+                height: deck.height + 12px;
+                deck := Deck {
+                    width: min(parent.width - 12px, 760px);
+                    x: (parent.width - self.width) / 2;
+                    y: 0;
+                }
+            }
             if !full-page(App.page): ScrollView {
                 vertical-stretch: 1;
                 VerticalLayout {
@@ -232,6 +289,11 @@ export component AppWindow inherits Window {
                     if App.page == "games": GamesView { }
                     if App.page == "math": MathView { }
                     if App.page == "draw": DrawView { }
+                    if App.page == "lighting": KbLightingPage { }
+                    if App.page == "kbaudio": KbAudioPage { }
+                    if App.page == "keys": KbKeysPage { }
+                    if App.page == "macropad": KbMacropadPage { }
+                    if App.page == "kbsetup": KbSetupPage { }
                 }
             }
             if full-page(App.page): VerticalLayout {

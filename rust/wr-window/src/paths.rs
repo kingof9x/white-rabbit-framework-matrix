@@ -34,6 +34,11 @@ pub fn settings_file() -> PathBuf {
     config_dir().join("settings.json")
 }
 
+/// The keyboard and macropad settings (wr-keyboard's settings.rs), shared with the monitor.
+pub fn keyboard_file() -> PathBuf {
+    config_dir().join("keyboard.txt")
+}
+
 pub fn drawings_dir() -> PathBuf {
     config_dir().join("drawings")
 }

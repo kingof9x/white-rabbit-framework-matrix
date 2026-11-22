@@ -23,7 +23,9 @@ mod external;
 mod font;
 mod formula;
 mod games;
+mod hardware;
 mod jobs;
+mod keyboard;
 mod lead_in;
 mod link;
 mod maths;
@@ -162,6 +164,8 @@ pub fn build(start: &str) -> (AppWindow, Rc<app::Ctx>) {
     ctx.update_bar(&ui);
     g.set_page(start.into());
     ctx.refresh_modules();
+    keyboard::wire(&ui);
+    hardware::wire(&ui);
     (ui, ctx)
 }
 
@@ -190,6 +194,7 @@ fn run_window(args: &[String]) {
     let close_ctx = ctx.clone();
     ui.window().on_close_requested(move || {
         jobs::stop_all();
+        keyboard::stop();
         pages::monitor::editor::apply_on_close();
         let borrowed: Vec<_> =
             close_ctx.panels().into_iter().filter(|p| close_ctx.lender.is_borrowed(&p.device)).collect();
