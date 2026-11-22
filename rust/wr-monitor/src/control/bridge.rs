@@ -83,6 +83,18 @@ impl Bridge {
         json!({"held": held, "frames": frames}).as_object().unwrap().clone()
     }
 
+    /// "frames": what each connected panel shows now, column by column as hex by port (for the window's
+    /// Home page picture).
+    pub fn frames(&self) -> Map<String, Value> {
+        let mut frames = Map::new();
+        for name in self.panels.port_names().into_iter().flatten() {
+            if let Some(frame) = self.panels.hub().last_frame(&name) {
+                frames.insert(name, json!(to_hex(&frame.concat())));
+            }
+        }
+        json!({"frames": frames}).as_object().unwrap().clone()
+    }
+
     /// "release": these panels (all when "ports" is null) go back to the monitor. Returns the ones
     /// that were held; the caller has the monitor draw on them again.
     pub fn release(&self, ports: Option<&Value>) -> Vec<String> {
@@ -224,6 +236,12 @@ pub mod tests {
         bridge.hold(&obj(json!({"ports": ["COM5"], "pid": 8})));
         assert!(bridge.release_orphans(|pid| pid == 8));
         assert_eq!(bridge.release(None), vec!["com5"]);
+    }
+
+    #[test]
+    fn frames_are_empty_before_anything_is_drawn() {
+        let (_, bridge) = bridge();
+        assert_eq!(bridge.frames(), obj(json!({"frames": {}})));
     }
 
     #[test]
