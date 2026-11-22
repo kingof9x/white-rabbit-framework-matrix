@@ -4,7 +4,8 @@
 ; Output: dist\WhiteRabbit-setup.exe (same name in every release, so download links keep working)
 ;
 ; The installed app is all Rust (rust/): WhiteRabbit.exe is the monitor and tray icon, and WhiteRabbitWindow.exe
-; the settings window it opens. Next to them: the firmware (res\releases), PresentMon and the licences.
+; the settings window it opens. It also drives the RGB keyboard and macropad, and offers to remove the old
+; Framework 16 Keyboard Control app. Next to them: the firmware (res\releases), PresentMon and the licences.
 ; It starts when the user logs in.
 
 #ifndef AppVersion
@@ -89,6 +90,49 @@ end;
 function IsUpgrade(): Boolean;
 begin
   Result := WasInstalled;
+end;
+
+const
+  // The Framework 16 Keyboard Control app, now part of White Rabbit
+  OldKeyboardApp = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{49DC55DF-26AA-4912-98D2-497D748E6BBE}_is1';
+
+// The old keyboard app's uninstaller, if it is installed (for this user, or for everyone)
+function OldKeyboardUninstaller(): String;
+begin
+  Result := '';
+  if not RegQueryStringValue(HKCU, OldKeyboardApp, 'UninstallString', Result) then
+    RegQueryStringValue(HKLM, OldKeyboardApp, 'UninstallString', Result);
+  Result := RemoveQuotes(Result);
+end;
+
+// White Rabbit now does what the keyboard app did, and only one program can drive the keyboard, so
+// offer to remove it. Its settings are copied into White Rabbit the first time White Rabbit starts,
+// and its settings file is left in place.
+procedure RemoveOldKeyboardApp();
+var
+  Uninstaller: String;
+  Code: Integer;
+begin
+  Uninstaller := OldKeyboardUninstaller();
+  if (Uninstaller = '') or WizardSilent() then
+    Exit;
+  if MsgBox('Framework 16 Keyboard Control is installed on this PC.' + #13#10 + #13#10 +
+      'White Rabbit now does everything it did: keyboard lighting, the audio show, key mapping, ' +
+      'the macropad and keyboard firmware updates. Your keyboard settings are carried over.' + #13#10 + #13#10 +
+      'Running both would make them fight over the keyboard. Remove Framework 16 Keyboard Control now?',
+      mbConfirmation, MB_YESNO) = IDYES then
+  begin
+    if not ShellExec('', Uninstaller, '/SILENT /NORESTART /SUPPRESSMSGBOXES', '', SW_SHOW,
+        ewWaitUntilTerminated, Code) then
+      MsgBox('Framework 16 Keyboard Control could not be removed (' + SysErrorMessage(Code) + '). ' +
+        'You can remove it from Settings > Apps.', mbInformation, MB_OK);
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssInstall then
+    RemoveOldKeyboardApp();
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

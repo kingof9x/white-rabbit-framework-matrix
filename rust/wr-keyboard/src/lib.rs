@@ -20,4 +20,5 @@ pub mod device;
 pub mod engine;
 pub mod render;
 pub mod settings;
+pub mod shortcut;
 pub mod sim;

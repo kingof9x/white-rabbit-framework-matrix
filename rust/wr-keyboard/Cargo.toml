@@ -14,6 +14,14 @@ tiny-skia = { version = "0.11", default-features = false, features = ["std", "si
 # Pure-Rust HID backend on Windows: no C compiler or driver install needed.
 [target.'cfg(windows)'.dependencies]
 hidapi = { version = "2.6", default-features = false, features = ["windows-native"] }
+# The audio show's Ctrl+Alt+Shift+M (a keyboard hook)
+windows-sys = { version = "0.60", features = [
+    "Win32_Foundation",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Threading",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+] }
 
 [target.'cfg(not(windows))'.dependencies]
 hidapi = "2.6"

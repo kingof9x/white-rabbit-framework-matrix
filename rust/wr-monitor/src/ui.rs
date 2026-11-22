@@ -25,7 +25,7 @@ use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_
 use windows_sys::Win32::System::SystemServices::{GUID_CONSOLE_DISPLAY_STATE, GUID_LIDSWITCH_STATE_CHANGE};
 use windows_sys::Win32::System::Threading::CreateMutexW;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    RegisterHotKey, UnregisterHotKey, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT,
+    RegisterHotKey, UnregisterHotKey, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, VK_F13,
 };
 use windows_sys::Win32::UI::Shell::{
     ShellExecuteW, Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW,
@@ -402,6 +402,7 @@ pub fn request(what: UiRequest) {
         UiRequest::Shortcuts => 1,
         UiRequest::Power => 2,
         UiRequest::Quit => 3,
+        UiRequest::AppKeys => 4,
     };
     std::thread::spawn(move || {
         if what == UiRequest::Quit {
@@ -439,6 +440,46 @@ unsafe fn register_hotkeys(hwnd: HWND, settings: &Settings) {
         "Keyboard shortcuts: Ctrl+Alt+Shift + {}",
         if registered.is_empty() { "none".into() } else { registered.join(", ") }
     );
+}
+
+/// Hotkey ids of the keyboard's "Open an app" keys: APP_KEY_ID + slot.
+const APP_KEY_ID: i32 = 100;
+
+/// The programs the "Open an app" keys start, as registered.
+static APP_KEYS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// Registers Ctrl+Shift+Alt+F13 onwards for the keyboard's "Open an app" keys that have a program.
+/// The keyboard sends these when such a key is pressed.
+unsafe fn register_app_keys(hwnd: HWND) {
+    let apps = crate::keyboard::job().map(|j| j.apps()).unwrap_or_default();
+    let mut registered = APP_KEYS.lock().unwrap_or_else(|e| e.into_inner());
+    for i in 0..wr_keyboard::keycodes::APP_SLOTS {
+        let id = APP_KEY_ID + i as i32;
+        let was = registered.get(i).is_some_and(|a| !a.trim().is_empty());
+        let now = apps.get(i).is_some_and(|a| !a.trim().is_empty());
+        if was && !now {
+            UnregisterHotKey(hwnd, id);
+        } else if now && !was {
+            let key = (VK_F13 + i as u16) as u32;
+            if RegisterHotKey(hwnd, id, MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, key) == 0 {
+                warn!("Couldn't register the keyboard's Open an app key {}", i + 1);
+            }
+        }
+    }
+    let count = apps.iter().filter(|a| !a.trim().is_empty()).count();
+    if count > 0 || !registered.is_empty() {
+        info!("Keyboard Open an app keys: {count}");
+    }
+    *registered = apps;
+}
+
+/// An "Open an app" key was pressed: start its program the way Explorer would.
+fn open_app(slot: usize) {
+    let path = APP_KEYS.lock().unwrap_or_else(|e| e.into_inner()).get(slot).cloned().unwrap_or_default();
+    let path = path.trim().trim_matches('"');
+    if !path.is_empty() {
+        open(std::path::Path::new(path));
+    }
 }
 
 fn hotkey(letter: char) {
@@ -485,12 +526,15 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                 1 => register_hotkeys(hwnd, &settings),
                 2 => apply_power(),
                 3 => command(hwnd, ID_QUIT),
+                4 => register_app_keys(hwnd),
                 _ => {}
             }
             0
         }
         WM_HOTKEY => {
-            if let Some(letter) = HOTKEYS.get(wparam.wrapping_sub(1)) {
+            if wparam >= APP_KEY_ID as usize {
+                open_app(wparam - APP_KEY_ID as usize);
+            } else if let Some(letter) = HOTKEYS.get(wparam.wrapping_sub(1)) {
                 hotkey(*letter);
             }
             0
@@ -600,6 +644,7 @@ pub fn run(shared: Arc<Shared>) {
 
         let settings = shared.settings.lock().unwrap().clone();
         register_hotkeys(hwnd, &settings);
+        register_app_keys(hwnd);
         WINDOW.store(hwnd as usize, Ordering::SeqCst);
 
         let mut msg: MSG = std::mem::zeroed();

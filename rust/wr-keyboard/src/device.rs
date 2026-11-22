@@ -243,6 +243,17 @@ pub fn numpad_present(api: &HidApi) -> bool {
     api.device_list().any(|d| d.vendor_id() == proto::VID && d.product_id() == PID_NUMPAD)
 }
 
+/// Whether a Framework keyboard, macropad or numpad is plugged in (any firmware), without opening it.
+pub fn any_present() -> bool {
+    let Ok(api) = HidApi::new() else {
+        return false;
+    };
+    let present = api.device_list().any(|d| {
+        d.vendor_id() == proto::VID && (DeviceKind::from_pid(d.product_id()).is_some() || d.product_id() == PID_NUMPAD)
+    });
+    present
+}
+
 /// Asks a freshly opened device whether it runs our firmware.
 pub fn identify(dev: Device) -> Found {
     let kind = dev.kind;

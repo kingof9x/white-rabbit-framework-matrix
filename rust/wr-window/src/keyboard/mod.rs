@@ -631,6 +631,10 @@ fn effect_models(app: &AppWindow) {
 fn tick(app: &AppWindow, st: &mut State) {
     let g = app.global::<App>();
     st.flash_answers(app);
+    if AUDIO_SHORTCUT.swap(false, std::sync::atomic::Ordering::AcqRel) {
+        let on = !st.audio_on;
+        st.set_audio(on);
+    }
     st.status = st.engine.status.lock().unwrap().clone();
     let status = st.status.clone();
 
@@ -976,20 +980,46 @@ pub fn demo() -> bool {
     std::env::args().any(|a| a == "--demo") || std::env::var_os("WHITE_RABBIT_FAKE_KEYBOARD").is_some()
 }
 
-/// Closing the window: hand the lights back to the devices' saved effects (the engine's Drop does it).
+/// Closing the window: hand the lights back to the devices' saved effects, save the settings, and give
+/// the keyboard to White Rabbit's background part, which carries on with an app-drawn effect or the
+/// audio show.
 pub fn stop() {
     if let Some((st, timer)) = RUNNING.with(|r| r.borrow_mut().take()) {
         drop(timer);
-        if let Ok(st) = st.try_borrow() {
-            st.bg.close();
+        let Ok(mut st) = st.try_borrow_mut() else { return };
+        st.bg.close();
+        st.engine.shutdown();
+        if st.s != st.last_saved {
+            settings::save(&crate::paths::keyboard_file(), &st.s);
+            st.last_saved = st.s.clone();
         }
-        drop(st);
+        if !st.demo {
+            crate::link::request(
+                serde_json::json!({"cmd": "keyboard", "hold": false, "audio": st.audio_on}),
+                Duration::from_secs(2),
+            );
+        }
     }
 }
+
+/// Asks White Rabbit's background part to stop driving the keyboard while the window is open.
+/// True when its audio show was on, so the window carries on with it.
+fn take_keyboard() -> bool {
+    let reply = crate::link::request(
+        serde_json::json!({"cmd": "keyboard", "hold": true, "pid": std::process::id()}),
+        Duration::from_secs(2),
+    );
+    reply.and_then(|r| r.get("audio").and_then(|a| a.as_bool())).unwrap_or(false)
+}
+
+/// Ctrl+Alt+Shift+M was pressed (set by the shortcut watcher, picked up by `tick`).
+static AUDIO_SHORTCUT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Starts the keyboard part: finds the devices, fills the keyboard pages and answers them.
 pub fn wire(app: &AppWindow) {
     let demo = demo();
+    let audio_was_on = !demo && take_keyboard();
+    wr_keyboard::shortcut::watch(|| AUDIO_SHORTCUT.store(true, std::sync::atomic::Ordering::Release));
     let weak = app.as_weak();
     let engine = engine::start(
         move || {
@@ -1050,6 +1080,9 @@ pub fn wire(app: &AppWindow) {
         app.global::<App>()
             .set_audio_keys(KeyReact::ALL.iter().position(|k| *k == st.s.audio_keys).unwrap_or(0) as i32);
         st.find_microphones();
+        if audio_was_on {
+            st.set_audio(true);
+        }
     }
     let g = app.global::<App>();
     g.set_legends(ModelRc::from(st.borrow().legends.clone()));

@@ -47,6 +47,19 @@ pub fn run() -> i32 {
         launch::open_window(&["--window", "--wait-for-monitor"]);
     }
 
+    // The RGB keyboard and macropad: app-drawn effects and the audio show while the window is closed
+    let keyboard = crate::keyboard::KeyboardJob::new(
+        paths::keyboard_file(),
+        false,
+        Box::new(|| ui::request(crate::control::commands::UiRequest::AppKeys)),
+    );
+    keyboard.start(pid_alive);
+    wr_keyboard::shortcut::watch(|| {
+        if let Some(job) = crate::keyboard::job() {
+            job.toggle_audio();
+        }
+    });
+
     let source = LayoutSource::locate();
     let layout = source.load();
     let ports: Arc<dyn PortSystem> = Arc::new(WindowsPorts);
@@ -54,14 +67,19 @@ pub fn run() -> i32 {
     // When started at login, the USB devices may still be appearing
     let mut found = discover(&ports.list(), &pins_of(&layout));
     for _ in 0..15 {
-        if !found.is_empty() {
+        // With a keyboard there is something to do already; the panels are found when they appear
+        if !found.is_empty() || wr_keyboard::device::any_present() {
             break;
         }
         std::thread::sleep(Duration::from_secs(2));
         found = discover(&ports.list(), &pins_of(&layout));
     }
-    if found.is_empty() {
+    if found.is_empty() && wr_keyboard::device::any_present() {
+        // Keep running for the keyboard; the panels are looked for again in the background
+        info!("No LED panels found; running for the keyboard");
+    } else if found.is_empty() {
         warn!("No LED panels found");
+        keyboard.stop();
         ui::show_error(
             "No LED Matrix panels were found. Check that the modules are installed, and that no other program \
              (such as the LED Matrix GUI) is using them.",
@@ -146,6 +164,7 @@ pub fn run() -> i32 {
     for t in drawing {
         let _ = t.join();
     }
+    keyboard.stop();
     info!("Exiting");
     0
 }
