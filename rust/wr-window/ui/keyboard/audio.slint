@@ -1,0 +1,121 @@
+// Audio: light shows that follow the music the PC is playing, across the keyboard and side
+// module. Ctrl+Alt+Shift+M (the same as White Rabbit's) turns it on and off.
+import { Theme } from "../theme.slint";
+import { Kb } from "state.slint";
+import { Button, ComboBox } from "std-widgets.slint";
+import { Card, Group, Hint, Body, RadioButton, Status } from "../widgets.slint";
+import { OnOff, SliderRow, ColorPicker } from "parts.slint";
+
+export component KbAudioPage inherits VerticalLayout {
+    spacing: 12px;
+    Card {
+        icon: @image-url("../icons/sparkle.svg");
+        title: "Audio reactivity";
+        help: Kb.audio-status;
+        OnOff { checked: Kb.audio-on; toggled(v) => { Kb.audio-toggled(v); } }
+    }
+    Group {
+        title: "Listen to";
+        help: "Like in White Rabbit: the sound the PC is playing, or a microphone.";
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
+            RadioButton { text: "What the PC is playing"; checked: Kb.audio-input == 0; clicked => { Kb.audio-input-chosen(0); } }
+            RadioButton { text: "A microphone"; checked: Kb.audio-input == 1; clicked => { Kb.audio-input-chosen(1); } }
+        }
+        if Kb.audio-input == 1: HorizontalLayout {
+            spacing: 8px;
+            padding-left: 30px;
+            ComboBox {
+                horizontal-stretch: 1;
+                model: Kb.audio-devices;
+                current-index <=> Kb.audio-device;
+                selected => { Kb.audio-device-chosen(self.current-index); }
+            }
+            Button { text: "Look again"; clicked => { Kb.audio-devices-refresh(); } }
+        }
+        HorizontalLayout {
+            spacing: 12px;
+            Body { text: "Sound now"; width: 96px; vertical-alignment: center; }
+            Rectangle {
+                height: 10px;
+                horizontal-stretch: 1;
+                border-radius: 5px;
+                background: Theme.control-border;
+                Rectangle {
+                    x: 0;
+                    width: parent.width * clamp(Kb.audio-level * 1.5, 0, 1);
+                    border-radius: 5px;
+                    background: Theme.accent;
+                }
+            }
+        }
+        // Always there (empty while sound is heard), so the page doesn't jump as the music
+        // goes quiet and loud again
+        Hint {
+            height: 18px;
+            overflow: elide;
+            wrap: no-wrap;
+            text: Kb.audio-on && Kb.audio-level < 0.01 ? "No sound heard. Check that something is playing, or pick another input above." : "";
+        }
+    }
+    Group {
+        title: "Show";
+        help: "Pick a show; it changes straight away. The keyboard and " + (Kb.has-module ? Kb.module-name.to-lowercase() : "side module") + " play it as one surface.";
+        for l in Kb.audio-looks: VerticalLayout {
+            spacing: 0px;
+            RadioButton {
+                text: l.name;
+                checked: Kb.audio-look == l.key;
+                clicked => { Kb.audio-look = l.key; Kb.audio-changed(); }
+            }
+            HorizontalLayout { padding-left: 30px; Hint { text: l.about; } }
+        }
+    }
+    Group {
+        title: "Colors";
+        help: "Automatic: green, yellow and red for the bars and the level meter, a rainbow for the other shows.";
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
+            for c[i] in ["Automatic", "Rainbow", "Green, yellow, red", "Fire", "Ocean", "One color"]: RadioButton {
+                text: c;
+                checked: Kb.audio-colors == i;
+                clicked => { Kb.audio-colors = i; Kb.audio-colors-changed(); }
+            }
+        }
+        if Kb.audio-colors == 5: ColorPicker {
+            hue <=> Kb.audio-hue;
+            sat <=> Kb.audio-sat;
+            full: Kb.audio-full;
+            picked: Kb.audio-picked;
+            hex: Kb.audio-hex;
+            changed => { Kb.audio-colors-changed(); }
+        }
+    }
+    Group {
+        title: "Key presses";
+        help: "Keys you press light up on top of the show, on the keyboard and the macropad.";
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
+            for k[i] in ["Off", "Light up the key", "Ripple", "Splash"]: RadioButton {
+                text: k;
+                checked: Kb.audio-keys == i;
+                clicked => { Kb.audio-keys-chosen(i); }
+            }
+        }
+    }
+    Group {
+        title: "Sensitivity";
+        help: "Higher shows more of quiet music. Loudness is evened out automatically, like in White Rabbit.";
+        SliderRow { label: "Sensitivity"; value <=> Kb.audio-sensitivity; maximum: 10; minimum: 1; changed => { Kb.audio-changed(); } }
+    }
+    Card {
+        icon: @image-url("../icons/keyboard.svg");
+        title: "Keyboard shortcut: F12 + ↑";
+        help: "Hold F12 and press ↑ to turn audio reactivity on or off from anywhere. It sends Ctrl+Alt+Shift+M (White Rabbit's shortcut, which also works), so with both apps running it switches both.";
+        OnOff { checked: Kb.audio-hotkey; toggled(v) => { Kb.audio-hotkey-toggled(v); } }
+    }
+    Hint { text: "Audio reactivity takes over the lights while it runs. Turning it off puts back what the Lighting page shows."; }
+}

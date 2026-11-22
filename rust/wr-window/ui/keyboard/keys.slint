@@ -1,0 +1,160 @@
+// Keys: change what any keyboard or macropad key does, turn keys off, open apps,
+// and set up the macropad's corner combos. Changes are saved on the device.
+import { Button, ComboBox, LineEdit } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { Kb } from "state.slint";
+import { Card, Group, Hint, Body, RadioButton, CheckBox, Status, Switch } from "../widgets.slint";
+import { OnOff } from "parts.slint";
+
+// A program path with a Browse button.
+component AppPath inherits HorizontalLayout {
+    in-out property <string> path;
+    callback edited(string);
+    callback browse();
+    spacing: 8px;
+    LineEdit {
+        horizontal-stretch: 1;
+        text <=> root.path;
+        placeholder-text: "C:\\Program Files\\...\\program.exe";
+        edited(t) => { root.edited(t); }
+    }
+    Button { text: "Browse…"; clicked => { root.browse(); } }
+}
+
+component ComboRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <bool> on;
+    in property <[string]> choices;
+    in-out property <int> choice;
+    in property <bool> enabled;
+    callback toggled(bool);
+    callback chosen(int);
+    spacing: 12px;
+    VerticalLayout { alignment: center; Switch { checked: root.on; controlled: true; enabled: root.enabled; toggled(v) => { root.toggled(v); } } }
+    Body { text: root.label; width: 130px; vertical-alignment: center; }
+    ComboBox {
+        horizontal-stretch: 1;
+        enabled: root.enabled && root.on;
+        model: root.choices;
+        current-index <=> root.choice;
+        selected => { root.chosen(self.current-index); }
+    }
+}
+
+export component KbKeysPage inherits VerticalLayout {
+    spacing: 12px;
+    HorizontalLayout {
+        spacing: 8px;
+        Status { text: "Click a key to change it. Changes are saved on the device right away, and work on any computer."; vertical-alignment: center; horizontal-stretch: 1; wrap: word-wrap; }
+    }
+    Card {
+        icon: @image-url("../icons/keyboard.svg");
+        title: "Keyboard shows";
+        help: "What the keys do on their own, or with Fn held down. Fn lock swaps the two for the top row.";
+        HorizontalLayout {
+            spacing: 16px;
+            RadioButton { text: "Normal"; checked: Kb.keys-kb-view == 0; clicked => { Kb.keys-view-chosen(0, 0); } }
+            RadioButton { text: "Fn held"; checked: Kb.keys-kb-view == 1; clicked => { Kb.keys-view-chosen(0, 1); } }
+        }
+    }
+    if Kb.side == 1: Card {
+        icon: @image-url("../icons/grid.svg");
+        title: "Macropad shows";
+        help: "The macropad's two layers. The top combo switches between them.";
+        HorizontalLayout {
+            spacing: 16px;
+            RadioButton { text: "A: MIDI notes"; checked: Kb.keys-pad-view == 0; clicked => { Kb.keys-view-chosen(1, 0); } }
+            RadioButton { text: "B: Numpad"; checked: Kb.keys-pad-view == 1; clicked => { Kb.keys-view-chosen(1, 1); } }
+        }
+    }
+    if Kb.key-selected: Group {
+        title: Kb.key-title;
+        help: Kb.key-now;
+        if Kb.key-editable: VerticalLayout {
+            spacing: 8px;
+            RadioButton { text: Kb.key-default; checked: Kb.key-kind == 0; clicked => { Kb.key-kind-chosen(0); } }
+            RadioButton { text: "Nothing (turned off)"; checked: Kb.key-kind == 1; clicked => { Kb.key-kind-chosen(1); } }
+            RadioButton { text: "A key"; checked: Kb.key-kind == 2; clicked => { Kb.key-kind-chosen(2); } }
+            if Kb.key-kind == 2: VerticalLayout {
+                padding-left: 30px;
+                spacing: 8px;
+                ComboBox {
+                    model: Kb.key-choices;
+                    current-index <=> Kb.key-choice;
+                    selected => { Kb.key-choice-chosen(self.current-index); }
+                }
+                if Kb.key-mods-ok: HorizontalLayout {
+                    spacing: 16px;
+                    Body { text: "Hold with it:"; vertical-alignment: center; color: Theme.text2; }
+                    CheckBox { text: "Ctrl"; checked <=> Kb.key-ctrl; toggled(v) => { Kb.key-mod-toggled(0, v); } }
+                    CheckBox { text: "Shift"; checked <=> Kb.key-shift; toggled(v) => { Kb.key-mod-toggled(1, v); } }
+                    CheckBox { text: "Alt"; checked <=> Kb.key-alt; toggled(v) => { Kb.key-mod-toggled(2, v); } }
+                    CheckBox { text: "Super"; checked <=> Kb.key-super; toggled(v) => { Kb.key-mod-toggled(3, v); } }
+                }
+            }
+            RadioButton { text: "Open an app"; checked: Kb.key-kind == 3; clicked => { Kb.key-kind-chosen(3); } }
+            if Kb.key-kind == 3: VerticalLayout {
+                padding-left: 30px;
+                spacing: 6px;
+                AppPath { path <=> Kb.key-app; edited(t) => { Kb.key-app-edited(t); } browse => { Kb.key-app-browse(); } }
+                Hint { text: "Works while this app is running. It waits in the notification area when you close the window" + (Kb.autostart ? " and starts with Windows." : ". Turn on Start with Windows under Settings so it is always ready."); }
+            }
+        }
+        if Kb.key-note != "": Hint { text: Kb.key-note; }
+    }
+    if !Kb.key-selected: Hint { text: "No key picked yet."; }
+    Card {
+        icon: @image-url("../icons/keyboard.svg");
+        title: "F12 shortcuts";
+        help: Kb.shortcuts-known ? "Hold F12 and press → or ← for the next or previous effect, ↓ for your saved effect, ↑ for audio reactivity. F12 on its own still works (when you let go)." : "Needs the latest keyboard firmware: update it on the Firmware page.";
+        if Kb.shortcuts-known || !Kb.kb-present: OnOff { checked: Kb.shortcuts-on; enabled: Kb.shortcuts-known; toggled(v) => { Kb.shortcuts-toggled(v); } }
+        if !Kb.shortcuts-known && Kb.kb-present: Button { text: "Update firmware"; clicked => { Kb.page = "firmware"; } }
+    }
+    Card {
+        icon: @image-url("../icons/target_arrow.svg");
+        title: "Fn lighting keys";
+        help: "Fn + W, E, R, T, Y, U and D, F, G, H, J change the lights, and so do the macropad's lighting controls. Turn them off so the lights can't change by accident.";
+        OnOff { checked: !Kb.hotkey-lock; toggled(v) => { Kb.lock-toggled(!v); } }
+    }
+    if Kb.side == 1: Group {
+        title: "Macropad corner combos";
+        help: "Press the keys at the same time. Each combo can be turned off or given another job.";
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
+            Body { text: "Top combo:"; vertical-alignment: center; color: Theme.text2; }
+            RadioButton { text: "Two top corners"; enabled: Kb.combos-known; checked: !Kb.combo-top-row; clicked => { Kb.combo-top-row-chosen(false); } }
+            RadioButton { text: "All four top keys"; enabled: Kb.combos-known; checked: Kb.combo-top-row; clicked => { Kb.combo-top-row-chosen(true); } }
+        }
+        ComboRow {
+            label: Kb.combo-top-row ? "Top row" : "Top corners";
+            enabled: Kb.combos-known;
+            on: Kb.combo-top-on;
+            choices: Kb.combo-top-choices;
+            choice <=> Kb.combo-top-choice;
+            toggled(v) => { Kb.combo-toggled(0, v); }
+            chosen(i) => { Kb.combo-choice-chosen(0, i); }
+        }
+        if Kb.combo-top-app-shown: AppPath { path <=> Kb.combo-top-app; edited(t) => { Kb.combo-app-edited(0, t); } browse => { Kb.combo-app-browse(0); } }
+        ComboRow {
+            label: "Bottom corners";
+            enabled: Kb.combos-known;
+            on: Kb.combo-bottom-on;
+            choices: Kb.combo-bottom-choices;
+            choice <=> Kb.combo-bottom-choice;
+            toggled(v) => { Kb.combo-toggled(1, v); }
+            chosen(i) => { Kb.combo-choice-chosen(1, i); }
+        }
+        if Kb.combo-bottom-app-shown: AppPath { path <=> Kb.combo-bottom-app; edited(t) => { Kb.combo-app-edited(1, t); } browse => { Kb.combo-app-browse(1); } }
+        if !Kb.combos-known: Hint { text: Kb.mod-present ? "Install the latest macropad firmware (Firmware page) to change the combos." : "Connect the macropad to change the combos."; }
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        if Kb.confirm-reset: Body { text: "Put every key on the keyboard and macropad back to the Framework default?"; vertical-alignment: center; }
+        if Kb.confirm-reset: Button { text: "Yes, reset"; clicked => { Kb.keys-reset(); Kb.confirm-reset = false; } }
+        if Kb.confirm-reset: Button { text: "Cancel"; clicked => { Kb.confirm-reset = false; } }
+        if !Kb.confirm-reset: Button { text: "Reset all keys"; enabled: Kb.keys-changed > 0; clicked => { Kb.confirm-reset = true; } }
+        if !Kb.confirm-reset: Hint { text: Kb.keys-changed == 0 ? "No keys changed." : Kb.keys-changed == 1 ? "1 key changed." : Kb.keys-changed + " keys changed."; vertical-alignment: center; }
+    }
+}

@@ -1,0 +1,28 @@
+// Your setup: which keyboard, which side module, and which side it is on.
+import { Theme } from "../theme.slint";
+import { Kb } from "state.slint";
+import { Group, Hint, RadioButton } from "../widgets.slint";
+
+export component KbSetupPage inherits VerticalLayout {
+    spacing: 12px;
+    Group {
+        title: "Keyboard";
+        help: "White Rabbit can't see the color of the keys, so pick yours. It remembers your choice for each keyboard, so swapping keyboards switches it too.";
+        RadioButton { text: "Clear RGB keys"; checked: Kb.kb-type == 0; clicked => { Kb.kb-type = 0; Kb.setup-changed(); } }
+        RadioButton { text: "Black RGB keys"; checked: Kb.kb-type == 1; clicked => { Kb.kb-type = 1; Kb.setup-changed(); } }
+        RadioButton { text: "Black keys, white backlight"; checked: Kb.kb-type == 2; clicked => { Kb.kb-type = 2; Kb.setup-changed(); } }
+    }
+    Group {
+        title: "Side module";
+        help: "The app picks RGB macropad by itself when it finds one.";
+        RadioButton { text: "None"; checked: Kb.side == 0; clicked => { Kb.side = 0; Kb.setup-changed(); } }
+        RadioButton { text: "RGB macropad"; checked: Kb.side == 1; clicked => { Kb.side = 1; Kb.setup-changed(); } }
+        RadioButton { text: "Numpad"; checked: Kb.side == 2; clicked => { Kb.side = 2; Kb.setup-changed(); } }
+    }
+    if Kb.side != 0: Group {
+        title: "Placed on the";
+        RadioButton { text: "Left of the keyboard"; checked: Kb.module-left; clicked => { Kb.module-left = true; Kb.setup-changed(); } }
+        RadioButton { text: "Right of the keyboard"; checked: !Kb.module-left; clicked => { Kb.module-left = false; Kb.setup-changed(); } }
+    }
+    if Kb.setup-note != "": Hint { text: Kb.setup-note; }
+}

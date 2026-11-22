@@ -22,6 +22,11 @@ pub fn settings_file() -> PathBuf {
     config_dir().join("settings.json")
 }
 
+/// The keyboard and macropad settings, written by the window (wr-keyboard's settings.rs).
+pub fn keyboard_file() -> PathBuf {
+    config_dir().join("keyboard.txt")
+}
+
 /// %LOCALAPPDATA%\WhiteRabbit: Python's `user_log_dir` (an empty variable counts as unset there).
 pub fn log_dir() -> PathBuf {
     let base = ["LOCALAPPDATA", "APPDATA", "USERPROFILE", "HOME"]

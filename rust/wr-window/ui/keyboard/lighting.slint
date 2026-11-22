@@ -1,0 +1,134 @@
+// Lighting: one page for the effect, its color, speed and brightness, painted keys and matching
+// the two devices' brightness. Every change shows on the devices straight away; Save as default
+// keeps it after a restart.
+import { Button } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { Kb } from "state.slint";
+import { Card, Group, Hint, Body, Status, AccentButton, RadioButton, Switch } from "../widgets.slint";
+import { ColorPicker, SliderRow, EffectButtons, OnOff } from "parts.slint";
+
+// LED current and color fine-tuning for one device
+component CalControls inherits VerticalLayout {
+    in property <string> name;
+    in property <bool> known;
+    in-out property <int> current;
+    in-out property <int> red;
+    in-out property <int> green;
+    in-out property <int> blue;
+    callback changed();
+    callback reset();
+    spacing: 4px;
+    HorizontalLayout {
+        Body { text: root.name; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
+        if root.known: Button { text: "Reset"; clicked => { root.reset(); } }
+    }
+    if !root.known: Hint { text: "Needs the latest firmware on this device (see the Firmware page), or it isn't connected."; }
+    if root.known: SliderRow { label: "LED power"; value <=> root.current; changed => { root.changed(); } }
+    if root.known: SliderRow { label: "Red"; value <=> root.red; changed => { root.changed(); } }
+    if root.known: SliderRow { label: "Green"; value <=> root.green; changed => { root.changed(); } }
+    if root.known: SliderRow { label: "Blue"; value <=> root.blue; changed => { root.changed(); } }
+}
+
+export component KbLightingPage inherits VerticalLayout {
+    spacing: 12px;
+    HorizontalLayout {
+        spacing: 8px;
+        Status { text: Kb.deck-caption; vertical-alignment: center; horizontal-stretch: 1; }
+        if Kb.pc-live: Button { text: "Stop"; clicked => { Kb.stop-pc(); } }
+        AccentButton { text: "Save as default"; clicked => { Kb.send-show(true); } }
+    }
+    if Kb.has-module: Card {
+        icon: @image-url("../icons/arrow_swap.svg");
+        title: "Change";
+        help: Kb.target == 0 ? "One effect across the keyboard and " + Kb.module-name.to-lowercase() + ", as one surface." : "Each device keeps its own effect.";
+        HorizontalLayout {
+            spacing: 16px;
+            RadioButton { text: "Both, joined"; checked: Kb.target == 0; clicked => { Kb.target-chosen(0); } }
+            RadioButton { text: "Keyboard"; checked: Kb.target == 1; clicked => { Kb.target-chosen(1); } }
+            RadioButton { text: Kb.module-name; checked: Kb.target == 2; clicked => { Kb.target-chosen(2); } }
+        }
+    }
+    Group {
+        title: "Effect";
+        help: Kb.show-effect-name;
+        for g in Kb.effect-groups: VerticalLayout {
+            spacing: 4px;
+            Hint { text: g.name; }
+            EffectButtons {
+                items: g.items;
+                selected: Kb.show-effect;
+                picked(k) => { Kb.show-effect = k; Kb.show-changed(); }
+            }
+        }
+    }
+    Group {
+        title: "Effect color, speed and brightness";
+        ColorPicker {
+            hue <=> Kb.show-hue;
+            sat <=> Kb.show-sat;
+            full: Kb.show-full;
+            picked: Kb.show-picked;
+            hex: Kb.show-hex;
+            changed => { Kb.show-changed(); }
+        }
+        SliderRow { label: "Speed"; value <=> Kb.show-speed; changed => { Kb.show-changed(); } }
+        SliderRow { label: "Brightness"; value <=> Kb.show-val; changed => { Kb.show-changed(); } }
+    }
+    Group {
+        title: "Key colors";
+        help: "Pick a color, then click or drag across keys in the picture. Click a painted key again to change its color. " + Kb.paint-count + ".";
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
+            RadioButton { text: "Paint"; checked: Kb.paint-tool == 0; clicked => { Kb.paint-tool = 0; } }
+            RadioButton { text: "Erase"; checked: Kb.paint-tool == 1; clicked => { Kb.paint-tool = 1; } }
+            Button { text: "Example: WASD and arrows"; clicked => { Kb.paint-example(); } }
+            Button { text: "Clear painted keys"; clicked => { Kb.paint-clear(); } }
+        }
+        Hint { text: "While an effect runs, painted keys:"; }
+        VerticalLayout {
+            spacing: 2px;
+            RadioButton { text: "Keep a steady color"; checked: Kb.paint-mode == 0; clicked => { Kb.paint-mode-chosen(0); } }
+            RadioButton { text: "Keep their color, and brighten and dim with the effect"; checked: Kb.paint-mode == 1; clicked => { Kb.paint-mode-chosen(1); } }
+            RadioButton { text: "Tint: take the effect's colors, shifted by the color you paint"; checked: Kb.paint-mode == 2; clicked => { Kb.paint-mode-chosen(2); } }
+        }
+        if Kb.paint-mode == 2: Hint { text: "Paint a key the effect's own color and it looks unchanged; the further round the color wheel you paint, the more its colors shift. White takes the color out."; }
+        ColorPicker {
+            hue <=> Kb.brush-hue;
+            sat <=> Kb.brush-sat;
+            full: Kb.brush-full;
+            picked: Kb.brush-picked;
+            hex: Kb.brush-hex;
+            changed => { Kb.show-changed(); }
+        }
+    }
+    if Kb.has-module: Group {
+        title: "Match the brightness of the two devices";
+        help: "LED power sets how hard each device drives its lights. Red, green and blue even out the color of white. Changes are saved on each device.";
+        HorizontalLayout {
+            spacing: 12px;
+            VerticalLayout { alignment: center; Switch { checked: Kb.white-test; controlled: true; toggled(v) => { Kb.white-test-toggled(v); } } }
+            Body { text: "Show plain white on both while I adjust"; vertical-alignment: center; }
+        }
+        CalControls {
+            name: "Keyboard";
+            known: Kb.kb-cal-known;
+            current <=> Kb.kb-cal-current;
+            red <=> Kb.kb-cal-r;
+            green <=> Kb.kb-cal-g;
+            blue <=> Kb.kb-cal-b;
+            changed => { Kb.cal-changed(0); }
+            reset => { Kb.cal-reset(0); }
+        }
+        CalControls {
+            name: Kb.module-name;
+            known: Kb.mod-cal-known;
+            current <=> Kb.mod-cal-current;
+            red <=> Kb.mod-cal-r;
+            green <=> Kb.mod-cal-g;
+            blue <=> Kb.mod-cal-b;
+            changed => { Kb.cal-changed(1); }
+            reset => { Kb.cal-reset(1); }
+        }
+    }
+}

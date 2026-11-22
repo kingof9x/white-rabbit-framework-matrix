@@ -3,6 +3,9 @@ import { Theme } from "../theme.slint";
 import { App } from "../state.slint";
 import { Group, Body, Hint, Status, AccentButton, Button } from "../widgets.slint";
 import { ComboBox } from "std-widgets.slint";
+import { Kb } from "../keyboard/state.slint";
+import { KbFirmwareView } from "../keyboard/firmware.slint";
+import { SectionTitle } from "../widgets.slint";
 
 export global FirmwarePage {
     in property <[string]> installed: ["Reading the panels..."];
@@ -62,5 +65,11 @@ export component FirmwareView inherits VerticalLayout {
             Button { text: "Sleep"; clicked => { FirmwarePage.sleep(true); } }
             Button { text: "Wake"; clicked => { FirmwarePage.sleep(false); } }
         }
+    }
+    if Kb.kb-present || Kb.mod-present || Kb.waiting-drive != "" || Kb.flash-busy: VerticalLayout {
+        spacing: 8px;
+        padding-top: 14px;
+        SectionTitle { text: "Keyboard and macropad"; }
+        KbFirmwareView { }
     }
 }

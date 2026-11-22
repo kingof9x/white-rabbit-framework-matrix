@@ -24,6 +24,8 @@ pub enum UiRequest {
     Power,
     /// Quit like the tray's Quit.
     Quit,
+    /// Register the keyboard's "Open an app" keys again from the keyboard settings.
+    AppKeys,
 }
 
 const LID_SETTING: &str = "turn_off_with_lid";
@@ -292,6 +294,10 @@ impl Handler for Commands {
             "serial_many" => self.bridge.serial_many(message),
             "hold" => Ok(self.bridge.hold(message)),
             "release" => self.release(message),
+            "keyboard" => Ok(match crate::keyboard::job() {
+                Some(job) => job.command(message),
+                None => object(json!({"ok": false, "error": "The keyboard part isn't running"})),
+            }),
             _ => Ok(object(json!({"ok": false, "error": format!("Unknown command {cmd}")}))),
         }
     }

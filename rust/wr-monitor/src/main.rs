@@ -9,6 +9,7 @@ mod control;
 mod e2e_test;
 mod fps;
 mod icon;
+mod keyboard;
 mod launch;
 mod location;
 mod monitor;

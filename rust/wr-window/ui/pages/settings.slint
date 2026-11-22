@@ -2,6 +2,7 @@
 import { App } from "../state.slint";
 import { Card, SectionTitle, Button, AccentButton, Status } from "../widgets.slint";
 import { ComboBox } from "std-widgets.slint";
+import { Kb } from "../keyboard/state.slint";
 
 // Check for updates: a newer White Rabbit and newer panel firmware. Only when the user clicks.
 export global UpdatesPage {
@@ -61,7 +62,9 @@ export component SettingsPage inherits VerticalLayout {
     }
     if App.home-status != "": Status { text: App.home-status; }
     Card { link: true; icon: @image-url("../icons/developer_board.svg"); title: "Firmware";
-        help: "See the firmware on each panel, and install the White Rabbit firmware or Framework's."; clicked => { App.page = "firmware"; } }
+        help: "See the firmware on each panel, keyboard and macropad, and install new firmware."; clicked => { App.page = "firmware"; } }
+    if Kb.kb-present || Kb.mod-present: Card { link: true; icon: @image-url("../icons/keyboard.svg"); title: "Keyboard & macropad";
+        help: "Which keyboard you have (clear or black keys) and which side the macropad or numpad is on."; clicked => { App.page = "kbsetup"; } }
     Rectangle { height: 14px; }
     SectionTitle { text: "Updates"; }
     Card {

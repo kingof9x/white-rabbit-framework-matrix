@@ -11,6 +11,8 @@ name = "WhiteRabbitWindow"
 path = "src/main.rs"
 
 [dependencies]
+# The RGB keyboard and macropad pages
+wr-keyboard = { version = "0.1.0", path = "../wr-keyboard" }
 wr-core = { path = "../wr-core" }
 wr-panel = { path = "../wr-panel" }
 wr-music = { path = "../wr-music" }

@@ -4,8 +4,9 @@
 #   wr-music    the music visualizer: looks, sound analysis, capturing the sound (Windows)
 #   wr-monitor  the Windows program: panels, tray menu, lid and sleep, keyboard shortcuts
 #   wr-window   the window (WhiteRabbitWindow.exe): every page of the app, built with Slint
+#   wr-keyboard the RGB keyboard and macropad: protocol, effects, the devices, the lighting engine, the picture
 [workspace]
-members = ["wr-core", "wr-panel", "wr-monitor", "wr-music", "wr-window"]
+members = ["wr-core", "wr-panel", "wr-monitor", "wr-music", "wr-window", "wr-keyboard"]
 resolver = "2"
 
 [workspace.package]

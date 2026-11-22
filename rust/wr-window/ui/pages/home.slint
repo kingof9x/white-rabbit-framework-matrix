@@ -3,6 +3,9 @@ import { Theme } from "../theme.slint";
 import { App } from "../state.slint";
 import { Card, SectionTitle, Status } from "../widgets.slint";
 import { Sections, SectionSwitch } from "../sections.slint";
+import { HardwareArea } from "hardware.slint";
+import { Kb } from "../keyboard/state.slint";
+import { OnOff } from "../keyboard/parts.slint";
 
 component Section inherits Card {
     in property <string> key;
@@ -14,26 +17,58 @@ component Section inherits Card {
 
 export component HomePage inherits VerticalLayout {
     spacing: 4px;
-    SectionTitle { text: "Show on the panels"; }
-    Section { key: "monitor"; title: "System monitor";
-        help: "CPU, memory, battery, clock, weather and more. Click to pick what each panel shows."; }
-    Section { key: "music"; title: "Audio reactivity";
-        help: "The audio visualizer on both panels.  Ctrl+Alt+Shift+M"; }
-    Section { key: "games"; title: "Games & patterns";
-        help: "Snake, Ledris, Breakout and Rabbit run, or a pattern or text."; }
-    Section { key: "math"; title: "Math";
-        help: "Graphs, the Game of Life and other moving maths across both panels."; }
-    Section { key: "draw"; title: "Draw";
-        help: "Draw, animate or import a picture for a panel. On shows it while you draw."; }
+    HardwareArea { }
     Rectangle { height: 14px; }
-    SectionTitle { text: "Extras"; }
-    Section { key: "messages"; title: "Display messages";
-        help: "The text line across the top of the panels, your own messages, and vertical messages."; }
-    Section { key: "effects"; title: "Plug animation";
-        help: "What the panels play when something is plugged in or out."; }
-    Section { key: "transitions"; title: "App transition effects";
-        help: "Slide, fade or an effect when a panel changes app."; }
-    Section { key: "startup"; title: "Startup animation";
-        help: "What the panels play when the laptop turns on."; }
+    if App.panels.length > 0: VerticalLayout {
+        spacing: 4px;
+        SectionTitle { text: "Show on the panels"; }
+        Section { key: "monitor"; title: "System monitor";
+            help: "CPU, memory, battery, clock, weather and more. Click to pick what each panel shows."; }
+        Section { key: "music"; title: "Audio reactivity";
+            help: "The audio visualizer on both panels.  Ctrl+Alt+Shift+M"; }
+        Section { key: "games"; title: "Games & patterns";
+            help: "Snake, Ledris, Breakout and Rabbit run, or a pattern or text."; }
+        Section { key: "math"; title: "Math";
+            help: "Graphs, the Game of Life and other moving maths across both panels."; }
+        Section { key: "draw"; title: "Draw";
+            help: "Draw, animate or import a picture for a panel. On shows it while you draw."; }
+        Rectangle { height: 14px; }
+        SectionTitle { text: "Extras"; }
+        Section { key: "messages"; title: "Display messages";
+            help: "The text line across the top of the panels, your own messages, and vertical messages."; }
+        Section { key: "effects"; title: "Plug animation";
+            help: "What the panels play when something is plugged in or out."; }
+        Section { key: "transitions"; title: "App transition effects";
+            help: "Slide, fade or an effect when a panel changes app."; }
+        Section { key: "startup"; title: "Startup animation";
+            help: "What the panels play when the laptop turns on."; }
+        Rectangle { height: 14px; }
+    }
+    if Kb.kb-present: VerticalLayout {
+        spacing: 4px;
+        SectionTitle { text: "Keyboard & macropad"; }
+        Card {
+            link: true;
+            icon: @image-url("../icons/keyboard.svg");
+            title: "Lighting";
+            help: "Effects, colors and painted keys for the keyboard" + (Kb.mod-present ? " and macropad." : ".");
+            clicked => { App.page = "lighting"; }
+        }
+        Card {
+            link: true;
+            icon: @image-url("../icons/music_note_2.svg");
+            title: "Audio show";
+            help: "The keys follow the music.  Ctrl+Alt+Shift+M, or F12 + up arrow";
+            clicked => { App.page = "kbaudio"; }
+            OnOff { checked: Kb.audio-on; toggled(v) => { Kb.audio-toggled(v); } }
+        }
+        Card {
+            link: true;
+            icon: @image-url("../icons/key_edit.svg");
+            title: "Key mapping";
+            help: "Change what a key does, turn keys off, or make a key open an app.";
+            clicked => { App.page = "keys"; }
+        }
+    }
     if App.home-status != "": Status { text: App.home-status; }
 }

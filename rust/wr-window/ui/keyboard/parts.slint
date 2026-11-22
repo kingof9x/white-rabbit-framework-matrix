@@ -1,0 +1,265 @@
+// This app's own building blocks, in White Rabbit's style: the keyboard picture, the color picker,
+// effect buttons, on/off switches with their label, and slider rows.
+import { Theme } from "../theme.slint";
+import { Kb, Legend, EffectItem } from "state.slint";
+import { LineEdit } from "std-widgets.slint";
+import { Switch, Slider, Body, Hint } from "../widgets.slint";
+
+// The live keyboard + side module picture. Rust draws the keycaps (deck-image); the legends are
+// text on top, placed as fractions of the width.
+export component Deck inherits Rectangle {
+    height: self.width * Kb.deck-aspect;
+    init => { Kb.deck-width = self.width; }
+    changed width => { Kb.deck-width = self.width; }
+    Image {
+        source: Kb.deck-image;
+        width: parent.width;
+        height: parent.height;
+        image-fit: fill;
+        image-rendering: smooth;
+    }
+    for l in Kb.legends: Text {
+        x: l.x * root.width;
+        y: l.y * root.width;
+        width: l.w * root.width;
+        height: l.h * root.width;
+        text: l.text;
+        color: l.color;
+        font-size: max(6px, l.fs * root.width);
+        font-weight: 600;
+        horizontal-alignment: l.left ? TextHorizontalAlignment.left : TextHorizontalAlignment.center;
+        vertical-alignment: TextVerticalAlignment.center;
+        overflow: clip;
+    }
+    ta := TouchArea {
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                Kb.deck-pointer(self.mouse-x / root.width, self.mouse-y / root.width, 0);
+            }
+        }
+        moved => {
+            if self.pressed {
+                Kb.deck-pointer(self.mouse-x / root.width, self.mouse-y / root.width, 1);
+            }
+        }
+    }
+}
+
+// "On" or "Off" with a switch, at the right end of a card.
+export component OnOff inherits HorizontalLayout {
+    in property <bool> checked;
+    in property <bool> enabled: true;
+    callback toggled(bool);
+    spacing: 12px;
+    alignment: end;
+    Text {
+        text: root.checked ? "On" : "Off";
+        color: Theme.text;
+        font-size: Theme.body;
+        vertical-alignment: center;
+    }
+    VerticalLayout {
+        alignment: center;
+        Switch {
+            enabled: root.enabled;
+            controlled: true;
+            checked: root.checked;
+            toggled(v) => { root.toggled(v); }
+        }
+    }
+}
+
+// A labelled 0..255 slider.
+export component SliderRow inherits HorizontalLayout {
+    in property <string> label;
+    in-out property <int> value;
+    in property <int> minimum: 0;
+    in property <int> maximum: 255;
+    callback changed();
+    spacing: 12px;
+    Body { text: root.label; width: 96px; vertical-alignment: center; }
+    Slider {
+        horizontal-stretch: 1;
+        minimum: root.minimum;
+        maximum: root.maximum;
+        value: root.value;
+        moved(v) => { root.value = round(v); root.changed(); }
+    }
+    Text { text: root.value; width: 32px; color: Theme.text2; font-size: Theme.caption; vertical-alignment: center; horizontal-alignment: right; }
+}
+
+// A slider whose track is painted: the rainbow for hue, white to the color for saturation.
+component PaintedSlider inherits Rectangle {
+    in-out property <int> value;
+    in property <brush> track;
+    callback changed();
+    height: 28px;
+    min-width: 120px;
+    function set-from(x: length) {
+        root.value = clamp(round((x - 10px) / max(1px, root.width - 20px) * 255), 0, 255);
+        root.changed();
+    }
+    Rectangle {
+        x: 10px;
+        width: parent.width - 20px;
+        height: 12px;
+        border-radius: 6px;
+        background: root.track;
+        border-width: 1px;
+        border-color: Theme.control-border;
+    }
+    Rectangle {
+        x: 10px + (parent.width - 20px) * root.value / 255 - 10px;
+        width: 20px;
+        height: 20px;
+        border-radius: 10px;
+        background: #ffffff;
+        border-width: 2px;
+        border-color: #1b1b1b;
+    }
+    ta := TouchArea {
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down && e.button == PointerEventButton.left { root.set-from(self.mouse-x); }
+        }
+        moved => { if self.pressed { root.set-from(self.mouse-x); } }
+    }
+}
+
+// Every color the LEDs can make: hue and saturation on the firmware's 0..255 scale, quick swatches,
+// and the color picked with its hex code.
+export component ColorPicker inherits VerticalLayout {
+    in-out property <int> hue;
+    in-out property <int> sat;
+    in property <color> full;
+    in property <color> picked;
+    in property <string> hex;
+    callback changed();
+    spacing: 6px;
+    // Keep the code box in step with the sliders, but not while someone is typing in it
+    changed hex => { if !hex-box.has-focus { hex-box.text = root.hex; } }
+    property <[{name: string, h: int, s: int, c: color}]> swatches: [
+        { name: "Framework orange", h: 11, s: 220, c: #ff5c23 },
+        { name: "Red", h: 0, s: 255, c: #ff0000 },
+        { name: "Yellow", h: 43, s: 255, c: #fdff00 },
+        { name: "Green", h: 85, s: 255, c: #02ff00 },
+        { name: "Cyan", h: 128, s: 255, c: #00ffff },
+        { name: "Blue", h: 170, s: 255, c: #0004ff },
+        { name: "Purple", h: 191, s: 255, c: #7a00ff },
+        { name: "Pink", h: 234, s: 200, c: #ff379e },
+        { name: "White", h: 0, s: 0, c: #ffffff },
+    ];
+    HorizontalLayout {
+        spacing: 12px;
+        Body { text: "Hue"; width: 96px; vertical-alignment: center; }
+        PaintedSlider {
+            horizontal-stretch: 1;
+            value <=> root.hue;
+            track: @linear-gradient(90deg, #ff0000 0%, #ffff00 16.7%, #00ff00 33.3%, #00ffff 50%, #0000ff 66.7%, #ff00ff 83.3%, #ff0000 100%);
+            changed => { root.changed(); }
+        }
+        Text { text: root.hue; width: 32px; color: Theme.text2; font-size: Theme.caption; vertical-alignment: center; horizontal-alignment: right; }
+    }
+    HorizontalLayout {
+        spacing: 12px;
+        Body { text: "Saturation"; width: 96px; vertical-alignment: center; }
+        PaintedSlider {
+            horizontal-stretch: 1;
+            value <=> root.sat;
+            track: @linear-gradient(90deg, #ffffff 0%, root.full 100%);
+            changed => { root.changed(); }
+        }
+        Text { text: root.sat; width: 32px; color: Theme.text2; font-size: Theme.caption; vertical-alignment: center; horizontal-alignment: right; }
+    }
+    HorizontalLayout {
+        spacing: 12px;
+        Body { text: "Color"; width: 96px; vertical-alignment: center; }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            for s in root.swatches: Rectangle {
+                width: 26px;
+                height: 26px;
+                border-radius: 13px;
+                background: s.c;
+                border-width: root.hue == s.h && root.sat == s.s ? 3px : 1px;
+                border-color: root.hue == s.h && root.sat == s.s ? Theme.text : Theme.control-border;
+                accessible-role: button;
+                accessible-label: s.name;
+                TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.hue = s.h; root.sat = s.s; root.changed(); }
+                }
+            }
+        }
+    }
+    HorizontalLayout {
+        spacing: 12px;
+        Rectangle { width: 96px; }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            Rectangle { width: 24px; height: 24px; border-radius: Theme.small-radius; background: root.picked; border-width: 1px; border-color: Theme.control-border; }
+            // Type or paste a color code (#RRGGBB); Ctrl+C copies it
+            hex-box := LineEdit {
+                width: 110px;
+                text: root.hex;
+                accessible-label: "Color code";
+                edited(t) => {
+                    if Kb.hex-hue(t) >= 0 {
+                        root.hue = Kb.hex-hue(t);
+                        root.sat = Kb.hex-sat(t);
+                        root.changed();
+                    }
+                }
+            }
+            Text { text: "hue " + root.hue + ", sat " + root.sat; color: Theme.text2; font-size: Theme.caption; vertical-alignment: center; }
+        }
+    }
+}
+
+// Effects as buttons that wrap onto as many rows as they need.
+export component EffectButtons inherits Rectangle {
+    in property <[EffectItem]> items;
+    in property <string> selected;
+    callback picked(string);
+    property <int> cols: max(1, floor(self.width / 200px));
+    property <length> cell-w: self.width / cols;
+    height: ceil(items.length / cols) * 38px;
+    for it[i] in root.items: Rectangle {
+        x: mod(i, root.cols) * root.cell-w;
+        y: floor(i / root.cols) * 38px;
+        width: root.cell-w - 6px;
+        height: 32px;
+        border-radius: Theme.small-radius;
+        property <bool> on: it.key == root.selected;
+        background: on ? Theme.accent : ta.has-hover ? Theme.control-hover : Theme.control;
+        border-width: on ? 0 : 1px;
+        border-color: Theme.control-border;
+        accessible-role: button;
+        accessible-label: it.label;
+        accessible-checked: on;
+        HorizontalLayout {
+            padding-left: 10px;
+            padding-right: 8px;
+            spacing: 6px;
+            if it.number != "": Text {
+                text: it.number;
+                color: on ? Theme.on-accent : Theme.text3;
+                font-size: Theme.caption;
+                vertical-alignment: center;
+            }
+            Text {
+                text: it.label;
+                color: on ? Theme.on-accent : Theme.text;
+                font-size: Theme.body;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+            }
+        }
+        ta := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.picked(it.key); }
+        }
+    }
+}

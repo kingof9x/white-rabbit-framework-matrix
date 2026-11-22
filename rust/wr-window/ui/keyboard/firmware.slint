@@ -1,0 +1,96 @@
+// Firmware: update a device's firmware from the app, or restart it into flashing mode.
+import { Button } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { Kb } from "state.slint";
+import { Card, Group, Hint, Body, AccentButton } from "../widgets.slint";
+
+// What the update of device `which` is doing (shown under its buttons).
+component FlashStatus inherits Text {
+    in property <int> which;
+    text: Kb.flash-status;
+    color: Kb.flash-failed ? Theme.error : Kb.flash-busy ? Theme.text : Theme.text2;
+    font-size: Theme.caption;
+    wrap: word-wrap;
+}
+
+component Device inherits Group {
+    in property <int> which;
+    in property <string> file;
+    property <bool> confirming: Kb.confirm-flash == root.which;
+    VerticalLayout {
+        spacing: 8px;
+        if !confirming: HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            AccentButton {
+                text: "Update firmware";
+                enabled: !Kb.flash-busy;
+                clicked => { Kb.confirm-flash = root.which; Kb.confirm-bootloader = -1; }
+            }
+            Button {
+                text: "Use a .uf2 file…";
+                enabled: !Kb.flash-busy;
+                clicked => { Kb.confirm-flash = -1; Kb.flash-file(root.which); }
+            }
+        }
+        if confirming: Body {
+            text: "Update the " + (root.which == 0 ? "keyboard" : "macropad") + " now? It downloads the latest firmware from GitHub and copies it on. The "
+                + (root.which == 0 ? "keyboard does not type" : "macropad does not work") + " for about 20 seconds while it updates. Your lighting normally stays the same, and the app puts any remapped keys back afterwards.";
+        }
+        if confirming: HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            AccentButton { text: "Yes, update it"; clicked => { Kb.confirm-flash = -1; Kb.flash-latest(root.which); } }
+            Button { text: "Cancel"; clicked => { Kb.confirm-flash = -1; } }
+        }
+        if Kb.flash-which == root.which && Kb.flash-status != "": FlashStatus { which: root.which; }
+        Rectangle { height: 1px; background: Theme.card-border; }
+        HorizontalLayout {
+            spacing: 8px;
+            if Kb.confirm-bootloader == root.which: Body { text: "Restart it into flashing mode?"; vertical-alignment: center; }
+            if Kb.confirm-bootloader == root.which: Button { text: "Yes, restart it"; clicked => { Kb.bootloader(root.which); Kb.confirm-bootloader = -1; } }
+            if Kb.confirm-bootloader == root.which: Button { text: "Cancel"; clicked => { Kb.confirm-bootloader = -1; } }
+            if Kb.confirm-bootloader != root.which: Hint {
+                text: "Doing it by hand: restart into flashing mode, then drag " + root.file + " onto the RPI-RP2 drive.";
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+            if Kb.confirm-bootloader != root.which: Button {
+                text: "Restart into flashing mode";
+                enabled: !Kb.flash-busy;
+                clicked => { Kb.confirm-bootloader = root.which; Kb.confirm-flash = -1; }
+            }
+        }
+    }
+}
+
+export component KbFirmwareView inherits VerticalLayout {
+    spacing: 8px;
+    Hint { text: "Update firmware gets the newest f16custom firmware for that device from GitHub and installs it, the same way White Rabbit does. New features in the app (like the F12 shortcuts) need new firmware."; }
+    if Kb.kb-present: Device { which: 0; title: "Keyboard"; file: "framework_ansi_f16custom.uf2"; }
+    if Kb.mod-present: Device { which: 1; title: "Macropad"; file: "framework_macropad_f16custom.uf2"; }
+    // A device sitting in flashing mode (for example after a restart by hand, or an update that
+    // stopped half way): put firmware on it from here.
+    if Kb.waiting-drive != "" && !Kb.flash-busy: Group {
+        title: "A device is waiting in flashing mode (drive " + Kb.waiting-drive + ")";
+        help: "Pick what it is to put the latest firmware on it. Not sure? Unplug the macropad: if it is still waiting, it is the keyboard.";
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            Button { text: "It is the keyboard"; clicked => { Kb.flash-waiting(0); } }
+            Button { text: "It is the macropad"; clicked => { Kb.flash-waiting(1); } }
+        }
+    }
+    // Progress of an update into a waiting drive (the device is not "present" then).
+    if Kb.flash-busy && ((Kb.flash-which == 0 && !Kb.kb-present) || (Kb.flash-which == 1 && !Kb.mod-present)): Group {
+        title: Kb.flash-which == 0 ? "Keyboard" : "Macropad";
+        FlashStatus { which: Kb.flash-which; }
+    }
+    if !Kb.kb-present && !Kb.mod-present && Kb.waiting-drive == "" && !Kb.flash-busy: Body { text: "No keyboard or macropad found."; }
+    Card {
+        icon: @image-url("../icons/info.svg");
+        title: "Search again";
+        help: "Look for the keyboard and macropad again, for example after flashing by hand.";
+        Button { text: "Search again"; clicked => { Kb.rescan(); } }
+    }
+}
