@@ -1086,6 +1086,10 @@ pub fn wire(app: &AppWindow) {
     }
     let g = app.global::<App>();
     g.set_legends(ModelRc::from(st.borrow().legends.clone()));
+    if cfg!(windows) {
+        // "This app" for an Open an app key: White Rabbit, which opens this window
+        g.set_this_app_path(crate::paths::app_dir().join("WhiteRabbit.exe").display().to_string().into());
+    }
 
     // A callback that reads the window, changes the state and refreshes what depends on it.
     macro_rules! on {

@@ -477,7 +477,11 @@ unsafe fn register_app_keys(hwnd: HWND) {
 fn open_app(slot: usize) {
     let path = APP_KEYS.lock().unwrap_or_else(|e| e.into_inner()).get(slot).cloned().unwrap_or_default();
     let path = path.trim().trim_matches('"');
-    if !path.is_empty() {
+    let this_app = std::env::current_exe().is_ok_and(|exe| exe.to_string_lossy().eq_ignore_ascii_case(path));
+    if this_app {
+        // White Rabbit is running already: open (or bring forward) the window rather than start a copy
+        launch::open_window(&["--window"]);
+    } else if !path.is_empty() {
         open(std::path::Path::new(path));
     }
 }

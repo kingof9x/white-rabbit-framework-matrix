@@ -135,7 +135,7 @@ NAMED = [
     ("Media", "KC_MUTE", "Mute", "Mute"), ("Media", "KC_VOLD", "Volume down", "Vol-"),
     ("Media", "KC_VOLU", "Volume up", "Vol+"), ("Media", "KC_MPRV", "Previous track", "Prev"),
     ("Media", "KC_MPLY", "Play / pause", "Play"), ("Media", "KC_MNXT", "Next track", "Next"),
-    ("Media", "KC_MSTP", "Stop", "Stop"), ("Media", "KC_MSEL", "Media player", "Media"),
+    ("Media", "KC_MSTP", "Stop", "Stop"), ("Media", "KC_MSEL", "Framework key (Framework's website)", "Frmwk"),
     ("Screen", "KC_BRID", "Screen brightness down", "Bri-"), ("Screen", "KC_BRIU", "Screen brightness up", "Bri+"),
     ("Screen", "KC_SCRN", "Display mode (Super+P)", "Display"), ("Screen", "KC_AIRP", "Airplane mode", "Airplane"),
     ("Windows apps", "KC_CALC", "Calculator", "Calc"), ("Windows apps", "KC_MYCM", "File Explorer", "Files"),

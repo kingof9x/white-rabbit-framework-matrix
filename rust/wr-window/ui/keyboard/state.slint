@@ -183,6 +183,8 @@ export global Kb {
     callback key-mod-toggled(int, bool);    // 0 ctrl, 1 shift, 2 alt, 3 super
     callback key-app-edited(string);
     callback key-app-browse();
+    // White Rabbit's own .exe (for "Open an app": the "This app" button), "" if unknown.
+    in property <string> this-app-path;
     callback keys-reset();
 
     // Macropad corner combos
