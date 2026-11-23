@@ -3,6 +3,7 @@
 //! plugged in again, it goes to the end.
 
 use std::cell::RefCell;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
@@ -111,17 +112,122 @@ pub fn refresh(app: &AppWindow) {
     }
 }
 
-/// The LED panel picture, and a look at what is plugged in twice a second.
+/// How the panels are drawn on Home: the keyboard picture's LED size and spacing.
+const STYLE: crate::preview::Style = crate::preview::Style { dot: 6.0, step: 8, margin: 3, gap: 0 };
+
+fn panel_image(levels: &crate::preview::Levels) -> slint::Image {
+    crate::preview::render_styled(std::slice::from_ref(levels), 2, STYLE)
+}
+
+/// A frame from the monitor (column by column, as hex) as levels. The brightest LED is drawn at full
+/// brightness, so the picture reads the same when the panels are dimmed for a dark room.
+fn levels_of_hex(hex: &str) -> Option<crate::preview::Levels> {
+    let bytes = crate::link::unhex(hex);
+    if bytes.len() != wr_core::WIDTH * wr_core::HEIGHT {
+        return None;
+    }
+    let full = bytes.iter().copied().max().unwrap_or(0).max(32) as f64;
+    let mut out = crate::preview::dark();
+    for (x, col) in out.iter_mut().enumerate() {
+        for (y, v) in col.iter_mut().enumerate() {
+            *v = bytes[x * wr_core::HEIGHT + y] as f64 / full;
+        }
+    }
+    Some(out)
+}
+
+thread_local! {
+    /// The frames last drawn on Home, [left, right], so an unchanged frame isn't drawn again.
+    static SHOWN: RefCell<[Option<String>; 2]> = const { RefCell::new([None, None]) };
+}
+
+/// Asking the monitor for the panels' frames (one question at a time).
+static ASKING: AtomicBool = AtomicBool::new(false);
+
+/// Draws what each panel shows now, from the monitor's "frames" reply ({port: hex}).
+fn show_frames(app: &AppWindow, frames: &serde_json::Map<String, serde_json::Value>) {
+    let h = app.global::<Hardware>();
+    let mut wanted: [Option<String>; 2] = [None, None];
+    for p in app.global::<App>().get_panels().iter() {
+        let side = usize::from(side_of(&p.label) == "right");
+        wanted[side] = frames
+            .iter()
+            .find(|(port, _)| port.eq_ignore_ascii_case(&p.device))
+            .and_then(|(_, hex)| hex.as_str())
+            .map(str::to_string);
+    }
+    SHOWN.with(|shown| {
+        let mut shown = shown.borrow_mut();
+        for side in 0..2 {
+            if shown[side] == wanted[side] {
+                continue;
+            }
+            let levels = wanted[side].as_deref().and_then(levels_of_hex).unwrap_or_else(crate::preview::dark);
+            let image = panel_image(&levels);
+            if side == 0 {
+                h.set_left_image(image);
+            } else {
+                h.set_right_image(image);
+            }
+            shown[side] = wanted[side].clone();
+        }
+    });
+}
+
+/// While Home is open, asks the monitor what the panels show (in the background: the window never waits).
+fn ask_for_frames(app: &AppWindow) {
+    if app.global::<App>().get_page() != "home" || app.global::<App>().get_panels().row_count() == 0 {
+        return;
+    }
+    if ASKING.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let weak = app.as_weak();
+    std::thread::spawn(move || {
+        let reply = crate::link::request(serde_json::json!({"cmd": "frames"}), Duration::from_secs(1));
+        ASKING.store(false, Ordering::Release);
+        let frames = reply.and_then(|r| r.get("frames").and_then(|f| f.as_object().cloned())).unwrap_or_default();
+        let _ = weak.upgrade_in_event_loop(move |app| show_frames(&app, &frames));
+    });
+}
+
+/// The LED panel pictures, a look at what is plugged in twice a second, and the panels' frames about
+/// six times a second while Home is open.
 pub fn wire(app: &AppWindow) {
-    let style = crate::preview::Style { dot: 6.0, step: 8, margin: 3, gap: 0 };
-    app.global::<Hardware>().set_panel(crate::preview::render_styled(&[crate::preview::dark()], 2, style));
+    let dark = panel_image(&crate::preview::dark());
+    app.global::<Hardware>().set_left_image(dark.clone());
+    app.global::<Hardware>().set_right_image(dark);
     refresh(app);
     let weak = app.as_weak();
+    let mut ticks = 0u32;
     TIMER.with(|t| {
-        t.start(slint::TimerMode::Repeated, Duration::from_millis(500), move || {
+        t.start(slint::TimerMode::Repeated, Duration::from_millis(150), move || {
             if let Some(app) = weak.upgrade() {
-                refresh(&app);
+                ticks = ticks.wrapping_add(1);
+                if ticks.is_multiple_of(3) {
+                    refresh(&app);
+                }
+                ask_for_frames(&app);
             }
         })
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_dimmed_frame_is_drawn_at_full_brightness() {
+        let mut bytes = vec![0u8; wr_core::WIDTH * wr_core::HEIGHT];
+        // Column 2, row 5 lit at 80 (the panels dimmed), column 0 row 0 at half that
+        bytes[2 * wr_core::HEIGHT + 5] = 80;
+        bytes[0] = 40;
+        let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+        let levels = levels_of_hex(&hex).unwrap();
+        assert_eq!(levels[2][5], 1.0);
+        assert_eq!(levels[0][0], 0.5);
+        assert_eq!(levels[1][1], 0.0);
+        assert!(levels_of_hex("00ff").is_none());
+    }
 }

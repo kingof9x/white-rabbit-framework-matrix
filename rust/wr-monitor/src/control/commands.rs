@@ -293,6 +293,7 @@ impl Handler for Commands {
             "serial" => self.bridge.serial(message),
             "serial_many" => self.bridge.serial_many(message),
             "hold" => Ok(self.bridge.hold(message)),
+            "frames" => Ok(self.bridge.frames()),
             "release" => self.release(message),
             "keyboard" => Ok(match crate::keyboard::job() {
                 Some(job) => job.command(message),

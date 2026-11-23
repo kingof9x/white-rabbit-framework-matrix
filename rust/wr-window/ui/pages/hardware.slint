@@ -10,8 +10,9 @@ export struct HwRow { order: string, name: string, detail: string, status: strin
 
 export global Hardware {
     in property <[HwRow]> rows;
-    // One LED panel, drawn with its LEDs off
-    in property <image> panel;
+    // What the left and right LED panels show right now
+    in property <image> left-image;
+    in property <image> right-image;
     // What is plugged in, and each one's number in the list ("" = not found)
     in property <string> left-panel;
     in property <string> right-panel;
@@ -33,6 +34,7 @@ component Badge inherits Rectangle {
 // An LED panel on its own (when it isn't drawn in the keyboard picture's slot)
 component Panel inherits VerticalLayout {
     in property <string> badge;
+    in property <image> source;
     // The keyboard picture's width beside it, so the panel is drawn to the same scale
     in property <length> deck-width: 760px;
     alignment: start;
@@ -40,7 +42,7 @@ component Panel inherits VerticalLayout {
     Rectangle {
         width: deck-width * 0.0842;
         height: deck-width * 0.3066;
-        LedImage { source: Hardware.panel; width: parent.width; height: parent.height; image-fit: fill; }
+        LedImage { source: root.source; width: parent.width; height: parent.height; image-fit: fill; }
         if badge != "": Badge { text: badge; x: (parent.width - self.width) / 2; y: -11px; }
     }
 }
@@ -54,11 +56,11 @@ component DeckPicture inherits Rectangle {
     // With no macropad or numpad the keyboard is in the middle and the slots are the LED panels' places
     property <bool> slots: Kb.side == 0;
     if slots && Hardware.left-panel != "": LedImage {
-        source: Hardware.panel; image-fit: fill;
+        source: Hardware.left-image; image-fit: fill;
         x: w * 0.0118; y: w * 0.0118; width: w * 0.0842; height: w * 0.3066;
     }
     if slots && Hardware.right-panel != "": LedImage {
-        source: Hardware.panel; image-fit: fill;
+        source: Hardware.right-image; image-fit: fill;
         x: w * 0.8908; y: w * 0.0118; width: w * 0.0842; height: w * 0.3066;
     }
     if slots && Hardware.left-panel != "": Badge { text: Hardware.left-panel; x: w * 0.0539 - 11px; y: -6px; }
@@ -116,18 +118,18 @@ export component HardwareArea inherits Group {
         alignment: center;
         padding-top: 12px;
         spacing: 12px;
-        if Kb.side != 0 && Hardware.left-panel != "": Panel { badge: Hardware.left-panel; deck-width: 600px; }
+        if Kb.side != 0 && Hardware.left-panel != "": Panel { badge: Hardware.left-panel; source: Hardware.left-image; deck-width: 600px; }
         if Kb.side != 0 && (Hardware.left-panel != "" || Hardware.right-panel != ""): DeckPicture { width: 600px; }
         if Kb.side == 0 || (Hardware.left-panel == "" && Hardware.right-panel == ""): DeckPicture { max-width: 760px; horizontal-stretch: 1; }
-        if Kb.side != 0 && Hardware.right-panel != "": Panel { badge: Hardware.right-panel; deck-width: 600px; }
+        if Kb.side != 0 && Hardware.right-panel != "": Panel { badge: Hardware.right-panel; source: Hardware.right-image; deck-width: 600px; }
     }
     if Hardware.keyboard == "" && (Hardware.left-panel != "" || Hardware.right-panel != ""): HorizontalLayout {
         alignment: center;
         padding-top: 12px;
         spacing: 24px;
-        if Hardware.left-panel != "": Panel { badge: Hardware.left-panel; }
+        if Hardware.left-panel != "": Panel { badge: Hardware.left-panel; source: Hardware.left-image; }
         if Hardware.left-panel != "" && Hardware.right-panel != "": Rectangle { width: 400px; }
-        if Hardware.right-panel != "": Panel { badge: Hardware.right-panel; }
+        if Hardware.right-panel != "": Panel { badge: Hardware.right-panel; source: Hardware.right-image; }
     }
     for r in Hardware.rows: Row { item: r; }
 }

@@ -133,7 +133,7 @@ pub const NAMED: &[Named] = &[
     Named { group: "Media", code: 0x00AE, label: "Play / pause", short: "Play" },
     Named { group: "Media", code: 0x00AB, label: "Next track", short: "Next" },
     Named { group: "Media", code: 0x00AD, label: "Stop", short: "Stop" },
-    Named { group: "Media", code: 0x00AF, label: "Media player", short: "Media" },
+    Named { group: "Media", code: 0x00AF, label: "Framework key (Framework's website)", short: "Frmwk" },
     Named { group: "Screen", code: 0x00BE, label: "Screen brightness down", short: "Bri-" },
     Named { group: "Screen", code: 0x00BD, label: "Screen brightness up", short: "Bri+" },
     Named { group: "Screen", code: 0x7E40, label: "Display mode (Super+P)", short: "Display" },
