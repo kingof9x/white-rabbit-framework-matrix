@@ -1,5 +1,5 @@
 //! Updating a device's firmware from the app, the way White Rabbit does it:
-//! get the .uf2 file (the latest release on GitHub, or one on this computer), check it is
+//! get the .uf2 file (the newest build on GitHub, or one on this computer), check it is
 //! firmware for that device, restart the device into flashing mode, wait for the RPI-RP2 drive
 //! it shows up as, and copy the file onto it. The device installs it and restarts by itself.
 
@@ -10,7 +10,7 @@ use wr_keyboard::protocol::DeviceKind;
 /// Where the firmware comes from.
 #[derive(Debug, Clone)]
 pub enum Source {
-    /// The file for this device in the newest release on GitHub.
+    /// The file for this device in the newest firmware build on GitHub.
     Latest,
     /// A .uf2 file on this computer.
     File(PathBuf),
@@ -121,8 +121,8 @@ fn get_firmware(kind: DeviceKind, source: &Source) -> Result<(Vec<u8>, String), 
             Ok((data, name))
         }
         Source::Latest => {
-            let (version, data) = super::update::latest_asset(release_file(kind))?;
-            Ok((data, format!("version {}", version.trim_start_matches('v'))))
+            let (label, data) = super::update::latest_asset(release_file(kind))?;
+            Ok((data, label))
         }
     }
 }
