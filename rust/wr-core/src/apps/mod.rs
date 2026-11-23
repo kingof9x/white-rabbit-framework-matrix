@@ -8,6 +8,7 @@
 //! tested; reading the values from Windows is in `wr-monitor`.
 
 pub mod gpu;
+pub mod meters;
 pub mod now_playing;
 pub mod panel_names;
 pub mod picture;
