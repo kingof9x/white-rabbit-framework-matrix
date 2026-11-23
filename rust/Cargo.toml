@@ -19,3 +19,7 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+
+[profile.dev]
+# Agent sessions and local dev: less debug info = faster compile and link.
+debug = "line-tables-only"
