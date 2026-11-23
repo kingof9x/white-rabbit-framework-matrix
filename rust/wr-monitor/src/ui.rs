@@ -141,9 +141,9 @@ fn make_icon(lit: bool) -> HICON {
 
 fn tooltip(paused: bool) -> String {
     if paused {
-        "White Rabbit (stopped)".into()
+        "White Rabbit - Framework 16 LED Control (stopped)".into()
     } else {
-        "White Rabbit".into()
+        "White Rabbit - Framework 16 LED Control".into()
     }
 }
 

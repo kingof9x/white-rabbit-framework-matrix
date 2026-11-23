@@ -69,9 +69,12 @@ fn arg_after(args: &[String], name: &str) -> Option<String> {
     args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned()
 }
 
-/// "White Rabbit 1.5": the title bar shows which version is running.
+/// The app's full name, as Windows shows it.
+pub const APP_TITLE: &str = "White Rabbit - Framework 16 LED Control";
+
+/// "White Rabbit - Framework 16 LED Control 1.5": the title bar shows which version is running.
 pub fn window_title() -> String {
-    format!("White Rabbit {}", version())
+    format!("{APP_TITLE} {}", version())
 }
 
 /// This copy's version: from the VERSION file next to the exe, else the release version the build was

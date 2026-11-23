@@ -47,12 +47,12 @@ fn windows_resources(exe_name: &str) {
     let mut res = winresource::WindowsResource::new();
     res.set_icon(&icon.display().to_string())
         .set("CompanyName", "kingof9x")
-        .set("FileDescription", "White Rabbit")
+        .set("FileDescription", "White Rabbit - Framework 16 LED Control")
         .set("FileVersion", &version)
         .set("InternalName", exe_name)
         .set("LegalCopyright", "MIT License")
         .set("OriginalFilename", &format!("{exe_name}.exe"))
-        .set("ProductName", "White Rabbit")
+        .set("ProductName", "White Rabbit - Framework 16 LED Control")
         .set("ProductVersion", &version)
         .set_version_info(winresource::VersionInfo::FILEVERSION, numbers)
         .set_version_info(winresource::VersionInfo::PRODUCTVERSION, numbers);

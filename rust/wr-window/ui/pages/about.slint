@@ -28,9 +28,9 @@ component Link inherits Text {
 export component AboutView inherits VerticalLayout {
     spacing: 12px;
     Group {
-        title: "White Rabbit";
+        title: "White Rabbit - Framework 16 LED Control";
         Body { text: AboutPage.version == "" ? "Version unknown" : "Version " + AboutPage.version; }
-        Hint { text: "One app for the Framework 16 LED Matrix panels: the system monitor, games, patterns, startup animations and firmware updates."; }
+        Hint { text: "One app for the Framework 16's lights: the LED Matrix panels (system monitor, games, patterns, startup animations) and the RGB keyboard and macropad (lighting, audio show, key mapping), with firmware updates for both."; }
         Hint { text: "To look for a newer version, use Check for updates on the Settings page."; }
         HorizontalLayout {
             alignment: start;

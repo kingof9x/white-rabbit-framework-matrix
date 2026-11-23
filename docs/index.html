@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>White Rabbit: Framework 16 LED Matrix app</title>
-<meta name="description" content="A free Windows app for the Framework Laptop 16 LED Matrix: system monitor, audio visualizer, games, math art, drawing, plug animations, startup animations and firmware updates in one small tray app, written in Rust.">
-<meta property="og:title" content="White Rabbit: Framework 16 LED Matrix app">
-<meta property="og:description" content="One Windows app for everything the Framework Laptop 16 LED Matrix can do.">
+<title>White Rabbit - Framework 16 LED Control</title>
+<meta name="description" content="A free Windows app for the Framework Laptop 16 LED Matrix and RGB keyboard: system monitor, audio visualizer, games, math art, drawing, plug animations, startup animations, keyboard and macropad lighting, key mapping and firmware updates in one small tray app, written in Rust.">
+<meta property="og:title" content="White Rabbit - Framework 16 LED Control">
+<meta property="og:description" content="One Windows app for the Framework Laptop 16 LED Matrix and RGB keyboard.">
 <meta property="og:image" content="site/screens/home.jpg">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 9'%3E%3Crect width='9' height='9' rx='2' fill='%23111'/%3E%3Cg fill='%23fff'%3E%3Ccircle cx='3' cy='2' r='.8'/%3E%3Ccircle cx='3' cy='3.5' r='.8'/%3E%3Ccircle cx='6' cy='2' r='.8'/%3E%3Ccircle cx='6' cy='3.5' r='.8'/%3E%3Ccircle cx='4.5' cy='6' r='1.8'/%3E%3C/g%3E%3C/svg%3E">
 <style>
@@ -34,7 +34,9 @@ nav .wrap{display:flex;align-items:center;gap:20px;height:58px}
 nav ul{display:flex;gap:18px;list-style:none;margin:0 0 0 auto;padding:0}
 nav ul a{color:var(--muted);text-decoration:none;font-size:15px}
 nav ul a:hover{color:var(--text)}
+.brand .sub{font-weight:400;opacity:.7}
 @media (max-width:720px){nav ul li.opt{display:none}}
+@media (max-width:900px){.brand .sub{display:none}}
 
 /* LED dot texture */
 .dots{background-image:radial-gradient(circle,var(--led-off) 1.6px,transparent 2px);background-size:14px 14px}
@@ -135,7 +137,7 @@ footer a{color:var(--muted)}
   <div class="wrap">
     <a class="brand" href="#top">
       <svg viewBox="0 0 9 9" aria-hidden="true"><rect width="9" height="9" rx="2" fill="#1d2027"/><g fill="#fff"><circle cx="3" cy="2" r=".8"/><circle cx="3" cy="3.5" r=".8"/><circle cx="6" cy="2" r=".8"/><circle cx="6" cy="3.5" r=".8"/><circle cx="4.5" cy="6" r="1.8"/></g></svg>
-      White Rabbit
+      White Rabbit <span class="sub">- Framework 16 LED Control</span>
     </a>
     <ul>
       <li class="opt"><a href="#features">Features</a></li>
@@ -150,9 +152,9 @@ footer a{color:var(--muted)}
 <header class="hero dots" id="top">
   <div class="wrap">
     <div>
-      <p class="eyebrow">For the Framework Laptop 16 LED Matrix</p>
+      <p class="eyebrow">For the Framework Laptop 16 LED Matrix and RGB keyboard</p>
       <h1>Follow the White Rabbit.</h1>
-      <p class="lead">One Windows tray app for everything the LED Matrix can do: a system monitor you lay out yourself, an audio visualizer, games, math art, your own drawings, plug-in animations, messages, startup animations and firmware updates, all from one window. Written in Rust, so it barely uses any memory.</p>
+      <p class="lead">One Windows tray app for everything the LED Matrix can do: a system monitor you lay out yourself, an audio visualizer, games, math art, your own drawings, plug-in animations, messages, startup animations and firmware updates, plus lighting, an audio show and key mapping for the RGB keyboard and macropad, all from one window. Written in Rust, so it barely uses any memory.</p>
       <div class="btns">
         <a class="btn primary" href="https://github.com/kingof9x/white-rabbit-framework-matrix/releases/latest/download/WhiteRabbit-setup.exe">Download for Windows <small>installer</small></a>
         <a class="btn" href="https://github.com/kingof9x/white-rabbit-framework-matrix/releases/latest/download/WhiteRabbit-portable.zip">Portable .zip</a>

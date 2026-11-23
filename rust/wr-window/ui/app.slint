@@ -175,7 +175,15 @@ export component AppWindow inherits Window {
                 spacing: 12px;
                 alignment: start;
                 Logo { }
-                Text { text: App.title; color: Theme.text2; font-size: Theme.caption; vertical-alignment: center; }
+                VerticalLayout {
+                    alignment: center;
+                    Text { text: "White Rabbit"; color: Theme.text; font-weight: 600; }
+                    Text {
+                        text: "Framework 16 LED Control" + (AboutPage.version == "" ? "" : "  " + AboutPage.version);
+                        color: Theme.text2;
+                        font-size: Theme.caption;
+                    }
+                }
             }
             for item in nav: VerticalLayout {
                 if item.key != "-" && shown(item.key, item.label): NavItem {
