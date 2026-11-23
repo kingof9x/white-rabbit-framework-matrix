@@ -1,53 +1,86 @@
-//! The one-colour tray icon: two LED panels of dots, drawn to whole pixels at the tray's size
-//! (a port of `make_tray_icon_image` in `led_mon/tray.py`). White on a dark taskbar, black on a light one.
+//! The one-colour tray icon: White Rabbit's rabbit, drawn to whole pixels at the tray's size (no smoothing,
+//! like Windows' own tray icons). White on a dark taskbar, black on a light one, and faded while stopped.
 
-/// (outline width, dot size, gap, gap between the two panels) by icon size.
-const LAYOUTS: [(usize, (usize, usize, usize, usize)); 8] = [
-    (16, (1, 1, 1, 2)),
-    (20, (1, 1, 1, 4)),
-    (24, (1, 2, 1, 2)),
-    (28, (2, 2, 1, 4)),
-    (32, (2, 2, 2, 4)),
-    (36, (2, 2, 2, 4)),
-    (40, (2, 3, 2, 6)),
-    (48, (2, 3, 3, 6)),
+const R16: [&str; 16] = [
+    "....##....##....",
+    "...####..####...",
+    "...####..####...",
+    "...####..####...",
+    "...####..####...",
+    "...####..####...",
+    "....###..###....",
+    "....########....",
+    "..############..",
+    ".##############.",
+    ".###.######.###.",
+    ".###.######.###.",
+    ".##############.",
+    ".######..######.",
+    "..############..",
+    "....########....",
 ];
-/// Unlit dots, and every dot while the animation is stopped.
-const OFF_ALPHA: u8 = 80;
+
+const R12: [&str; 12] = [
+    "..##....##..",
+    ".####..####.",
+    ".####..####.",
+    ".####..####.",
+    "..##....##..",
+    "..########..",
+    ".##########.",
+    ".##.####.##.",
+    "############",
+    "#####..#####",
+    ".##########.",
+    "...######...",
+];
+
+const R10: [&str; 10] = [
+    ".##....##.",
+    ".##....##.",
+    ".##....##.",
+    ".##....##.",
+    "..######..",
+    ".########.",
+    ".#.####.#.",
+    "##########",
+    "####..####",
+    ".########.",
+];
+
+/// Every pixel's opacity while the animation is stopped.
+const OFF_ALPHA: u8 = 110;
+
+/// The rabbit for this icon size and how many screen pixels each of its pixels takes: the biggest
+/// rabbit that fits in whole pixels.
+fn bitmap(size: usize) -> (&'static [&'static str], usize) {
+    let fits = |rows: &'static [&'static str]| (rows, size / rows.len());
+    match size {
+        0..=19 => fits(&R16),
+        20..=31 => fits(&R10),
+        32..=47 => fits(&R12),
+        _ => fits(&R16),
+    }
+}
 
 /// RGBA pixels, `size` x `size`, top row first. Sizes under 16 are drawn at 16.
 pub fn tray_icon_rgba(size: usize, lit: bool, light_taskbar: bool) -> (usize, Vec<u8>) {
     let ink: u8 = if light_taskbar { 0 } else { 255 };
-    let (b, d, g, pg) = LAYOUTS.iter().rev().find(|(s, _)| *s <= size).map(|(_, l)| *l).unwrap_or(LAYOUTS[0].1);
     let side = size.max(16);
+    let (rows, cell) = bitmap(side);
+    let cell = cell.max(1);
+    let off = (side - rows.len() * cell) / 2;
+    let on = if lit { 255 } else { OFF_ALPHA };
     let mut alpha = vec![0u8; side * side];
-    let w = b + g + d + g + d + g + b;
-    let h = 2 * b + 2 * g + 6 * d + 5 * g;
-    let mut rect = |x: usize, y: usize, ww: usize, hh: usize, a: u8| {
-        for yy in y..(y + hh).min(side) {
-            for xx in x..(x + ww).min(side) {
-                alpha[yy * side + xx] = a;
+    for (y, row) in rows.iter().enumerate() {
+        for (x, c) in row.bytes().enumerate() {
+            if c != b'#' {
+                continue;
             }
-        }
-    };
-    let x0 = (side - (2 * w + pg)) / 2;
-    let y0 = (side - h) / 2;
-    for (panel_x, left) in [(2usize, x0), (9, x0 + w + pg)] {
-        rect(left + b, y0, w - 2 * b, b, 255);
-        rect(left + b, y0 + h - b, w - 2 * b, b, 255);
-        rect(left, y0 + b, b, h - 2 * b, 255);
-        rect(left + w - b, y0 + b, b, h - 2 * b, 255);
-        if b > 1 {
-            for (cx, cy) in
-                [(left + 1, y0 + 1), (left + w - 2, y0 + 1), (left + 1, y0 + h - 2), (left + w - 2, y0 + h - 2)]
-            {
-                rect(cx, cy, 1, 1, 255);
-            }
-        }
-        for col in 0..2 {
-            for row in 0..6 {
-                let on = lit && (row + col + panel_x) % 3 != 0;
-                rect(left + b + g + col * (d + g), y0 + b + g + row * (d + g), d, d, if on { 255 } else { OFF_ALPHA });
+            for dy in 0..cell {
+                for dx in 0..cell {
+                    alpha[(off + y * cell + dy) * side + off + x * cell + dx] = on;
+                }
             }
         }
     }
@@ -59,48 +92,41 @@ pub fn tray_icon_rgba(size: usize, lit: bool, light_taskbar: bool) -> (usize, Ve
 mod tests {
     use super::*;
 
-    #[test]
-    fn sixteen_pixel_icon() {
-        let (side, rgba) = tray_icon_rgba(16, true, false);
-        assert_eq!(side, 16);
-        let rows: Vec<String> = (0..16)
+    fn picture(size: usize, lit: bool) -> Vec<String> {
+        let (side, rgba) = tray_icon_rgba(size, lit, false);
+        (0..side)
             .map(|y| {
-                (0..16)
-                    .map(|x| match rgba[(y * 16 + x) * 4 + 3] {
+                (0..side)
+                    .map(|x| match rgba[(y * side + x) * 4 + 3] {
                         255 => '#',
                         OFF_ALPHA => '+',
                         _ => '.',
                     })
                     .collect()
             })
-            .collect();
-        // What the Python tray draws at 16 pixels
-        let expected = [
-            ".#####....#####.",
-            "#.....#..#.....#",
-            "#.#.+.#..#.+.#.#",
-            "#.....#..#.....#",
-            "#.+.#.#..#.#.#.#",
-            "#.....#..#.....#",
-            "#.#.#.#..#.#.+.#",
-            "#.....#..#.....#",
-            "#.#.+.#..#.+.#.#",
-            "#.....#..#.....#",
-            "#.+.#.#..#.#.#.#",
-            "#.....#..#.....#",
-            "#.#.#.#..#.#.+.#",
-            "#.....#..#.....#",
-            ".#####....#####.",
-            "................",
-        ];
-        assert_eq!(rows, expected);
-        assert!(rows.iter().all(|r| r.len() == 16));
+            .collect()
     }
 
     #[test]
-    fn stopped_icon_is_dim() {
+    fn sixteen_pixel_icon_is_the_rabbit() {
+        assert_eq!(picture(16, true), R16.iter().map(|r| r.to_string()).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn every_size_fits_and_is_centred() {
+        for size in [16, 20, 24, 28, 32, 40, 48, 64] {
+            let rows = picture(size, true);
+            assert_eq!(rows.len(), size);
+            let lit: Vec<usize> = rows.iter().enumerate().filter(|(_, r)| r.contains('#')).map(|(y, _)| y).collect();
+            let (top, bottom) = (lit[0], size - 1 - lit[lit.len() - 1]);
+            assert!(top.abs_diff(bottom) <= 1, "size {size}: {top} above, {bottom} below");
+        }
+    }
+
+    #[test]
+    fn stopped_icon_is_faded() {
         let (_, rgba) = tray_icon_rgba(16, false, true);
-        assert!(rgba.chunks(4).all(|p| p[0] == 0 && (p[3] == 0 || p[3] == 255 || p[3] == OFF_ALPHA)));
+        assert!(rgba.chunks(4).all(|p| p[0] == 0 && (p[3] == 0 || p[3] == OFF_ALPHA)));
         assert!(rgba.chunks(4).any(|p| p[3] == OFF_ALPHA));
     }
 }

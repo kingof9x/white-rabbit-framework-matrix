@@ -79,24 +79,11 @@ component NavItem inherits Rectangle {
 }
 
 // The app's mark: two LED panels
-component Logo inherits Rectangle {
-    width: 22px;
-    height: 20px;
-    for side in 2: Rectangle {
-        x: side * 12px;
-        width: 9px;
-        height: 20px;
-        border-radius: 2px;
-        border-width: 1px;
-        border-color: Theme.text;
-        for dot in 6: Rectangle {
-            x: 2px + mod(dot, 2) * 3px;
-            y: 3px + floor(dot / 2) * 5px;
-            width: 2px;
-            height: 2px;
-            background: Theme.accent;
-        }
-    }
+// White Rabbit's logo: the rabbit lit on an LED panel
+component Logo inherits Image {
+    width: 32px;
+    height: 32px;
+    source: @image-url("icons/rabbit.png");
 }
 
 export component AppWindow inherits Window {
