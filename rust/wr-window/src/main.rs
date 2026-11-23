@@ -208,7 +208,11 @@ fn run_window(args: &[String]) {
     if std::env::var_os("WHITE_RABBIT_SMOKE_TEST").is_some() {
         shoot::smoke_test(&ui, &ctx);
     }
-    ui.show().expect("the window couldn't open");
+    if let Err(e) = ui.show() {
+        // Say why in the log (for example, the graphics driver refused), instead of a bare crash
+        wr_core::error!("The window couldn't open: {e}. Setting WHITE_RABBIT_RENDERER=software may help.");
+        return;
+    }
     theme::title_bar(&ui, ui.global::<Theme>().get_dark());
     let close_ctx = ctx.clone();
     ui.window().on_close_requested(move || {
