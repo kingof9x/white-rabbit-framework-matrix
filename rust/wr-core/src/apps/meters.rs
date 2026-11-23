@@ -115,7 +115,7 @@ pub fn draw_net_disk_space_border(grid: &mut Grid, value: i32, y: usize) {
 // The battery --------------------------------------------------------------------------------------
 
 /// How the battery shows that it is charging.
-pub const CHARGE_LOOKS: [&str; 4] = ["bolt", "sweep", "bubbles", "pour"];
+pub const CHARGE_LOOKS: [&str; 6] = ["bolt", "sweep", "bubbles", "pour", "wave", "orbit"];
 
 /// The battery's parts for the half at `y`: (nub row, body's top row, body's bottom row).
 fn battery_rows(y: usize) -> (usize, usize, usize) {
@@ -144,8 +144,8 @@ fn carve(grid: &mut Grid, shape: &[&str], top: usize, value: i32, empty_value: i
     }
 }
 
-/// A battery shaped like a battery: a nub on top, an outline, and filled from the bottom. While it
-/// runs on battery a down arrow shows; while charging the `look` (one of [`CHARGE_LOOKS`]) moves.
+/// A battery shaped like a battery: a nub on top, an outline, and filled from the bottom. The
+/// `look` (one of [`CHARGE_LOOKS`]) moves one way while charging and the other way on battery.
 /// A low battery (7 % or less) flashes while not charging. `now` is in seconds.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_battery_shape(
@@ -189,64 +189,175 @@ pub fn draw_battery_shape(
         grid.fill_x(1, 8, row_at(full_rows), int_round(fill_value as f64 * part) as i32);
     }
     let dim = int_round(fill_value as f64 * 0.45) as i32;
-    let arrow_top = inside_top + (rows - ARROW_DOWN.len()) / 2;
-    if !plugged {
-        carve(grid, &ARROW_DOWN, arrow_top, fill_value, dim);
-        return;
-    }
-    let top_of_fill = inside_bottom + 1 - full_rows.min(rows); // first filled row
+    let dark = int_round(fill_value as f64 * 0.12) as i32;
+    let filled = full_rows.min(rows);
+    let top_of_fill = inside_bottom + 1 - filled; // first filled row (inside_bottom + 1 when empty)
+    let b = Battery { nub, inside_top, inside_bottom, filled, top_of_fill, fill_value, dim, dark, outline_value };
     match look {
-        "sweep" => {
-            // A dim band climbs from the fill to the top, again and again
-            let empty = top_of_fill.saturating_sub(inside_top);
-            if empty > 0 {
-                let t = (now / 0.12) as usize % (empty + 4);
-                for k in 0..=t.min(empty - 1) {
-                    let row = top_of_fill - 1 - k;
-                    let fade = if t >= empty { 0.0 } else { 0.35 + 0.65 * (k as f64 / empty as f64) };
-                    let v = int_round(dim as f64 * fade) as i32;
-                    if grid.v[1][row] < v {
-                        grid.fill_x(1, 8, row, v);
-                    }
+        "sweep" => b.sweep(grid, plugged, now),
+        "bubbles" => b.bubbles(grid, plugged, now),
+        "pour" => b.pour(grid, plugged, now),
+        "wave" => b.wave(grid, plugged, now),
+        "orbit" => b.orbit(grid, plugged, now),
+        _ => b.bolt(grid, plugged, now),
+    }
+}
+
+/// Where the battery's parts are, for the looks.
+struct Battery {
+    nub: usize,
+    inside_top: usize,
+    inside_bottom: usize,
+    /// Whole rows filled
+    filled: usize,
+    top_of_fill: usize,
+    fill_value: i32,
+    dim: i32,
+    dark: i32,
+    outline_value: i32,
+}
+
+impl Battery {
+    fn rows(&self) -> usize {
+        self.inside_bottom - self.inside_top + 1
+    }
+
+    /// Charging: a pulsing bolt. On battery: a pulsing down arrow.
+    fn bolt(&self, grid: &mut Grid, plugged: bool, now: f64) {
+        let pulse = 0.55 + 0.45 * (now * std::f64::consts::PI / 1.5).sin().abs();
+        let v = int_round(self.fill_value as f64 * pulse) as i32;
+        let shape: &[&str] = if plugged { &BOLT } else { &ARROW_DOWN };
+        let top = self.inside_top + (self.rows() - shape.len()) / 2;
+        carve(grid, shape, top, self.fill_value, v);
+    }
+
+    /// Charging: a dim band climbs from the fill to the top. On battery: a dark band falls
+    /// through the fill from its top to the bottom.
+    fn sweep(&self, grid: &mut Grid, plugged: bool, now: f64) {
+        if plugged {
+            let empty = self.top_of_fill - self.inside_top;
+            if empty == 0 {
+                return;
+            }
+            let t = (now / 0.12) as usize % (empty + 4);
+            for k in 0..=t.min(empty - 1) {
+                let row = self.top_of_fill - 1 - k;
+                let fade = if t >= empty { 0.0 } else { 0.35 + 0.65 * (k as f64 / empty as f64) };
+                let v = int_round(self.dim as f64 * fade) as i32;
+                if grid.v[1][row] < v {
+                    grid.fill_x(1, 8, row, v);
+                }
+            }
+        } else {
+            if self.filled == 0 {
+                return;
+            }
+            let t = (now / 0.12) as usize % (self.filled + 4);
+            if t < self.filled {
+                let row = self.top_of_fill + t;
+                grid.fill_x(1, 8, row, self.dark);
+                if t > 0 {
+                    grid.fill_x(1, 8, row - 1, self.dim);
                 }
             }
         }
-        "bubbles" => {
-            // Dark bubbles rise through the fill and pop at the top
-            for b in 0..4usize {
-                let speed = 4.0 + b as f64 * 1.3;
-                let x = [2usize, 5, 3, 6][b];
-                let travel = full_rows.max(1) as f64 + 2.0;
-                let p = (now * speed / travel + b as f64 * 0.37).fract() * travel;
-                let i = p.floor() as usize;
-                if i < full_rows {
-                    let row = row_at(i);
-                    grid.v[x][row] = int_round(fill_value as f64 * 0.15) as i32;
-                } else if i == full_rows && full_rows < rows {
-                    // the pop, just above the fill
-                    grid.v[x][row_at(i)] = dim;
+    }
+
+    /// Charging: dark bubbles rise through the fill and pop at the top. On battery: they sink
+    /// from the top of the fill to the bottom.
+    fn bubbles(&self, grid: &mut Grid, plugged: bool, now: f64) {
+        for n in 0..4usize {
+            let speed = 4.0 + n as f64 * 1.3;
+            let x = [2usize, 5, 3, 6][n];
+            let travel = self.filled.max(1) as f64 + 2.0;
+            let p = (now * speed / travel + n as f64 * 0.37).fract() * travel;
+            let i = p.floor() as usize; // rows up from the bottom while rising
+            if plugged {
+                if i < self.filled {
+                    grid.v[x][self.inside_bottom - i] = self.dark;
+                } else if i == self.filled && self.filled < self.rows() {
+                    grid.v[x][self.inside_bottom - i] = self.dim; // the pop
+                }
+            } else if i == 0 && self.top_of_fill > self.inside_top {
+                grid.v[x][self.top_of_fill - 1] = self.dim; // a drop going in
+            } else if i >= 1 && i <= self.filled {
+                grid.v[x][self.top_of_fill + i - 1] = self.dark;
+            }
+        }
+    }
+
+    /// Charging: drops fall in through the nub onto the fill. On battery: drops leave the fill
+    /// and float up and out through the nub.
+    fn pour(&self, grid: &mut Grid, plugged: bool, now: f64) {
+        let landing = self.top_of_fill.saturating_sub(1).max(self.inside_top);
+        let fall = landing - self.nub + 1;
+        for d in 0..2usize {
+            let t = now * 14.0 + d as f64 * fall as f64 / 2.0;
+            let k = t as usize % fall;
+            if plugged {
+                let row = self.nub + k;
+                grid.set(4, row, self.fill_value);
+                if row > self.nub {
+                    grid.set(4, row - 1, self.dim);
+                }
+            } else {
+                let row = landing - k;
+                grid.set(4, row, self.fill_value);
+                if row < landing {
+                    grid.set(4, row + 1, self.dim);
+                }
+                if self.filled > 0 && k < 2 {
+                    grid.set(4, self.top_of_fill, self.dark); // the gap it left
                 }
             }
         }
-        "pour" => {
-            // Drops fall in through the nub and land on the fill
-            let landing = top_of_fill.saturating_sub(1).max(inside_top);
-            let fall = landing - nub + 1;
-            for d in 0..2usize {
-                let t = now * 14.0 + d as f64 * fall as f64 / 2.0;
-                let row = nub + (t as usize % fall);
-                grid.set(4, row, fill_value);
-                if row > nub {
-                    grid.set(4, row - 1, dim);
+    }
+
+    /// The top of the fill ripples. Charging: waves roll to the right and splash above it. On
+    /// battery: slower waves roll to the left and dip into it.
+    fn wave(&self, grid: &mut Grid, plugged: bool, now: f64) {
+        if self.filled == 0 {
+            return;
+        }
+        for x in 1..8 {
+            let phase = if plugged { x as f64 * 0.9 - now * 6.0 } else { x as f64 * 0.9 + now * 3.5 };
+            let h = phase.sin();
+            if plugged {
+                if h > 0.2 && self.top_of_fill > self.inside_top {
+                    let v = int_round(self.fill_value as f64 * (0.3 + 0.7 * h)) as i32;
+                    grid.v[x][self.top_of_fill - 1] = grid.v[x][self.top_of_fill - 1].max(v);
+                }
+            } else if h < -0.35 {
+                grid.v[x][self.top_of_fill] = int_round(self.fill_value as f64 * (0.6 + 0.35 * h)) as i32;
+                if h < -0.85 && self.filled > 1 {
+                    grid.v[x][self.top_of_fill + 1] = self.dim;
                 }
             }
         }
-        _ => {
-            // The bolt, gently pulsing
-            let pulse = 0.55 + 0.45 * (now * std::f64::consts::PI / 1.5).sin().abs();
-            let bolt_top = inside_top + (rows - BOLT.len()) / 2;
-            let v = int_round(fill_value as f64 * pulse) as i32;
-            carve(grid, &BOLT, bolt_top, fill_value, v);
+    }
+
+    /// A spark runs along the outline. Charging: up both sides into the nub. On battery: out of
+    /// the nub and down both sides.
+    fn orbit(&self, grid: &mut Grid, plugged: bool, now: f64) {
+        // The path from the bottom corners up the sides, across the top, to the nub
+        let body_top = self.inside_top - 1;
+        let body_bottom = self.inside_bottom + 1;
+        let mut left: Vec<(usize, usize)> = (body_top..=body_bottom).rev().map(|y| (0, y)).collect();
+        left.extend([(1, body_top), (2, body_top), (3, body_top), (3, self.nub), (4, self.nub)]);
+        let n = left.len();
+        let pos = (now * 16.0) as usize % (n + 6);
+        let bright = self.fill_value;
+        for tail in 0..3usize {
+            let Some(p) = pos.checked_sub(tail) else { continue };
+            if p >= n {
+                continue;
+            }
+            let i = if plugged { p } else { n - 1 - p };
+            let v = int_round(bright as f64 * [1.0, 0.55, 0.3][tail]) as i32;
+            let (x, y) = left[i];
+            for (xx, yy) in [(x, y), (8 - x, y)] {
+                grid.v[xx][yy] = grid.v[xx][yy].max(v).max(self.outline_value);
+            }
         }
     }
 }
