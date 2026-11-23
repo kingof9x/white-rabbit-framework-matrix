@@ -34,6 +34,9 @@ pub enum Command {
     SetHotkeyLock(bool),
     /// Macropad layer: 0 = MIDI, 1 = numpad.
     SetLayer(u8),
+    /// Keyboard Fn lock: true = the top row sends F1-F12 (media keys with Fn), false = media keys
+    /// (F1-F12 with Fn). The same as pressing Fn + Esc; the keyboard remembers it.
+    SetFnLock(bool),
     /// Some = PC renders this effect on both devices, None = back to built-in effects.
     SetLinked(Option<EffectParams>),
     SetSide(MacropadSide),
@@ -362,6 +365,14 @@ impl Engine {
                 if let Some(o) = self.open.get(&key(DeviceKind::Macropad)) {
                     if let Err(e) = o.dev.transact(&proto::set_layer(layer)) {
                         self.fail(DeviceKind::Macropad, e);
+                    }
+                    self.refresh();
+                }
+            }
+            Command::SetFnLock(on) => {
+                if let Some(o) = self.open.get(&key(DeviceKind::Keyboard)) {
+                    if let Err(e) = o.dev.transact(&proto::set_layer(on as u8)) {
+                        self.fail(DeviceKind::Keyboard, e);
                     }
                     self.refresh();
                 }

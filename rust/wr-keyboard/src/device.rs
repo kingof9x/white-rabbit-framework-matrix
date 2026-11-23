@@ -286,6 +286,10 @@ mod tests {
         assert_eq!(km.layers[2][12], app_code(0));
         assert_eq!(km.code(0, 12), Keymap::defaults(Board::Keyboard).code(0, 12));
         assert_eq!(kb.combos().unwrap(), None);
+        // Fn lock: read and set through the LAYER command, like Fn + Esc
+        assert_eq!(kb.info().unwrap().layer, Some(0));
+        kb.transact(&proto::set_layer(1)).unwrap();
+        assert_eq!(kb.info().unwrap().layer, Some(1));
 
         let pad = Device::new(DeviceKind::Macropad, Box::new(SimPort::macropad()));
         assert_eq!(pad.keymap().unwrap(), Keymap::defaults(Board::Macropad));

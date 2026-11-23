@@ -179,7 +179,7 @@ impl SimState {
                     HOST_EFFECT,
                     self.macropad as u8,
                     self.lock as u8,
-                    if self.macropad { self.layer } else { 0xFF },
+                    self.layer,
                     255,
                     PAINT_ONLY_EFFECT,
                 ]);
@@ -253,10 +253,10 @@ impl SimState {
                 true
             }
             (true, LAYER) => {
-                d[0] = if self.macropad { self.layer } else { 0xFF };
+                d[0] = self.layer;
                 true
             }
-            (false, LAYER) if self.macropad && d[0] <= 1 => {
+            (false, LAYER) if d[0] <= 1 => {
                 self.layer = d[0];
                 true
             }
