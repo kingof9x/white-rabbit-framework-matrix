@@ -15,6 +15,12 @@ on:
 permissions:
   contents: write  # publish the GitHub Release
 
+concurrency:
+  # A newer push to the same PR cancels its older, now pointless build.
+  # Runs on main (pushes and releases) are never cancelled.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   version:
     # Works out the release version: from the Run workflow box ("next" = last release + 1)
@@ -72,8 +78,12 @@ jobs:
 
   build:
     name: Build exe and installer
-    needs: [version, tests]
+    # Doesn't wait for the tests: they run at the same time, and the release job below
+    # only publishes once both the tests and this build have passed.
+    needs: version
     runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -103,9 +113,19 @@ jobs:
       # The whole app is Rust (rust/): WhiteRabbit.exe is the monitor and tray icon, WhiteRabbitWindow.exe the
       # settings window it opens. No Python is shipped.
       - uses: dtolnay/rust-toolchain@stable
+      - name: Faster settings for test builds (no version = not a release)
+        if: needs.version.outputs.version == ''
+        shell: bash
+        run: |
+          # Real releases keep the full release profile (LTO, few codegen units).
+          # Test builds (PRs, pushes to main) skip LTO and use more codegen units:
+          # same optimisation level, much shorter compile.
+          echo "CARGO_PROFILE_RELEASE_LTO=false" >> "$GITHUB_ENV"
+          echo "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Build the app
         working-directory: rust
@@ -271,14 +291,37 @@ jobs:
           if-no-files-found: error
           compression-level: 0
 
-      # A v* tag, or Run workflow with a version (default "next"), publishes a GitHub Release.
-      # The file names stay the same in every release so the README's "latest" download links keep working.
-      - name: Publish GitHub Release
-        if: needs.version.outputs.version != ''
-        uses: softprops/action-gh-release@v2
+      - name: Upload the app exe on its own
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: White Rabbit - Framework 16 LED Control ${{ steps.version.outputs.version }}
+          name: WhiteRabbit.exe
+          path: dist/WhiteRabbit/WhiteRabbit.exe
+          if-no-files-found: error
+
+      - name: Upload the LED Matrix firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: ledmatrix.uf2
+          path: dist/ledmatrix.uf2
+          if-no-files-found: error
+
+  release:
+    # A v* tag, or Run workflow with a version (default "next"), publishes a GitHub Release,
+    # once the tests and the build have both passed.
+    # The file names stay the same in every release so the README's "latest" download links keep working.
+    name: Publish the release
+    needs: [version, tests, build]
+    if: needs.version.outputs.version != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.build.outputs.version }}
+          name: White Rabbit - Framework 16 LED Control ${{ needs.build.outputs.version }}
           target_commitish: ${{ github.sha }}
           body: |
             - `WhiteRabbit-setup.exe`: installer (starts with Windows, Start menu shortcut)

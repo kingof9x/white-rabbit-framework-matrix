@@ -1,9 +1,9 @@
 name: Rust monitor
 
-# The Rust app (rust/). Checks that it still draws exactly what the Python monitor
-# draws (the golden frames in tests/golden/) and builds the Rust WhiteRabbit.exe (the Windows build makes the installer).
-# The exe is a test build: it is attached to the workflow run (Actions > this run > Artifacts), not
-# to a release.
+# The Rust app (rust/). Checks formatting, tests and lints, including that it still draws exactly
+# what the Python monitor draws (the golden frames in tests/golden/). The exe, installer and
+# portable zip are built once, by Build and release (windows.yml); this workflow doesn't build
+# them a second time.
 
 on:
   push:
@@ -13,6 +13,12 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  # A newer push to the same PR cancels its older, now pointless build.
+  # Runs on main (pushes and releases) are never cancelled.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
@@ -33,6 +39,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # The window (wr-window, Slint) needs these to build and run its tests on Linux
       - name: Linux libraries for the window
         if: runner.os == 'Linux'
@@ -44,23 +51,3 @@ jobs:
       - name: Lints
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-  build:
-    name: Build the Rust WhiteRabbit.exe
-    needs: test
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
-      - name: Build
-        working-directory: rust
-        run: cargo build --release -p wr-monitor
-      - name: Size
-        shell: pwsh
-        run: "Get-Item rust/target/release/WhiteRabbit.exe | Select-Object Name, Length"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: WhiteRabbit-rust-monitor
-          path: rust/target/release/WhiteRabbit.exe
