@@ -336,27 +336,55 @@ impl Battery {
         }
     }
 
-    /// A spark runs along the outline. Charging: up both sides into the nub. On battery: out of
-    /// the nub and down both sides.
+    /// A bright spark runs along the outline, lighting up the edge of the inside next to it (or
+    /// carving a dark notch into the charge). Charging: up both sides into the nub, which then
+    /// flashes. On battery: the nub flashes, then sparks run out of it and down both sides.
     fn orbit(&self, grid: &mut Grid, plugged: bool, now: f64) {
-        // The path from the bottom corners up the sides, across the top, to the nub
         let body_top = self.inside_top - 1;
         let body_bottom = self.inside_bottom + 1;
-        let mut left: Vec<(usize, usize)> = (body_top..=body_bottom).rev().map(|y| (0, y)).collect();
-        left.extend([(1, body_top), (2, body_top), (3, body_top), (3, self.nub), (4, self.nub)]);
-        let n = left.len();
-        let pos = (now * 16.0) as usize % (n + 6);
-        let bright = self.fill_value;
-        for tail in 0..3usize {
+        // The left half of the path, from the bottom corner up to the nub; the right half mirrors it
+        let mut path: Vec<(usize, usize)> = (body_top..=body_bottom).rev().map(|y| (0, y)).collect();
+        path.extend([(1, body_top), (2, body_top), (3, body_top), (3, self.nub), (4, self.nub)]);
+        let n = path.len();
+        const TAIL: [f64; 5] = [1.0, 0.85, 0.7, 0.55, 0.4];
+        let flash = 4; // steps the nub stays lit
+        let cycle = n + TAIL.len() + flash;
+        let step = (now * 12.0) as usize % cycle;
+        // Charging runs the path forwards then flashes; on battery flashes, then runs backwards
+        let (pos, nub_lit) = if plugged {
+            (step, step >= n && step < n + flash)
+        } else {
+            (step.wrapping_sub(flash), step < flash)
+        };
+        // Dim the outline a little so the spark stands out
+        for &(x, y) in &path {
+            for xx in [x, 8 - x] {
+                grid.v[xx][y] = int_round(self.outline_value as f64 * 0.6) as i32;
+            }
+        }
+        if nub_lit {
+            for x in 3..6 {
+                grid.v[x][self.nub] = self.fill_value;
+            }
+        }
+        if !plugged && step < flash {
+            return;
+        }
+        for (tail, share) in TAIL.iter().enumerate() {
             let Some(p) = pos.checked_sub(tail) else { continue };
             if p >= n {
                 continue;
             }
             let i = if plugged { p } else { n - 1 - p };
-            let v = int_round(bright as f64 * [1.0, 0.55, 0.3][tail]) as i32;
-            let (x, y) = left[i];
-            for (xx, yy) in [(x, y), (8 - x, y)] {
-                grid.v[xx][yy] = grid.v[xx][yy].max(v).max(self.outline_value);
+            let v = int_round(self.fill_value as f64 * share) as i32;
+            let (x, y) = path[i];
+            for (xx, inner) in [(x, x + 1), (8 - x, 7 - x)] {
+                grid.v[xx][y] = grid.v[xx][y].max(v);
+                // The pixel just inside the outline, on the sides
+                if x == 0 && y > body_top && y < body_bottom {
+                    let here = grid.v[inner][y];
+                    grid.v[inner][y] = if here >= self.dim { self.dark } else { int_round(v as f64 * 0.6) as i32 };
+                }
             }
         }
     }
