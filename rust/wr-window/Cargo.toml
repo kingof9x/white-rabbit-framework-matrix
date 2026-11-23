@@ -22,6 +22,9 @@ slint = { version = "1.18", default-features = false, features = [
     "accessibility",
     "backend-winit",
     "renderer-software",
+    # Draws the window with the graphics card (OpenGL). The software renderer is kept as the fallback
+    # for PCs where OpenGL isn't available, and for --shoot.
+    "renderer-femtovg",
     "software-renderer-systemfonts",
     "raw-window-handle-06",
 ] }

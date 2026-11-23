@@ -55,7 +55,7 @@ export component MessagesView inherits HorizontalLayout {
                 ComboBox {
                     width: 160px;
                     model: ["Left", "Center", "Right"];
-                    current-index: EffectsPage.messages-align;
+                    current-index <=> EffectsPage.messages-align;
                     selected => { EffectsPage.messages-align = self.current-index; EffectsPage.changed(); }
                 }
             }
@@ -88,7 +88,7 @@ export component MessagesView inherits HorizontalLayout {
                 ComboBox {
                     width: 280px;
                     model: ["Upright, scrolling up", "On their side, scrolling up", "Two per row"];
-                    current-index: EffectsPage.vertical-style;
+                    current-index <=> EffectsPage.vertical-style;
                     selected => { EffectsPage.vertical-style = self.current-index; EffectsPage.changed(); }
                 }
             }

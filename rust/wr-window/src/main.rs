@@ -172,6 +172,25 @@ pub fn build(start: &str) -> (AppWindow, Rc<app::Ctx>) {
     (ui, ctx)
 }
 
+/// Draws the window with the graphics card (OpenGL, through FemtoVG). The software renderer used before
+/// redrew only the parts it thought had changed, and on Windows that left old pixels behind (a closed
+/// drop-down list still showing, parts of a page not updating); it also drew every pixel on the CPU, so
+/// a maximised window lagged. If OpenGL can't start, Slint falls back to the software renderer by
+/// itself. WHITE_RABBIT_RENDERER=software (or femtovg) picks one by hand, for testing.
+fn pick_renderer() {
+    let wanted = std::env::var("WHITE_RABBIT_RENDERER").ok().filter(|r| !r.trim().is_empty());
+    let name = wanted.as_deref().map(str::trim).unwrap_or("femtovg").to_string();
+    match slint::BackendSelector::new().renderer_name(name.clone()).select() {
+        Ok(()) => wr_core::info!("Window renderer: {name}"),
+        Err(e) => {
+            wr_core::warn!("Couldn't use the {name} renderer ({e}); using the software renderer");
+            if let Err(e) = slint::BackendSelector::new().renderer_name("software".into()).select() {
+                wr_core::warn!("Couldn't pick the software renderer either: {e}");
+            }
+        }
+    }
+}
+
 fn run_window(args: &[String]) {
     if focus_open_window() {
         return;
@@ -184,10 +203,7 @@ fn run_window(args: &[String]) {
     } else {
         start_page(&arg_after(args, "--tab").unwrap_or_default())
     };
-    // The software renderer: no graphics driver needed, and the least memory
-    if let Err(e) = slint::BackendSelector::new().renderer_name("software".into()).select() {
-        wr_core::warn!("Couldn't pick the software renderer: {e}");
-    }
+    pick_renderer();
     let (ui, ctx) = build(start);
     if std::env::var_os("WHITE_RABBIT_SMOKE_TEST").is_some() {
         shoot::smoke_test(&ui, &ctx);

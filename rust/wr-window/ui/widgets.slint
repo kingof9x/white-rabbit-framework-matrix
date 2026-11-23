@@ -1,8 +1,33 @@
 // The window's building blocks, in the style of the Windows 11 Settings app: cards with an icon, a title
 // and a line of help, and check boxes, switches, radio buttons and sliders in the accent colour.
 import { Theme } from "theme.slint";
-import { Button } from "std-widgets.slint";
+import { Button, ComboBox, LineEdit, ScrollView } from "std-widgets.slint";
 export { Button }
+
+// A ComboBox that keeps following `index` after it has been used. A plain `current-index: x;` stops
+// following x the first time someone picks an item (picking overwrites the binding), so a list in a
+// reused row (the layout editor) went on showing an old choice. Use this when the choice comes from a
+// list row; for a global property use `current-index <=> Global.prop` instead.
+export component SyncedComboBox inherits ComboBox {
+    in property <int> index;
+    init => { self.current-index = root.index; }
+    changed index => { self.current-index = root.index; }
+}
+
+// A LineEdit that keeps following `value` after someone typed in it (typing overwrites a plain
+// `text: x;` binding). It doesn't change the text while it has the keyboard, so typing is never undone.
+export component SyncedLineEdit inherits LineEdit {
+    in property <string> value;
+    init => { self.text = root.value; }
+    changed value => { if !self.has-focus { self.text = root.value; } }
+}
+
+// The page area's scroll view: back to the top whenever the page changes, so a page never opens
+// half-way down because the page before it was scrolled.
+export component PageScrollView inherits ScrollView {
+    in property <string> page;
+    changed page => { self.content-y = 0; }
+}
 
 export component SectionTitle inherits Text {
     color: Theme.text;
@@ -102,6 +127,10 @@ export component CheckBox inherits Rectangle {
     in property <string> text;
     in property <bool> enabled: true;
     in-out property <bool> checked;
+    // Controlled: a click only asks (toggled) and the owner sets checked. Use it whenever checked is
+    // bound one way (`checked: x;`): otherwise the first click breaks the binding and the box stops
+    // following x (it stayed ticked after the app turned the setting off).
+    in property <bool> controlled;
     callback toggled(bool);
     min-height: 28px;
     min-width: box.width + (text == "" ? 0 : label.preferred-width + 10px);
@@ -122,8 +151,12 @@ export component CheckBox inherits Rectangle {
     ta := TouchArea {
         enabled: root.enabled;
         clicked => {
-            checked = !checked;
-            root.toggled(checked);
+            if controlled {
+                root.toggled(!checked);
+            } else {
+                checked = !checked;
+                root.toggled(checked);
+            }
         }
     }
     box := Rectangle {

@@ -814,10 +814,11 @@ fn tick(app: &AppWindow, st: &mut State) {
     if matches!(page.as_str(), "keys" | "home" | "macropad") {
         keyedit::push(app, st);
     }
-    let visible = app.window().is_visible();
+    let visible = app.window().is_visible() && !app.window().is_minimized();
     // Redraw the picture only as often as this PC keeps up with, so a slow machine never
-    // spends all its time drawing and stops answering clicks.
-    let due = st.last_draw.elapsed() >= st.draw_cost.mul_f32(2.0);
+    // spends all its time drawing and stops answering clicks; and at most about 15 times a second,
+    // which is plenty for a preview and leaves the window free to follow moves and resizes.
+    let due = st.last_draw.elapsed() >= st.draw_cost.mul_f32(3.0).max(Duration::from_millis(66));
     if due && visible && matches!(page.as_str(), "lighting" | "audio" | "macropad" | "setup" | "keys" | "home") {
         let started = Instant::now();
         let scale = app.window().scale_factor();

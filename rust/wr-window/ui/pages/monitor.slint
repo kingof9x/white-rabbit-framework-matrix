@@ -3,7 +3,7 @@
 // Drag an app onto a panel, or select a slot and double-click an app.
 import { Theme } from "../theme.slint";
 import { App } from "../state.slint";
-import { Group, Hint, Body, Status, CheckBox, Slider, AccentButton, Button, SectionTitle } from "../widgets.slint";
+import { Group, Hint, Body, Status, CheckBox, Slider, AccentButton, Button, SectionTitle, SyncedComboBox, SyncedLineEdit } from "../widgets.slint";
 import { ComboBox, LineEdit, ScrollView, ListView } from "std-widgets.slint";
 
 export struct AppRow {
@@ -126,9 +126,9 @@ export component PanelView inherits VerticalLayout {
     alignment: start;
 
     Text { text: panel.title; color: Theme.text; font-size: Theme.body; font-weight: 600; }
-    ComboBox {
+    SyncedComboBox {
         model: panel.ports;
-        current-index: panel.port;
+        index: panel.port;
         selected => { EditorPage.port-chosen(side, self.current-index); }
     }
     HorizontalLayout {
@@ -200,9 +200,9 @@ export component PanelView inherits VerticalLayout {
     HorizontalLayout {
         spacing: 6px;
         Label { text: "Show for"; font-size: Theme.caption; }
-        LineEdit {
+        SyncedLineEdit {
             width: 60px;
-            text: panel.duration;
+            value: panel.duration;
             input-type: number;
             edited(t) => { EditorPage.duration-edited(side, t); }
         }
@@ -225,13 +225,13 @@ component FieldView inherits VerticalLayout {
         toggled(on) => { EditorPage.field-toggled(index, on); }
     }
     if field.kind == "choice" || field.kind == "text": Text { text: field.label; color: Theme.text; font-size: Theme.body; wrap: word-wrap; }
-    if field.kind == "choice": ComboBox {
+    if field.kind == "choice": SyncedComboBox {
         model: field.options;
-        current-index: field.index;
+        index: field.index;
         selected => { EditorPage.field-chosen(index, self.current-index); }
     }
-    if field.kind == "text": LineEdit {
-        text: field.text;
+    if field.kind == "text": SyncedLineEdit {
+        value: field.text;
         edited(t) => { EditorPage.field-edited(index, t); }
     }
     if field.kind == "button": HorizontalLayout {

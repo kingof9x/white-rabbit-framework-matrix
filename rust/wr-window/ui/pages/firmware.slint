@@ -39,7 +39,7 @@ export component FirmwareView inherits VerticalLayout {
             ComboBox {
                 horizontal-stretch: 1;
                 model: FirmwarePage.choices;
-                current-index: FirmwarePage.choice;
+                current-index <=> FirmwarePage.choice;
                 selected => { FirmwarePage.choice = self.current-index; }
             }
             AccentButton {
