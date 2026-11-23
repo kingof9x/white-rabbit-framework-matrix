@@ -1,10 +1,13 @@
 https://kingof9x.github.io/white-rabbit-framework-matrix/
-# White Rabbit: Framework 16 LED Matrix app
+# White Rabbit - Framework 16 LED Control
 
-**One Windows app for everything the Framework Laptop 16 LED Matrix can do.**
-It runs in the system tray, turns the LED panels into a system monitor you
-design yourself, and lets you play games and patterns, choose the startup
-animation and update the firmware, all from the same window. The window looks
+**One Windows app for the Framework Laptop 16's lights: the LED Matrix panels
+and the RGB keyboard and macropad.** It runs in the system tray, turns the LED
+panels into a system monitor you design yourself, and lets you play games and
+patterns, choose the startup animation and update the firmware. It also does
+everything the Framework 16 Keyboard Control app did: keyboard and macropad
+lighting, the audio show, key mapping and keyboard firmware updates. All from
+the same window. The window looks
 and feels like the Windows 11 Settings app, and the part that runs in the
 background is now written in Rust, so it uses a fraction of the memory it used to.
 
@@ -353,6 +356,28 @@ slower on the panels than in the window.
 
 ![The Draw page](docs/screenshots/white-rabbit-draw.png)
 
+### Keyboard & macropad pages
+
+These pages show up when an RGB keyboard or macropad is plugged in. They used to
+be the separate [Framework 16 Keyboard Control](https://github.com/kingof9x/framework-16-keyboard-customization)
+app; its settings are copied over the first time White Rabbit starts, and the
+installer offers to remove the old app.
+
+- **Home** shows the hardware White Rabbit found (LED panels, keyboard, macropad
+  or numpad), numbered in the order it was found, on a picture of the keyboard.
+- **Lighting**: built-in effects, effects drawn by the app across the keyboard
+  and macropad, colours and painted keys.
+- **Audio show**: the keys follow the music (Ctrl+Alt+Shift+M, or F12 + up arrow).
+- **Key mapping**: change what a key does, turn keys off, or make a key open an
+  app (or White Rabbit itself).
+- **Macropad**: its layers and corner combos.
+- Clear or black keys are remembered for each keyboard, so swapping keyboards
+  switches it too.
+- The audio show, app-drawn effects and Open an app keys keep working with the
+  window closed.
+- Keyboard and macropad firmware updates are on the Firmware page. The firmware
+  itself is built in the keyboard repo.
+
 ### Settings: Firmware
 
 Shows which firmware each panel has, puts a panel into bootloader mode, and
@@ -504,6 +529,10 @@ White Rabbit combines two open source projects, both MIT licensed (see
   itself is still built there.
 
 Thanks to everyone who worked on those.
+
+The keyboard and macropad pages come from Callum's
+[framework-16-keyboard-customization](https://github.com/kingof9x/framework-16-keyboard-customization)
+app (the app code is MIT here; its keyboard firmware stays GPL in that repo).
 
 The plug-in ripple, the sand battery, the now playing app, the CPU afterglow,
 the text line, the sliding between apps, the water look and dimming by LED
