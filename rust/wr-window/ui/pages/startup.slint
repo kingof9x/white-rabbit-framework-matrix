@@ -41,7 +41,7 @@ export component StartupView inherits VerticalLayout {
                 width: 320px;
                 enabled: StartupPage.supported && StartupPage.mode == 1;
                 model: StartupPage.names;
-                current-index: StartupPage.animation;
+                current-index <=> StartupPage.animation;
                 selected => { StartupPage.animation = self.current-index; }
             }
         }

@@ -292,6 +292,7 @@ export component DrawView inherits FocusScope {
                         title: "On the panels";
                         CheckBox {
                             text: "Show on the ticked panels while I draw";
+                            controlled: true;
                             checked: DrawPage.live;
                             toggled(on) => { DrawPage.live-changed(on); }
                         }

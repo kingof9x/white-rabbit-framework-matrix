@@ -3,7 +3,7 @@
 import { ScrollView, LineEdit, Button } from "std-widgets.slint";
 import { Theme, ThemeSync } from "theme.slint";
 import { App, PanelRow } from "state.slint";
-import { SectionTitle, CheckBox, Hint, Dialog, AccentButton } from "widgets.slint";
+import { SectionTitle, CheckBox, Hint, Dialog, AccentButton, PageScrollView } from "widgets.slint";
 import { HomePage } from "pages/home.slint";
 import { Sections, SectionCard } from "sections.slint";
 import { SettingsPage, UpdatesPage } from "pages/settings.slint";
@@ -221,6 +221,7 @@ export component AppWindow inherits Window {
                 if App.panels.length == 0: Text { text: "No LED Matrix panels found"; color: Theme.error; font-size: Theme.body; }
                 for panel[i] in App.panels: CheckBox {
                     text: panel.label;
+                    controlled: true;
                     checked: panel.checked;
                     toggled(on) => { App.panel-checked(i, on); }
                 }
@@ -274,7 +275,8 @@ export component AppWindow inherits Window {
                     y: 0;
                 }
             }
-            if !full-page(App.page): ScrollView {
+            if !full-page(App.page): PageScrollView {
+                page: App.page;
                 vertical-stretch: 1;
                 min-height: kb-page(App.page) || App.page == "kbsetup" ? 260px : 0px;
                 VerticalLayout {

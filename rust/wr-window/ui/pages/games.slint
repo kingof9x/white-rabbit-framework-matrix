@@ -188,7 +188,7 @@ export component GamesView inherits HorizontalLayout {
             Text { text: "Both panels:"; color: Theme.text; font-size: Theme.body; }
             ComboBox {
                 model: GamesPage.layouts;
-                current-index: GamesPage.layout;
+                current-index <=> GamesPage.layout;
                 selected => { GamesPage.layout = self.current-index; GamesPage.layout-chosen(self.current-index); }
             }
             Hint { text: "Ledris always plays side by side. The keyboard gap is set on the Math page."; }

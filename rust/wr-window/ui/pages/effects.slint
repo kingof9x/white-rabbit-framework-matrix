@@ -99,7 +99,7 @@ export component EffectsView inherits HorizontalLayout {
                     width: 220px;
                     enabled: EffectsPage.plug-animation;
                     model: EffectsPage.unplug-looks;
-                    current-index: EffectsPage.unplug-look;
+                    current-index <=> EffectsPage.unplug-look;
                     selected => { EffectsPage.unplug-look = self.current-index; EffectsPage.changed(); }
                 }
             }
@@ -109,7 +109,7 @@ export component EffectsView inherits HorizontalLayout {
                     width: 220px;
                     enabled: EffectsPage.plug-animation;
                     model: EffectsPage.plug-looks;
-                    current-index: EffectsPage.plug-look;
+                    current-index <=> EffectsPage.plug-look;
                     selected => { EffectsPage.plug-look = self.current-index; EffectsPage.changed(); }
                 }
             }
@@ -134,7 +134,7 @@ export component EffectsView inherits HorizontalLayout {
                 ComboBox {
                     width: 160px;
                     model: EffectsPage.positions;
-                    current-index: EffectsPage.try-position;
+                    current-index <=> EffectsPage.try-position;
                     selected => { EffectsPage.try-position = self.current-index; }
                 }
                 Button { text: "Plug in"; clicked => { EffectsPage.try-plug(true); } }
@@ -146,7 +146,7 @@ export component EffectsView inherits HorizontalLayout {
                 ComboBox {
                     width: 160px;
                     model: EffectsPage.positions;
-                    current-index: EffectsPage.fix-position;
+                    current-index <=> EffectsPage.fix-position;
                     selected => { EffectsPage.fix-position = self.current-index; }
                 }
                 Button { text: "Remember"; enabled: EffectsPage.can-fix; clicked => { EffectsPage.learn(); } }

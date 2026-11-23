@@ -29,7 +29,7 @@ export component SettingsPage inherits VerticalLayout {
         ComboBox {
             width: 230px;
             model: ["Use my Windows setting", "Light", "Dark", "Classic"];
-            current-index: App.theme-choice;
+            current-index <=> App.theme-choice;
             selected => {
                 App.theme-choice = self.current-index;
                 App.theme-chosen(self.current-index);

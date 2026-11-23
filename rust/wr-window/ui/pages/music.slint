@@ -67,7 +67,7 @@ export component MusicView inherits VerticalLayout {
                         width: 320px;
                         enabled: MusicPage.input-mode == 1;
                         model: MusicPage.microphones;
-                        current-index: MusicPage.microphone;
+                        current-index <=> MusicPage.microphone;
                         selected => { MusicPage.microphone = self.current-index; MusicPage.changed(); }
                     }
                     Button { text: "Look again"; clicked => { MusicPage.find-microphones(); } }
@@ -101,7 +101,7 @@ export component MusicView inherits VerticalLayout {
                     ComboBox {
                         width: 240px;
                         model: MusicPage.looks;
-                        current-index: MusicPage.look;
+                        current-index <=> MusicPage.look;
                         selected => { MusicPage.look = self.current-index; MusicPage.changed(); }
                     }
                 }
@@ -117,7 +117,7 @@ export component MusicView inherits VerticalLayout {
                     ComboBox {
                         width: 140px;
                         model: ["Slow", "Normal", "Fast"];
-                        current-index: MusicPage.fall-speed;
+                        current-index <=> MusicPage.fall-speed;
                         selected => { MusicPage.fall-speed = self.current-index; MusicPage.changed(); }
                     }
                 }

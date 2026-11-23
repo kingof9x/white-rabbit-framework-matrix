@@ -25,6 +25,7 @@ export component ShortcutsView inherits VerticalLayout {
             spacing: 16px;
             CheckBox {
                 width: 24px;
+                controlled: true;
                 checked: row.on;
                 toggled(on) => { ShortcutsPage.toggled(i, on); }
             }
