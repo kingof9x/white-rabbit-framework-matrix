@@ -18,8 +18,16 @@ const PDH_MORE_DATA: u32 = 0x800007D2;
 /// Values over 100 are kept (several engines of one type can add up past it).
 const PDH_FMT_NOCAP100: u32 = 0x8000;
 
-/// The hardware GPUs as (name, LUID), the main one first.
-fn adapters() -> windows::core::Result<Vec<(String, Luid)>> {
+/// A hardware GPU: its name, LUID, and its own and borrowed (shared) memory in bytes.
+pub struct Adapter {
+    pub name: String,
+    pub luid: Luid,
+    pub dedicated: f64,
+    pub shared: f64,
+}
+
+/// The hardware GPUs, the main one first.
+pub fn adapters() -> windows::core::Result<Vec<Adapter>> {
     // SAFETY: plain COM calls; the interfaces release themselves when dropped.
     unsafe {
         let factory: IDXGIFactory1 = CreateDXGIFactory1()?;
@@ -33,7 +41,12 @@ fn adapters() -> windows::core::Result<Vec<(String, Luid)>> {
             }
             let len = desc.Description.iter().position(|c| *c == 0).unwrap_or(desc.Description.len());
             let name = String::from_utf16_lossy(&desc.Description[..len]).trim().to_string();
-            found.push((name, (desc.AdapterLuid.HighPart as u32, desc.AdapterLuid.LowPart)));
+            found.push(Adapter {
+                name,
+                luid: (desc.AdapterLuid.HighPart as u32, desc.AdapterLuid.LowPart),
+                dedicated: desc.DedicatedVideoMemory as f64,
+                shared: desc.SharedSystemMemory as f64,
+            });
         }
         Ok(found)
     }
@@ -41,10 +54,10 @@ fn adapters() -> windows::core::Result<Vec<(String, Luid)>> {
 
 /// The hardware GPUs' names, the main one first, for the layout editor's GPU picker.
 pub fn names() -> Vec<String> {
-    adapters().map(|a| a.into_iter().map(|(name, _)| name).collect()).unwrap_or_default()
+    adapters().map(|a| a.into_iter().map(|a| a.name).collect()).unwrap_or_default()
 }
 
-fn wide(s: &str) -> Vec<u16> {
+pub fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
@@ -77,38 +90,48 @@ impl Counters {
 
     /// (instance name, percent) since the last call. Empty while there is no GPU work yet.
     fn read(&mut self) -> Vec<(String, f64)> {
-        // SAFETY: the buffer is sized by the first call, as PDH asks; names point into it.
+        // SAFETY: the query and counter were opened together and stay open.
         unsafe {
             if PdhCollectQueryData(self.query) != 0 {
                 return Vec::new();
             }
-            let format = PDH_FMT_DOUBLE | PDH_FMT_NOCAP100;
-            let (mut size, mut count) = (0u32, 0u32);
-            let status =
-                PdhGetFormattedCounterArrayW(self.counter, format, &mut size, &mut count, std::ptr::null_mut());
-            if status != PDH_MORE_DATA || size == 0 {
-                return Vec::new();
-            }
-            let item_size = std::mem::size_of::<PDH_FMT_COUNTERVALUE_ITEM_W>();
-            let mut buffer: Vec<PDH_FMT_COUNTERVALUE_ITEM_W> = Vec::with_capacity(size as usize / item_size + 1);
-            let status = PdhGetFormattedCounterArrayW(self.counter, format, &mut size, &mut count, buffer.as_mut_ptr());
-            if status != 0 {
-                return Vec::new();
-            }
-            buffer.set_len(count as usize);
-            buffer
-                .iter()
-                .filter(|item| !item.szName.is_null() && item.FmtValue.CStatus == 0)
-                .map(|item| {
-                    let mut len = 0;
-                    while *item.szName.add(len) != 0 {
-                        len += 1;
-                    }
-                    let name = String::from_utf16_lossy(std::slice::from_raw_parts(item.szName, len));
-                    (name, item.FmtValue.Anonymous.doubleValue)
-                })
-                .collect()
+            formatted_array(self.counter)
         }
+    }
+}
+
+/// Every instance's value of a wildcard counter, as (instance name, value).
+///
+/// # Safety
+/// `counter` must be an open counter whose query was just collected.
+pub unsafe fn formatted_array(counter: *mut core::ffi::c_void) -> Vec<(String, f64)> {
+    // SAFETY: the buffer is sized by the first call, as PDH asks; names point into it.
+    unsafe {
+        let format = PDH_FMT_DOUBLE | PDH_FMT_NOCAP100;
+        let (mut size, mut count) = (0u32, 0u32);
+        let status = PdhGetFormattedCounterArrayW(counter, format, &mut size, &mut count, std::ptr::null_mut());
+        if status != PDH_MORE_DATA || size == 0 {
+            return Vec::new();
+        }
+        let item_size = std::mem::size_of::<PDH_FMT_COUNTERVALUE_ITEM_W>();
+        let mut buffer: Vec<PDH_FMT_COUNTERVALUE_ITEM_W> = Vec::with_capacity(size as usize / item_size + 1);
+        let status = PdhGetFormattedCounterArrayW(counter, format, &mut size, &mut count, buffer.as_mut_ptr());
+        if status != 0 {
+            return Vec::new();
+        }
+        buffer.set_len(count as usize);
+        buffer
+            .iter()
+            .filter(|item| !item.szName.is_null() && item.FmtValue.CStatus == 0)
+            .map(|item| {
+                let mut len = 0;
+                while *item.szName.add(len) != 0 {
+                    len += 1;
+                }
+                let name = String::from_utf16_lossy(std::slice::from_raw_parts(item.szName, len));
+                (name, item.FmtValue.Anonymous.doubleValue)
+            })
+            .collect()
     }
 }
 
@@ -136,8 +159,8 @@ pub fn reader() -> Box<dyn FnMut() -> Vec<(String, Option<f64>)>> {
             match adapters() {
                 Ok(found) => {
                     log.ok("Listing the GPUs");
-                    let names = unique_names(&found.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>());
-                    gpus = names.into_iter().zip(found.into_iter().map(|(_, l)| l)).collect();
+                    let names = unique_names(&found.iter().map(|a| a.name.clone()).collect::<Vec<_>>());
+                    gpus = names.into_iter().zip(found.into_iter().map(|a| a.luid)).collect();
                 }
                 Err(e) => log.fail(format!("Can't list the GPUs: {e}")),
             }

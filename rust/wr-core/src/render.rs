@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 
 use crate::animations::{self, Look};
+use crate::apps::meters;
 use crate::drawing::*;
 use crate::layout::{App, PanelApps};
 use crate::sand::{self, SandPiles};
@@ -76,10 +77,19 @@ pub trait Readings {
     fn fans(&mut self) -> Vec<f64> {
         Vec::new()
     }
+    /// How much of a GPU's memory is in use, 0.0-1.0 (`gpu` as for `gpu_history`), or None
+    /// without a reading.
+    fn gpu_memory(&mut self, _gpu: &str) -> Option<f64> {
+        None
+    }
+    /// How full a drive is, 0.0-1.0, for a drive such as "C:", or None when there is no such drive.
+    fn drive_space(&mut self, _drive: &str) -> Option<f64> {
+        None
+    }
 }
 
 /// The apps this monitor can draw so far. The others show nothing until they are ported.
-pub const SUPPORTED_APPS: [&str; 6] = ["cpu", "cpu-graph", "mem-bat", "time", "battery-sand", "animation"];
+pub const SUPPORTED_APPS: [&str; 7] = ["cpu", "cpu-graph", "mem-bat", "battery", "time", "battery-sand", "animation"];
 
 pub fn is_supported(name: &str) -> bool {
     SUPPORTED_APPS.contains(&name)
@@ -126,19 +136,33 @@ pub fn render_panel_on(
                 cores = values.len();
                 draw_cpu_vals(grid, &values, fg, y);
             }
-            "cpu-graph" => draw_history_graph_with(
-                grid,
-                &readings.cpu_history(),
-                fg,
-                y,
-                &app.arg_str("bars_from").unwrap_or_default(),
-                &app.arg_str("newest").unwrap_or_default(),
-            ),
+            "cpu-graph" => {
+                let (bars_from, newest) =
+                    (app.arg_str("bars_from").unwrap_or_default(), app.arg_str("newest").unwrap_or_default());
+                let history = readings.cpu_history();
+                if memory_meter(app) {
+                    let memory = readings.memory();
+                    meters::draw_graph_with_meter(grid, &history, memory, fg, y, &bars_from, &newest);
+                } else {
+                    draw_history_graph_with(grid, &history, fg, y, &bars_from, &newest);
+                }
+            }
             "mem-bat" => {
                 draw_memory(grid, readings.memory(), fg, y);
                 if let Some((ratio, plugged)) = readings.battery() {
                     let now = readings.now();
                     draw_battery(grid, ratio, plugged, fg, y + 3, now);
+                }
+            }
+            "battery" => {
+                let look = app.arg_str("look").unwrap_or_else(|| "bolt".into());
+                let outline = (bg * 2).min(255);
+                match readings.battery() {
+                    Some((ratio, plugged)) => {
+                        let now = readings.now();
+                        meters::draw_battery_shape(grid, ratio, plugged, &look, fg, outline, y, now);
+                    }
+                    None => meters::draw_battery_outline(grid, outline, y),
                 }
             }
             "time" => {
@@ -176,10 +200,20 @@ pub fn render_panel_on(
         }
         animate = app.animate;
         if app.border() && !whole {
-            draw_app_border(&app.name, grid, bg, y, cores);
+            match app.name.as_str() {
+                "cpu-graph" | "gpu-graph" if memory_meter(app) => meters::draw_graph_with_meter_border(grid, bg, y),
+                "disk-net" => meters::draw_net_disk_space_border(grid, bg, y),
+                "battery" => {} // the battery's outline is its border
+                name => draw_app_border(name, grid, bg, y, cores),
+            }
         }
     }
     animate
+}
+
+/// Whether a graph app shows the memory meter above it (its `memory` setting, on unless turned off).
+fn memory_meter(app: &App) -> bool {
+    app.arg("memory").map(|_| app.arg_bool("memory")).unwrap_or(true)
 }
 
 /// The apps in `crate::apps`: disk and network, GPU, FPS, now playing, weather, temperatures and fans.
@@ -194,10 +228,19 @@ fn draw_data_app(grid: &mut Grid, app: &App, readings: &mut dyn Readings, fg: i3
         }
         "disk-net" => {
             let (disk, net) = (readings.disk(), readings.net());
-            draw_disk_net(grid, disk, net, fg, y);
+            // The drive whose space shows at the bottom: C: unless set; blank hides the meter
+            let drive = app.arg_str("drive").unwrap_or_else(|| "C:".into());
+            let space = if drive.trim().is_empty() { None } else { readings.drive_space(drive.trim()) };
+            meters::draw_net_disk_space(grid, net, disk, space, fg, y);
         }
         "gpu-graph" => {
-            draw_history_graph_with(grid, &readings.gpu_history(&arg("gpu")), fg, y, &arg("bars_from"), &arg("newest"))
+            let history = readings.gpu_history(&arg("gpu"));
+            if memory_meter(app) {
+                let memory = readings.gpu_memory(&arg("gpu")).unwrap_or(0.0);
+                meters::draw_graph_with_meter(grid, &history, memory, fg, y, &arg("bars_from"), &arg("newest"));
+            } else {
+                draw_history_graph_with(grid, &history, fg, y, &arg("bars_from"), &arg("newest"));
+            }
         }
         "fps" => {
             let fps = readings.fps(&arg("process"));

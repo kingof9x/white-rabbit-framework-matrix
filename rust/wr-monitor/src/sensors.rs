@@ -39,6 +39,12 @@ pub struct WindowsReadings {
     networks: Networks,
     disk_rates: RateMonitor,
     net_rates: RateMonitor,
+    /// Every physical disk's bytes read and written, from the performance counters
+    all_disks: Background<Option<(u64, u64)>>,
+    /// The drives' sizes and free space, read every 10 seconds
+    drives: Disks,
+    drives_read: Option<Instant>,
+    gpu_memory: Background<Vec<(String, Option<f64>)>>,
     gpus: Background<Vec<(String, Option<f64>)>>,
     gpu_histories: HashMap<String, History>,
     thermal: Background<Thermal>,
@@ -70,6 +76,12 @@ impl WindowsReadings {
             networks: Networks::new_with_refreshed_list(),
             disk_rates: RateMonitor::new(),
             net_rates: RateMonitor::new(),
+            all_disks: Background::new("disks", Duration::from_secs(1), None, |_| crate::counters::disk_reader()),
+            drives: Disks::new(),
+            drives_read: None,
+            gpu_memory: Background::new("gpu-memory", Duration::from_secs(2), Vec::new(), |_| {
+                crate::counters::gpu_memory_reader()
+            }),
             gpus: Background::new("gpu", Duration::from_secs(1), Vec::new(), |_| crate::gpu::reader()),
             gpu_histories: HashMap::new(),
             thermal: Background::new("sensors", Duration::from_secs(2), Thermal::default(), crate::thermal::reader),
@@ -146,6 +158,10 @@ impl Readings for WindowsReadings {
     }
 
     fn disk(&mut self) -> (f64, f64) {
+        // Every SSD in the laptop, with or without a drive letter
+        if let Some((read, written)) = self.all_disks.get() {
+            return self.disk_rates.add(read, written, unix_now());
+        }
         self.disks.refresh_specifics(false, DiskRefreshKind::nothing().with_io_usage());
         let (read, written) = self.disks.list().iter().fold((0u64, 0u64), |(r, w), d| {
             let u = d.usage();
@@ -202,6 +218,29 @@ impl Readings for WindowsReadings {
     fn fans(&mut self) -> Vec<f64> {
         self.thermal.get().fans
     }
+
+    fn gpu_memory(&mut self, gpu: &str) -> Option<f64> {
+        gpu::pick(&self.gpu_memory.get(), gpu)
+    }
+
+    fn drive_space(&mut self, drive: &str) -> Option<f64> {
+        if self.drives_read.is_none_or(|t| t.elapsed() > Duration::from_secs(10)) {
+            self.drives_read = Some(Instant::now());
+            self.drives.refresh_specifics(true, DiskRefreshKind::nothing().with_storage());
+        }
+        drive_share(&self.drives, drive)
+    }
+}
+
+/// How full the drive is ("C:", "c", "C:\\" all work), 0.0-1.0.
+pub fn drive_share(drives: &Disks, drive: &str) -> Option<f64> {
+    let letter = drive.trim().trim_end_matches(['\\', '/', ':']).to_ascii_uppercase();
+    drives
+        .list()
+        .iter()
+        .find(|d| d.mount_point().to_string_lossy().trim_end_matches(['\\', '/', ':']).eq_ignore_ascii_case(&letter))
+        .filter(|d| d.total_space() > 0)
+        .map(|d| (d.total_space() - d.available_space()) as f64 / d.total_space() as f64)
 }
 
 /// The clock app's four digits and PM dot, in the app's timezone (local time when blank).

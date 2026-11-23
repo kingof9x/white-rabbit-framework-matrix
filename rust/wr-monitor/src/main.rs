@@ -23,6 +23,8 @@ mod app;
 #[cfg(windows)]
 mod background;
 #[cfg(windows)]
+mod counters;
+#[cfg(windows)]
 mod gpu;
 #[cfg(windows)]
 mod media;
