@@ -42,6 +42,8 @@ pub struct PreviewReadings {
     networks: Networks,
     disk_rates: RateMonitor,
     net_rates: RateMonitor,
+    drives: Disks,
+    drives_read: Option<Instant>,
 }
 
 impl PreviewReadings {
@@ -64,6 +66,8 @@ impl PreviewReadings {
             networks: Networks::new_with_refreshed_list(),
             disk_rates: RateMonitor::new(),
             net_rates: RateMonitor::new(),
+            drives: Disks::new(),
+            drives_read: None,
         }
     }
 
@@ -171,6 +175,29 @@ impl Readings for PreviewReadings {
     fn gpu_history(&mut self, _gpu: &str) -> Vec<Option<f64>> {
         let now = self.t();
         self.gpu_history.get(now, || Some(wave(now, 0.7, 1.0)))
+    }
+
+    fn gpu_memory(&mut self, _gpu: &str) -> Option<f64> {
+        Some(wave(self.t(), 0.15, 2.0))
+    }
+
+    fn drive_space(&mut self, drive: &str) -> Option<f64> {
+        if self.drives_read.is_none_or(|t| t.elapsed().as_secs() > 10) {
+            self.drives_read = Some(Instant::now());
+            self.drives.refresh_specifics(true, DiskRefreshKind::nothing().with_storage());
+        }
+        let letter = drive.trim().trim_end_matches(['\\', '/', ':']);
+        let found = self.drives.list().iter().find(|d| {
+            d.mount_point().to_string_lossy().trim_end_matches(['\\', '/', ':']).eq_ignore_ascii_case(letter)
+        });
+        match found {
+            Some(d) if d.total_space() > 0 => {
+                Some((d.total_space() - d.available_space()) as f64 / d.total_space() as f64)
+            }
+            // Not Windows (the tests): a made-up drive
+            _ if !cfg!(windows) => Some(0.6),
+            _ => None,
+        }
     }
 
     fn fps(&mut self, _process: &str) -> Fps {

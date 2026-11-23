@@ -24,6 +24,29 @@ pub fn parse_instance(instance: &str) -> Option<(Luid, String)> {
     Some(((high, low), rest[engine_at..].to_string()))
 }
 
+/// The LUID in a "GPU Adapter Memory" counter instance name such as
+/// `luid_0x00000000_0x0000D1F2_phys_0`.
+pub fn parse_adapter_luid(instance: &str) -> Option<Luid> {
+    let lower = instance.to_ascii_lowercase();
+    let start = lower.find("luid_0x")? + "luid_0x".len();
+    let (high, rest) = lower[start..].split_once("_0x")?;
+    let low = rest.split('_').next()?;
+    Some((u32::from_str_radix(high, 16).ok()?, u32::from_str_radix(low, 16).ok()?))
+}
+
+/// How much of a GPU's memory is in use, 0.0-1.0, the way Task Manager shows it: a graphics card
+/// with its own memory (1 GB or more) counts that; a built-in GPU, which borrows the computer's
+/// memory, counts its own and the borrowed memory together. Bytes in and out.
+pub fn memory_share(dedicated_used: f64, shared_used: f64, dedicated_total: f64, shared_total: f64) -> Option<f64> {
+    const ONE_GB: f64 = 1024.0 * 1024.0 * 1024.0;
+    let (used, total) = if dedicated_total >= ONE_GB {
+        (dedicated_used, dedicated_total)
+    } else {
+        (dedicated_used + shared_used, dedicated_total + shared_total)
+    };
+    (total > 0.0).then(|| (used / total).clamp(0.0, 1.0))
+}
+
 /// Each GPU's use in percent: for every engine type the use of all processes added up, and the
 /// busiest engine type counts (at most 100).
 pub fn busiest_engines(values: &[(String, f64)]) -> HashMap<Luid, f64> {
@@ -81,6 +104,18 @@ mod tests {
         assert_eq!(result[&(0, 0xd1f2)], 70.0);
         assert_eq!(result[&(1, 0xaaaa)], 100.0);
         assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn adapter_memory() {
+        assert_eq!(parse_adapter_luid("luid_0x00000000_0x0000D1F2_phys_0"), Some((0, 0xd1f2)));
+        assert_eq!(parse_adapter_luid("Total"), None);
+        let gb = 1024.0 * 1024.0 * 1024.0;
+        // A graphics card with 8 GB: only its own memory counts
+        assert_eq!(memory_share(2.0 * gb, 1.0 * gb, 8.0 * gb, 16.0 * gb), Some(0.25));
+        // A built-in GPU with 512 MB of its own: own and borrowed memory together
+        assert_eq!(memory_share(0.5 * gb, 3.5 * gb, 0.5 * gb, 15.5 * gb), Some(0.25));
+        assert_eq!(memory_share(0.0, 0.0, 0.0, 0.0), None);
     }
 
     #[test]

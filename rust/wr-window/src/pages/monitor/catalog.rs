@@ -175,17 +175,29 @@ pub const LOOK_LABELS: [&str; 22] = [
     "Dancing rabbit",
     "Water, glow and sparks",
 ];
+const BATTERY_LOOKS: [&str; 6] = ["\"bolt\"", "\"sweep\"", "\"bubbles\"", "\"pour\"", "\"wave\"", "\"orbit\""];
+const BATTERY_LOOK_LABELS: [&str; 6] = [
+    "Bolt (pulsing bolt / down arrow)",
+    "Sweep (light climbs / dark band falls)",
+    "Bubbles (rise / sink)",
+    "Pour (drops fall in / float out)",
+    "Wave (rolls right / rolls left)",
+    "Orbit (spark runs up / runs down)",
+];
 const SPEEDS: [&str; 3] = ["\"slow\"", "\"normal\"", "\"fast\""];
 const SPEED_LABELS: [&str; 3] = ["Slow", "Normal", "Fast"];
 
-pub static APPS: [AppInfo; 21] = [
+pub static APPS: [AppInfo; 22] = [
     AppInfo { key: "cpu", label: "CPU cores", help: "Load on each CPU core, drawn as small spirals (or a bar per core when there are more than eight).", size: Size::Half,
         settings: &[help(s("afterglow", "Afterglow", Kind::Bool, "true"), "A dim trail shows where each core's load just was, fading over a couple of seconds")], fixed: "{}", fixed_args: "{}" },
-    AppInfo { key: "cpu-graph", label: "CPU graph", help: "Overall CPU use over the last 15 seconds. Each row is one second; a longer row is a busier CPU.", size: Size::Half,
-        settings: &[GRAPH_BARS_FROM, GRAPH_NEWEST], fixed: "{}", fixed_args: "{}" },
-    AppInfo { key: "gpu-graph", label: "GPU graph", help: "Overall GPU use over the last 15 seconds, like the CPU graph.", size: Size::Half,
-        settings: &[help(s("gpu", "GPU", Kind::Gpu, "null"), "Which graphics card to show, when the computer has more than one"), GRAPH_BARS_FROM, GRAPH_NEWEST], fixed: "{}", fixed_args: "{}" },
-    AppInfo { key: "disk-net", label: "Disk + network", help: "Disk read and write bars on the upper part, network upload and download bars on the lower part.", size: Size::Half, settings: &[], fixed: "{}", fixed_args: "{}" },
+    AppInfo { key: "cpu-graph", label: "CPU graph", help: "Overall CPU use over the last seconds, with a memory (RAM) meter above it. Each row is one second; a longer row is a busier CPU.", size: Size::Half,
+        settings: &[help(s("memory", "Memory meter on top", Kind::Bool, "true"), "How much memory (RAM) is in use, as two rows above the graph"), GRAPH_BARS_FROM, GRAPH_NEWEST], fixed: "{}", fixed_args: "{}" },
+    AppInfo { key: "gpu-graph", label: "GPU graph", help: "Overall GPU use over the last seconds, like the CPU graph, with the GPU's memory meter above it.", size: Size::Half,
+        settings: &[help(s("gpu", "GPU", Kind::Gpu, "null"), "Which graphics card to show, when the computer has more than one"), help(s("memory", "GPU memory meter on top", Kind::Bool, "true"), "How much of the graphics card's memory is in use, as two rows above the graph"), GRAPH_BARS_FROM, GRAPH_NEWEST], fixed: "{}", fixed_args: "{}" },
+    AppInfo { key: "disk-net", label: "Network + disk", help: "Network upload and download bars on top, disk read and write bars under them (every disk in the computer), and how full a drive is at the bottom.", size: Size::Half,
+        settings: &[help(s("drive", "Drive space meter", Kind::Text, "\"C:\""), "The drive whose space shows at the bottom, such as C: or D:. Blank hides the meter")], fixed: "{}", fixed_args: "{}" },
+    AppInfo { key: "battery", label: "Battery", help: "The battery level in a battery shape, with a moving look that shows whether it is charging or running on battery. Flashes when nearly empty.", size: Size::Half,
+        settings: &[help(choice("look", "Look", "\"bolt\"", &BATTERY_LOOKS, &BATTERY_LOOK_LABELS), "Each look moves one way while charging and the other way on battery")], fixed: "{}", fixed_args: "{}" },
     AppInfo { key: "mem-bat", label: "Memory + battery", help: "Memory use on top, battery level below (pulses when charging).", size: Size::Half, settings: &[], fixed: "{}", fixed_args: "{}" },
     AppInfo { key: "battery-sand", label: "Battery (sand)", help: "The battery level as a pile of sand. Charging rains sand in from the top; on battery the pile slowly drains away. Flashes when nearly empty.", size: Size::Half,
         settings: &[choice("sand_speed", "Sand speed", "\"normal\"", &SPEEDS, &SPEED_LABELS)], fixed: "{}", fixed_args: "{}" },

@@ -144,6 +144,20 @@ fn carve(grid: &mut Grid, shape: &[&str], top: usize, value: i32, empty_value: i
     }
 }
 
+/// Just the battery's outline and nub (an empty battery, for a computer without one).
+pub fn draw_battery_outline(grid: &mut Grid, outline_value: i32, y: usize) {
+    let (nub, body_top, body_bottom) = battery_rows(y);
+    for x in 3..6 {
+        grid.set(x, nub, outline_value);
+    }
+    for x in 0..WIDTH {
+        grid.set(x, body_top, outline_value);
+        grid.set(x, body_bottom, outline_value);
+    }
+    grid.fill_y(0, body_top as i64, body_bottom as i64, outline_value);
+    grid.fill_y(8, body_top as i64, body_bottom as i64, outline_value);
+}
+
 /// A battery shaped like a battery: a nub on top, an outline, and filled from the bottom. The
 /// `look` (one of [`CHARGE_LOOKS`]) moves one way while charging and the other way on battery.
 /// A low battery (7 % or less) flashes while not charging. `now` is in seconds.
@@ -159,16 +173,7 @@ pub fn draw_battery_shape(
     now: f64,
 ) {
     let (nub, body_top, body_bottom) = battery_rows(y);
-    // The outline and the nub
-    for x in 3..6 {
-        grid.set(x, nub, outline_value);
-    }
-    for x in 0..WIDTH {
-        grid.set(x, body_top, outline_value);
-        grid.set(x, body_bottom, outline_value);
-    }
-    grid.fill_y(0, body_top as i64, body_bottom as i64, outline_value);
-    grid.fill_y(8, body_top as i64, body_bottom as i64, outline_value);
+    draw_battery_outline(grid, outline_value, y);
 
     let inside_top = body_top + 1;
     let inside_bottom = body_bottom - 1; // the lowest row inside
@@ -351,11 +356,8 @@ impl Battery {
         let cycle = n + TAIL.len() + flash;
         let step = (now * 12.0) as usize % cycle;
         // Charging runs the path forwards then flashes; on battery flashes, then runs backwards
-        let (pos, nub_lit) = if plugged {
-            (step, step >= n && step < n + flash)
-        } else {
-            (step.wrapping_sub(flash), step < flash)
-        };
+        let (pos, nub_lit) =
+            if plugged { (step, step >= n && step < n + flash) } else { (step.wrapping_sub(flash), step < flash) };
         // Dim the outline a little so the spark stands out
         for &(x, y) in &path {
             for xx in [x, 8 - x] {
@@ -387,5 +389,67 @@ impl Battery {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lit(grid: &Grid, y: usize) -> usize {
+        (1..8).filter(|&x| grid.v[x][y] > 0).count()
+    }
+
+    #[test]
+    fn graph_with_meter_keeps_the_meter_on_top() {
+        let history: Vec<Option<f64>> = (0..16).map(|_| Some(1.0)).collect();
+        let mut g = Grid::new();
+        draw_graph_with_meter(&mut g, &history, 0.5, 160, 16, "", "");
+        // 7 of 14 meter pixels: 3 on the first row and 4 on the second
+        assert_eq!(lit(&g, 17) + lit(&g, 18), 7);
+        assert_eq!(lit(&g, 19), 0); // the line under the meter
+        assert!((20..33).all(|y| lit(&g, y) == 7)); // the graph, full
+    }
+
+    #[test]
+    fn net_disk_and_space_rows() {
+        let mut g = Grid::new();
+        draw_net_disk_space(&mut g, (1.0, 0.0), (0.0, 1.0), Some(1.0), 160, 16);
+        // Upload full (left), download empty; disk read empty, write full (right)
+        assert!((17..=22).all(|y| g.v[2][y] > 0 && g.v[6][y] == 0));
+        assert!((24..=29).all(|y| g.v[2][y] == 0 && g.v[6][y] > 0));
+        assert_eq!(lit(&g, 31) + lit(&g, 32), 14);
+    }
+
+    #[test]
+    fn battery_fills_from_the_bottom_and_every_look_draws() {
+        for look in CHARGE_LOOKS {
+            for plugged in [true, false] {
+                for t in 0..40 {
+                    let mut g = Grid::new();
+                    draw_battery_shape(&mut g, 0.5, plugged, look, 160, 70, 16, t as f64 * 0.1);
+                    assert!(g.v[1][32] > 0, "{look}: the bottom row is filled");
+                    let mut top = Grid::new();
+                    draw_battery_shape(&mut top, 0.5, plugged, look, 160, 70, 0, t as f64 * 0.1);
+                    assert!(top.v[4][0] > 0, "{look}: the nub on top");
+                }
+            }
+            // Empty and full don't go out of the battery
+            for ratio in [0.0, 1.0] {
+                let mut g = Grid::new();
+                draw_battery_shape(&mut g, ratio, true, look, 160, 70, 16, 1.3);
+                assert!((0..17).all(|y| (0..WIDTH).all(|x| g.v[x][y] == 0)), "{look} stays in its half");
+            }
+        }
+    }
+
+    #[test]
+    fn low_battery_flashes_when_not_charging() {
+        let mut on = Grid::new();
+        draw_battery_shape(&mut on, 0.05, false, "bolt", 160, 70, 16, 1.5);
+        let mut off = Grid::new();
+        draw_battery_shape(&mut off, 0.05, false, "bolt", 160, 70, 16, 0.5);
+        assert_ne!(on, off);
+        assert!((20..33).all(|y| lit(&off, y) == 0));
     }
 }

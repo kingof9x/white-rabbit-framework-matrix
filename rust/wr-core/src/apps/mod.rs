@@ -127,8 +127,9 @@ mod tests {
         assert_eq!(draw("fan", "temp", false), expected);
 
         let mut expected = Grid::new();
-        draw_disk_net(&mut expected, (0.5, 0.25), (1.0, 0.1), 160, 0);
-        draw_app_border("disk-net", &mut expected, 35, 0, 8);
+        // Network on top, disk under it; no drive space reading here, so no meter
+        super::meters::draw_net_disk_space(&mut expected, (1.0, 0.1), (0.5, 0.25), None, 160, 0);
+        super::meters::draw_net_disk_space_border(&mut expected, 35, 0);
         draw_fps_half(&mut expected, 60.0, true, 160, 16);
         assert_eq!(draw("disk-net", "fps-num", false), expected);
     }
