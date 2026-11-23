@@ -263,8 +263,16 @@ export component EditorView inherits Rectangle {
 
     VerticalLayout {
     spacing: 8px;
-    HorizontalLayout {
+    // The editor scrolls when the window is too short for it, so the buttons below that save and
+    // show the layout (Apply to panels) always stay in view
+    body-scroll := ScrollView {
         vertical-stretch: 1;
+        min-height: 120px;
+        content-width: max(self.visible-width, body.min-width);
+        content-height: max(self.visible-height, body.min-height);
+    body := HorizontalLayout {
+        width: body-scroll.content-width;
+        height: body-scroll.content-height;
         spacing: 14px;
         // The apps, brightness and turning off
         VerticalLayout {
@@ -375,6 +383,7 @@ export component EditorView inherits Rectangle {
                 }
             }
         }
+    }
     }
     // Saving and showing
     Rectangle { height: 1px; background: Theme.card-border; }

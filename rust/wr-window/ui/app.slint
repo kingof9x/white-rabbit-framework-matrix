@@ -91,7 +91,7 @@ export component AppWindow inherits Window {
     icon: @image-url("icons/app.png");
     preferred-width: 1240px;
     preferred-height: 860px;
-    min-width: 900px;
+    min-width: 1200px;
     min-height: 600px;
     background: Theme.window-bg;
     default-font-size: Theme.body;
@@ -164,7 +164,7 @@ export component AppWindow inherits Window {
     HorizontalLayout {
         // The menu on the left
         VerticalLayout {
-            width: 290px;
+            width: 260px;
             padding: 8px;
             padding-top: 10px;
             spacing: 2px;
@@ -185,21 +185,30 @@ export component AppWindow inherits Window {
                     }
                 }
             }
-            for item in nav: VerticalLayout {
-                if item.key != "-" && shown(item.key, item.label): NavItem {
-                    icon: item.icon;
-                    label: item.label + (item.key == "monitor" && App.layout-dirty ? " *" : "");
-                    selected: nav-key(App.page) == item.key;
-                    clicked => { App.page = item.key; }
-                }
-                if item.key == "-" && shown(item.key, item.label): VerticalLayout {
-                    padding-left: 16px;
-                    padding-top: item.label == "" ? 6px : 12px;
-                    padding-bottom: 4px;
-                    if item.label != "": Text { text: item.label; color: Theme.text2; font-size: Theme.caption; font-weight: 600; }
+            // The menu scrolls when the window is too short for it, so "Controls act on" below
+            // always stays in view
+            ScrollView {
+                vertical-stretch: 1;
+                min-height: 120px;
+                VerticalLayout {
+                    alignment: start;
+                    spacing: 2px;
+                    for item in nav: VerticalLayout {
+                        if item.key != "-" && shown(item.key, item.label): NavItem {
+                            icon: item.icon;
+                            label: item.label + (item.key == "monitor" && App.layout-dirty ? " *" : "");
+                            selected: nav-key(App.page) == item.key;
+                            clicked => { App.page = item.key; }
+                        }
+                        if item.key == "-" && shown(item.key, item.label): VerticalLayout {
+                            padding-left: 16px;
+                            padding-top: item.label == "" ? 6px : 12px;
+                            padding-bottom: 4px;
+                            if item.label != "": Text { text: item.label; color: Theme.text2; font-size: Theme.caption; font-weight: 600; }
+                        }
+                    }
                 }
             }
-            Rectangle { vertical-stretch: 1; }
             // Which panels the controls act on
             if has-panels: VerticalLayout {
                 padding-left: 10px;
@@ -251,17 +260,23 @@ export component AppWindow inherits Window {
                 Text { text: title-of(App.page); color: Theme.text; font-size: Theme.title; font-weight: 600; }
             }
             // The keyboard picture stays put above the keyboard pages, so you can see what you change
-            // while the controls scroll underneath (at most 760 px wide, about 240 px tall).
+            // while the controls scroll underneath (at most 760 px wide, about 240 px tall; smaller when
+            // the window is short).
             if kb-page(App.page) || App.page == "kbsetup": Rectangle {
-                height: deck.height + 12px;
+                // Full size when there's room; in a short window the picture gives up room first
+                preferred-height: min(self.width - 12px, 760px) * Kb.deck-aspect + 12px;
+                max-height: self.preferred-height;
+                min-height: 120px;
+                vertical-stretch: 0;
                 deck := Deck {
-                    width: min(parent.width - 12px, 760px);
+                    width: min(parent.width - 12px, 760px, (parent.height - 12px) / Kb.deck-aspect);
                     x: (parent.width - self.width) / 2;
                     y: 0;
                 }
             }
             if !full-page(App.page): ScrollView {
                 vertical-stretch: 1;
+                min-height: kb-page(App.page) || App.page == "kbsetup" ? 260px : 0px;
                 VerticalLayout {
                     padding-right: 12px;
                     padding-bottom: 20px;
