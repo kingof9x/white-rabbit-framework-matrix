@@ -18,7 +18,7 @@
 
 [Setup]
 AppId={{ED186F4E-2A8B-421A-A7B2-CA34A1532E4F}
-AppName=White Rabbit
+AppName=White Rabbit - Framework 16 LED Control
 AppVersion={#AppVersion}
 AppPublisher=kingof9x
 AppPublisherURL=https://github.com/kingof9x/white-rabbit-framework-matrix
@@ -30,8 +30,8 @@ VersionInfoProductVersion={#AppVersionNumbers}
 VersionInfoTextVersion={#AppVersion}
 VersionInfoProductTextVersion={#AppVersion}
 VersionInfoCompany=kingof9x
-VersionInfoDescription=White Rabbit installer
-VersionInfoProductName=White Rabbit
+VersionInfoDescription=White Rabbit - Framework 16 LED Control installer
+VersionInfoProductName=White Rabbit - Framework 16 LED Control
 VersionInfoOriginalFileName=WhiteRabbit-setup.exe
 DefaultDirName={localappdata}\Programs\WhiteRabbit
 DefaultGroupName=White Rabbit
@@ -43,7 +43,7 @@ OutputDir=..\dist
 OutputBaseFilename=WhiteRabbit-setup
 SetupIconFile=..\res\WhiteRabbit.ico
 UninstallDisplayIcon={app}\WhiteRabbit.exe
-UninstallDisplayName=White Rabbit
+UninstallDisplayName=White Rabbit - Framework 16 LED Control
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -57,12 +57,15 @@ AppMutex=WhiteRabbit_single_instance,WhiteRabbit_window
 Source: "..\dist\WhiteRabbit\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [InstallDelete]
+; The Start menu shortcuts from before the app was called White Rabbit - Framework 16 LED Control
+Type: files; Name: "{group}\White Rabbit.lnk"
+Type: files; Name: "{group}\Uninstall White Rabbit.lnk"
 ; What the Python window (1.4 and before) left behind; the Rust app doesn't use any of it
 Type: filesandordirs; Name: "{app}\_internal"
 
 [Icons]
-Name: "{group}\White Rabbit"; Filename: "{app}\WhiteRabbit.exe"
-Name: "{group}\Uninstall White Rabbit"; Filename: "{uninstallexe}"
+Name: "{group}\White Rabbit - Framework 16 LED Control"; Filename: "{app}\WhiteRabbit.exe"
+Name: "{group}\Uninstall White Rabbit - Framework 16 LED Control"; Filename: "{uninstallexe}"
 
 [Registry]
 ; Start with Windows on a first install (monitor and tray icon only, no window). After that it is up to
