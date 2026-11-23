@@ -783,6 +783,7 @@ fn tick(app: &AppWindow, st: &mut State) {
             .any(|k| ready(&status, *k).is_some_and(|d| d.info.hotkey_lock)),
     );
     g.set_layer(st.layer() as i32);
+    g.set_fn_lock(ready(&status, DeviceKind::Keyboard).and_then(|d| d.info.layer).map_or(-1, |l| l as i32));
     // Audio mode
     if st.audio_on && !status.audio && status.audio_problem.is_some() {
         st.audio_on = false; // it couldn't start
@@ -1204,6 +1205,9 @@ pub fn wire(app: &AppWindow) {
     on!(on_layer_chosen, |_app, st, layer: i32| {
         st.local_layer = layer as u8;
         st.engine.send(Command::SetLayer(layer as u8));
+    });
+    on!(on_fn_lock_chosen, |_app, st, on: bool| {
+        st.engine.send(Command::SetFnLock(on));
     });
     on!(on_lock_toggled, |_app, st, on: bool| {
         st.engine.send(Command::SetHotkeyLock(on));

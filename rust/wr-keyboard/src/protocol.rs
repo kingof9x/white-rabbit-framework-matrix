@@ -200,7 +200,8 @@ pub struct DeviceInfo {
     pub host_effect: u8,
     pub kind: DeviceKind,
     pub hotkey_lock: bool,
-    /// Macropad layer (0 = MIDI, 1 = F-keys); None on the keyboard.
+    /// Macropad layer (0 = MIDI, 1 = F-keys), or on the keyboard Fn lock (0 = off: the top row
+    /// is media keys, 1 = on: the top row is F1-F12). None on keyboard firmware too old to say.
     pub layer: Option<u8>,
     pub max_brightness: u8,
     /// Effect id of "off, painted keys only".

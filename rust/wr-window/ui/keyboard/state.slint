@@ -159,6 +159,9 @@ export global Kb {
 
     // Keys: what each key does (saved on the device)
     in-out property <int> keys-kb-view;     // 0 normal, 1 with Fn held
+    // Keyboard Fn lock: -1 not known (keyboard firmware too old), 0 off (top row = shortcuts), 1 on (F1-F12)
+    in property <int> fn-lock: -1;
+    callback fn-lock-chosen(bool);
     in-out property <int> keys-pad-view;    // 0 layer A, 1 layer B
     in property <bool> key-selected;
     in property <string> key-title;
