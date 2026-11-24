@@ -119,11 +119,12 @@ pub const CHARGE_LOOKS: [&str; 6] = ["bolt", "sweep", "bubbles", "pour", "wave",
 
 /// The battery's parts for the half at `y`: (nub row, body's top row, body's bottom row).
 fn battery_rows(y: usize) -> (usize, usize, usize) {
-    // The bottom row of the panel is left dark: on the panel the battery looked cut off there
+    // On the bottom half the nub sits right under the line above and the body reaches the
+    // panel's last row
     if y == 0 {
         (0, 1, 15)
     } else {
-        (17, 18, 32)
+        (17, 18, 33)
     }
 }
 
@@ -428,8 +429,8 @@ mod tests {
                 for t in 0..40 {
                     let mut g = Grid::new();
                     draw_battery_shape(&mut g, 0.5, plugged, look, 160, 70, 16, t as f64 * 0.1);
-                    assert!(g.v[1][31] > 0, "{look}: the bottom row is filled");
-                    assert!((0..WIDTH).all(|x| g.v[x][33] == 0), "{look}: the panel's last row stays dark");
+                    assert!(g.v[1][32] > 0, "{look}: the bottom row is filled");
+                    assert!((0..WIDTH).all(|x| g.v[x][33] > 0), "{look}: the outline's bottom is the panel's last row");
                     let mut top = Grid::new();
                     draw_battery_shape(&mut top, 0.5, plugged, look, 160, 70, 0, t as f64 * 0.1);
                     assert!(top.v[4][0] > 0, "{look}: the nub on top");
@@ -451,6 +452,6 @@ mod tests {
         let mut off = Grid::new();
         draw_battery_shape(&mut off, 0.05, false, "bolt", 160, 70, 16, 0.5);
         assert_ne!(on, off);
-        assert!((19..32).all(|y| lit(&off, y) == 0));
+        assert!((19..33).all(|y| lit(&off, y) == 0));
     }
 }
