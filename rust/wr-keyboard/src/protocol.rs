@@ -206,6 +206,39 @@ pub struct DeviceInfo {
     pub max_brightness: u8,
     /// Effect id of "off, painted keys only".
     pub paint_only_effect: u8,
+    /// Which build of the firmware this is.
+    pub build: FirmwareBuild,
+}
+
+/// The firmware's build number, from INFO.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FirmwareBuild {
+    /// Firmware from before build numbers (it doesn't say).
+    Older,
+    /// A test build (a pull request, or made by hand).
+    Test,
+    /// Built from main or a release, numbered by the build that made it.
+    Build(u16),
+}
+
+impl FirmwareBuild {
+    /// "build 12", "a test build", "an older build from before build numbers"
+    pub fn describe(self) -> String {
+        match self {
+            Self::Build(n) => format!("build {n}"),
+            Self::Test => "a test build".into(),
+            Self::Older => "an older build from before build numbers".into(),
+        }
+    }
+}
+
+/// The build number a .uf2 image holds (the firmware keeps `F16FW-BUILD` + u16 in it), from the
+/// bytes the image puts into the chip. None when it has no number (older firmware).
+pub fn image_build(image: &[u8]) -> Option<FirmwareBuild> {
+    const TAG: &[u8] = b"F16FW-BUILD";
+    let at = image.windows(TAG.len()).position(|w| w == TAG)? + TAG.len();
+    let n = u16::from_le_bytes([*image.get(at)?, *image.get(at + 1)?]);
+    Some(if n == 0 { FirmwareBuild::Test } else { FirmwareBuild::Build(n) })
 }
 
 pub fn info_request() -> Report {
@@ -234,6 +267,13 @@ pub fn parse_info(payload: &[u8]) -> Result<DeviceInfo, ProtocolError> {
         layer: if payload[8] == 0xFF { None } else { Some(payload[8]) },
         max_brightness: payload[9],
         paint_only_effect: payload[10],
+        build: match payload[11] {
+            b'B' => match u16::from_le_bytes([payload[12], payload[13]]) {
+                0 => FirmwareBuild::Test,
+                n => FirmwareBuild::Build(n),
+            },
+            _ => FirmwareBuild::Older,
+        },
     })
 }
 
@@ -711,6 +751,12 @@ mod tests {
         assert_eq!(info.kind, DeviceKind::Macropad);
         assert!(info.hotkey_lock);
         assert_eq!(info.layer, Some(0));
+        assert_eq!(info.build, FirmwareBuild::Older, "older firmware leaves the build bytes 0");
+        p[11..14].copy_from_slice(&[b'B', 0x2C, 0x01]);
+        assert_eq!(parse_info(&p).unwrap().build, FirmwareBuild::Build(300));
+        p[12] = 0;
+        p[13] = 0;
+        assert_eq!(parse_info(&p).unwrap().build, FirmwareBuild::Test);
 
         p[6] = 0;
         p[8] = 0xFF;
@@ -723,6 +769,17 @@ mod tests {
         p[0] = b'F';
         p[2] = 9;
         assert_eq!(parse_info(&p), Err(ProtocolError::VersionMismatch(9)));
+    }
+
+    #[test]
+    fn reads_the_build_from_an_image() {
+        let mut img = vec![0u8; 64];
+        img[20..31].copy_from_slice(b"F16FW-BUILD");
+        img[31] = 7;
+        assert_eq!(image_build(&img), Some(FirmwareBuild::Build(7)));
+        img[31] = 0;
+        assert_eq!(image_build(&img), Some(FirmwareBuild::Test));
+        assert_eq!(image_build(&[0u8; 64]), None);
     }
 
     #[test]

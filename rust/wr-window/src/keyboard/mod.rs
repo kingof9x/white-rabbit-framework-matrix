@@ -49,6 +49,10 @@ pub struct State {
     restore_keys: Option<(DeviceKind, Vec<wr_keyboard::keycodes::KeyWrite>, Option<Instant>)>,
     /// When the Firmware page last looked for a device waiting in flashing mode.
     last_drive_scan: Instant,
+    /// The last Check for updates' answer for (keyboard, macropad), and where its thread puts it.
+    fw_newest: [Option<Result<update::Newest, String>>; 2],
+    fw_inbox: Arc<Mutex<Option<[Result<update::Newest, String>; 2]>>>,
+    fw_checking: bool,
     demo: bool,
     s: Saved,
     last_saved: Saved,
@@ -195,6 +199,58 @@ fn color(c: [u8; 3]) -> Color {
 
 fn hex(c: [u8; 3]) -> SharedString {
     format!("#{:02X}{:02X}{:02X}", c[0], c[1], c[2]).into()
+}
+
+/// The firmware on each device, and what the last Check for updates says about it.
+fn show_firmware_builds(app: &AppWindow, st: &mut State, status: &Status) {
+    let g = app.global::<App>();
+    if let Some(found) = st.fw_inbox.lock().unwrap().take() {
+        st.fw_newest = found.map(Some);
+        st.fw_checking = false;
+    }
+    if g.get_fw_checking() != st.fw_checking {
+        g.set_fw_checking(st.fw_checking);
+    }
+    for (i, kind) in [DeviceKind::Keyboard, DeviceKind::Macropad].into_iter().enumerate() {
+        let slot = status.slot(kind);
+        let installed = match slot {
+            Slot::Missing => "".to_string(),
+            Slot::Stock => "Installed: not this app's firmware (Framework's own, or a very old one).".into(),
+            Slot::Ready(d) => format!("Installed: {}.", d.info.build.describe()),
+        };
+        let build = match slot {
+            Slot::Ready(d) => Some(d.info.build),
+            _ => None,
+        };
+        let (check, label) = match (&st.fw_newest[i], slot) {
+            (_, Slot::Missing) | (None, _) => (String::new(), String::new()),
+            (Some(Err(e)), _) => (format!("Couldn't check: {e}"), String::new()),
+            (Some(Ok(n)), _) => {
+                let (text, newer) = update::compare(build, n);
+                let label = match (newer, n.build) {
+                    (true, Some(wr_keyboard::protocol::FirmwareBuild::Build(m))) => format!("Update to build {m}"),
+                    _ => String::new(),
+                };
+                (text, label)
+            }
+        };
+        let (gi, gc, gl) = if i == 0 {
+            (g.get_kb_fw_installed(), g.get_kb_fw_check(), g.get_kb_fw_update_label())
+        } else {
+            (g.get_mod_fw_installed(), g.get_mod_fw_check(), g.get_mod_fw_update_label())
+        };
+        if gi != installed.as_str() || gc != check.as_str() || gl != label.as_str() {
+            if i == 0 {
+                g.set_kb_fw_installed(installed.into());
+                g.set_kb_fw_check(check.into());
+                g.set_kb_fw_update_label(label.into());
+            } else {
+                g.set_mod_fw_installed(installed.into());
+                g.set_mod_fw_check(check.into());
+                g.set_mod_fw_update_label(label.into());
+            }
+        }
+    }
 }
 
 fn ready(status: &Status, kind: DeviceKind) -> Option<&engine::DeviceStatus> {
@@ -809,6 +865,7 @@ fn tick(app: &AppWindow, st: &mut State) {
     );
     g.set_kb_present(!matches!(status.keyboard, Slot::Missing));
     g.set_mod_present(!matches!(status.macropad, Slot::Missing));
+    show_firmware_builds(app, st, &status);
 
     // The keyboard picture, on the pages that show it
     let page = g.get_page().to_string();
@@ -1039,6 +1096,9 @@ pub fn wire(app: &AppWindow) {
         flash_inbox: Arc::new(Mutex::new(vec![])),
         restore_keys: None,
         last_drive_scan: Instant::now() - Duration::from_secs(60),
+        fw_newest: [None, None],
+        fw_inbox: Arc::new(Mutex::new(None)),
+        fw_checking: false,
         demo,
         last_saved: s.clone(),
         s,
@@ -1231,6 +1291,29 @@ pub fn wire(app: &AppWindow) {
             return;
         };
         st.start_flash(&app, which, flash::Source::Latest, flash::Target::Drive(drive));
+    });
+    on!(on_check_firmware, |app, st| {
+        if st.fw_checking {
+            return;
+        }
+        st.fw_checking = true;
+        app.global::<App>().set_fw_checking(true);
+        let inbox = st.fw_inbox.clone();
+        let wake = app.as_weak();
+        let demo = st.demo;
+        std::thread::spawn(move || {
+            let found = if demo {
+                let n = update::Newest {
+                    label: "the newest firmware build 14".into(),
+                    build: Some(wr_keyboard::protocol::FirmwareBuild::Build(14)),
+                };
+                [Ok(n.clone()), Ok(n)]
+            } else {
+                [update::newest(DeviceKind::Keyboard), update::newest(DeviceKind::Macropad)]
+            };
+            *inbox.lock().unwrap() = Some(found);
+            let _ = wake.upgrade_in_event_loop(|_| {});
+        });
     });
     on!(on_rescan, |_app, st| {
         st.engine.send(Command::Rescan);

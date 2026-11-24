@@ -7,6 +7,7 @@
 
 #[cfg(windows)]
 use serde_json::Value;
+use wr_keyboard::protocol::FirmwareBuild;
 
 /// Where the keyboard and macropad firmware is built.
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -84,6 +85,35 @@ pub fn latest_asset(file: &str) -> Result<(String, Vec<u8>), String> {
     Ok((label, data))
 }
 
+/// The newest firmware for a device on GitHub: what it is called, and its build number when the
+/// file has one.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Newest {
+    pub label: String,
+    pub build: Option<FirmwareBuild>,
+}
+
+/// Looks up the newest firmware for `kind` (downloads its small .uf2 file to read the build).
+pub fn newest(kind: wr_keyboard::protocol::DeviceKind) -> Result<Newest, String> {
+    let (label, data) = latest_asset(super::flash::release_file(kind))?;
+    Ok(Newest { label, build: super::flash::uf2_build(&data) })
+}
+
+/// What the Firmware page says about a device after a check, and whether the newest firmware is
+/// newer than what it has. `installed` is None for a device without this app's firmware.
+pub fn compare(installed: Option<FirmwareBuild>, newest: &Newest) -> (String, bool) {
+    use FirmwareBuild::*;
+    match (installed, newest.build) {
+        (Some(Build(n)), Some(Build(m))) if n >= m => (format!("Up to date: build {n} is the newest."), false),
+        (Some(Build(n)), Some(Build(m))) => (format!("Build {m} is available (you have build {n})."), true),
+        (Some(Test), Some(Build(m))) => {
+            (format!("You have a test build. The newest is build {m}: update to go back to it."), false)
+        }
+        (_, Some(Build(m))) => (format!("Build {m} is available."), true),
+        _ => (format!("The newest firmware on GitHub is {}.", newest.label), false),
+    }
+}
+
 #[cfg(not(windows))]
 pub fn latest_asset(_file: &str) -> Result<(String, Vec<u8>), String> {
     Err("Firmware is downloaded in the Windows app.".into())
@@ -101,6 +131,20 @@ mod tests {
         let (label, url) = pick(&r, "framework_ansi_f16custom.uf2").unwrap();
         assert_eq!(label, "the newest firmware (2026-11-23, abc1234)");
         assert_eq!(url, "https://e/a.uf2");
+    }
+
+    #[test]
+    fn compares_builds() {
+        let newest = |b| Newest { label: "x".into(), build: b };
+        let b14 = newest(Some(FirmwareBuild::Build(14)));
+        assert!(compare(Some(FirmwareBuild::Build(12)), &b14).1);
+        assert!(!compare(Some(FirmwareBuild::Build(14)), &b14).1);
+        assert!(!compare(Some(FirmwareBuild::Build(15)), &b14).1);
+        assert!(compare(Some(FirmwareBuild::Older), &b14).1);
+        assert!(compare(None, &b14).1, "Framework's own firmware: offer ours");
+        assert!(!compare(Some(FirmwareBuild::Test), &b14).1, "a test build is left alone");
+        assert!(!compare(Some(FirmwareBuild::Older), &newest(None)).1, "no number: can't tell");
+        assert_eq!(compare(Some(FirmwareBuild::Build(12)), &b14).0, "Build 14 is available (you have build 12).");
     }
 
     #[test]

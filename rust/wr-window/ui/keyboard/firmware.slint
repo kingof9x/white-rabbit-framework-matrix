@@ -17,13 +17,18 @@ component Device inherits Group {
     in property <int> which;
     in property <string> file;
     property <bool> confirming: Kb.confirm-flash == root.which;
+    property <string> installed: root.which == 0 ? Kb.kb-fw-installed : Kb.mod-fw-installed;
+    property <string> check: root.which == 0 ? Kb.kb-fw-check : Kb.mod-fw-check;
+    property <string> update-label: root.which == 0 ? Kb.kb-fw-update-label : Kb.mod-fw-update-label;
     VerticalLayout {
         spacing: 8px;
+        if root.installed != "": Body { text: root.installed; }
+        if root.check != "": Body { text: root.check; color: root.update-label != "" ? Theme.accent : Theme.text2; }
         if !confirming: HorizontalLayout {
             spacing: 8px;
             alignment: start;
             AccentButton {
-                text: "Update firmware";
+                text: root.update-label != "" ? root.update-label : "Update firmware";
                 enabled: !Kb.flash-busy;
                 clicked => { Kb.confirm-flash = root.which; Kb.confirm-bootloader = -1; }
             }
@@ -66,7 +71,16 @@ component Device inherits Group {
 
 export component KbFirmwareView inherits VerticalLayout {
     spacing: 8px;
-    Hint { text: "Update firmware gets the newest f16custom firmware for that device from GitHub and installs it, the same way White Rabbit does. New features in the app (like the F12 shortcuts) need new firmware."; }
+    Hint { text: "Update firmware gets the newest f16custom firmware for that device from GitHub (built from the newest code) and installs it. New features in the app (like the F12 shortcuts) need new firmware."; }
+    if Kb.kb-present || Kb.mod-present: HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        Button {
+            text: Kb.fw-checking ? "Checking…" : "Check for updates";
+            enabled: !Kb.fw-checking && !Kb.flash-busy;
+            clicked => { Kb.check-firmware(); }
+        }
+    }
     if Kb.kb-present: Device { which: 0; title: "Keyboard"; file: "framework_ansi_f16custom.uf2"; }
     if Kb.mod-present: Device { which: 1; title: "Macropad"; file: "framework_macropad_f16custom.uf2"; }
     // A device sitting in flashing mode (for example after a restart by hand, or an update that

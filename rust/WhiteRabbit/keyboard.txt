@@ -1,0 +1,16 @@
+keyboard=clear
+side=macropad
+left=false
+paint-mode=follow
+join=true
+edit-module=false
+kb=b27 170 255 255 127
+module=b12 128 255 255 127
+brush=128 255
+theme=system
+tray=true
+auto-update=true
+audio=spectrum 5 true
+audio-input=playback 
+audio-colors=auto
+audio-keys=off

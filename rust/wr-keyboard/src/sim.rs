@@ -183,6 +183,11 @@ impl SimState {
                     255,
                     PAINT_ONLY_EFFECT,
                 ]);
+                // The pretend keyboard has build 12, the pretend macropad firmware from before
+                // build numbers (it leaves these 0).
+                if !self.macropad {
+                    d[11..14].copy_from_slice(&[b'B', 12, 0]);
+                }
                 true
             }
             (true, STATE) => {
