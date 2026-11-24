@@ -56,7 +56,7 @@ export component KbKeysPage inherits VerticalLayout {
         title: "Top row (F1 to F12)";
         help: Kb.fn-lock < 0
             ? "Needs the latest keyboard firmware: update it on the Firmware page. Until then, Fn + Esc swaps the two."
-            : "What the top row does when you press a key on its own. Hold Fn to get the other one. Fn + Esc swaps them too, and the keyboard remembers the choice.";
+            : "What the top row does when you press a key on its own. Hold Fn to get the other one. Fn + Esc swaps them too, and the keyboard remembers the choice. Picking an option also puts back any top-row key whose shortcut and F-key got swapped.";
         HorizontalLayout {
             spacing: 16px;
             RadioButton { text: "Shortcuts (volume, brightness...)"; enabled: Kb.fn-lock >= 0; checked: Kb.fn-lock == 0; clicked => { Kb.fn-lock-chosen(false); } }

@@ -40,6 +40,8 @@ struct SimState {
     keymap: Vec<u8>,
     combos: [u8; 8],
     shortcuts: bool,
+    /// Keyboard firmware that can't read or set Fn lock (from before it could).
+    no_fn_lock: bool,
 }
 
 pub struct SimPort(RefCell<SimState>);
@@ -47,6 +49,12 @@ pub struct SimPort(RefCell<SimState>);
 impl SimPort {
     pub fn keyboard() -> Self {
         Self::new(false, KEYBOARD_LEDS.to_vec(), 27, [170, 255, 255])
+    }
+    /// A keyboard on firmware from before the app could read or set Fn lock.
+    pub fn keyboard_without_fn_lock() -> Self {
+        let s = Self::keyboard();
+        s.0.borrow_mut().no_fn_lock = true;
+        s
     }
     pub fn macropad() -> Self {
         Self::new(true, MACROPAD_LEDS.to_vec(), 12, [128, 255, 255])
@@ -77,6 +85,7 @@ impl SimPort {
             keymap: default_buffer(if macropad { Board::Macropad } else { Board::Keyboard }),
             combos: [1, 1, 0, 0, 0, 0, 0, 0],
             shortcuts: true,
+            no_fn_lock: false,
         }))
     }
 }
@@ -179,7 +188,7 @@ impl SimState {
                     HOST_EFFECT,
                     self.macropad as u8,
                     self.lock as u8,
-                    self.layer,
+                    if self.no_fn_lock { 0xFF } else { self.layer },
                     255,
                     PAINT_ONLY_EFFECT,
                 ]);
@@ -258,10 +267,10 @@ impl SimState {
                 true
             }
             (true, LAYER) => {
-                d[0] = self.layer;
+                d[0] = if self.no_fn_lock { 0xFF } else { self.layer };
                 true
             }
-            (false, LAYER) if d[0] <= 1 => {
+            (false, LAYER) if d[0] <= 1 && !self.no_fn_lock => {
                 self.layer = d[0];
                 true
             }

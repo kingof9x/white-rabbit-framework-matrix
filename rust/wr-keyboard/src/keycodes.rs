@@ -16,6 +16,14 @@ pub const MOD_SUPER: u16 = 0x0800;
 const MOD_RIGHT: u16 = 0x1000;
 const MOD_MASK: u16 = 0x1F00;
 
+pub const KC_F1: u16 = 0x003A;
+pub const KC_F12: u16 = 0x0045;
+
+/// A plain F1 to F24 key (no modifiers held).
+pub fn is_f_key(code: u16) -> bool {
+    (KC_F1..=KC_F12).contains(&code) || (KC_F13..=KC_F24).contains(&code)
+}
+
 /// Key code of an "Open an app" key.
 pub fn app_code(slot: usize) -> u16 {
     APP_MODS | (KC_F13 + slot as u16)
@@ -278,6 +286,48 @@ impl Keymap {
                 if code != self.board.default_code(l as u8, k) {
                     let (r, c) = self.board.matrix()[k];
                     out.push((l as u8, r, c, code));
+                }
+            }
+        }
+        out
+    }
+
+    /// Keyboard only: writes that put the top row (F1 to F12) the way Fn lock expects it, so
+    /// the Top row setting really decides what a key does on its own.
+    ///
+    /// Fn lock swaps the base and Fn layers for the top row, so they must hold the two jobs the
+    /// right way round: the shortcut (volume, brightness...) on the base layer (0) and the
+    /// F-key on the Fn layer (1), with layer 2 (Fn lock) a copy of 1 and layer 3 (Fn while
+    /// locked) a copy of 0. A key whose F-key ended up on the base layer (changed by hand, or
+    /// carried over from older firmware) is swapped back, or gets its default shortcut back
+    /// if both layers send an F-key (or the base layer is see-through). Anything else the user
+    /// set is kept.
+    pub fn top_row_fixes(&self) -> Vec<KeyWrite> {
+        if self.board != Board::Keyboard || self.layers.len() < 4 {
+            return vec![];
+        }
+        let mut out = vec![];
+        for k in 1..=12 {
+            // See-through on the base layer means nothing to fall back to: use the default
+            let base = match self.layers[0][k] {
+                KC_TRNS => self.board.default_code(0, k),
+                c => c,
+            };
+            let fn_code = match self.layers[1][k] {
+                KC_TRNS => base,
+                c => c,
+            };
+            let (want_base, want_fn) = if is_f_key(base) && !is_f_key(fn_code) {
+                (fn_code, base)
+            } else if is_f_key(base) {
+                (self.board.default_code(0, k), fn_code)
+            } else {
+                (base, fn_code)
+            };
+            let (r, c) = self.board.matrix()[k];
+            for (l, want) in [(0u8, want_base), (1, want_fn), (2, want_fn), (3, want_base)] {
+                if self.layers[l as usize][k] != want {
+                    out.push((l, r, c, want));
                 }
             }
         }

@@ -254,6 +254,43 @@ pub fn any_present() -> bool {
     present
 }
 
+/// What happened when the Top row setting was changed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FnLockResult {
+    /// The keyboard now reports the Fn lock that was asked for.
+    pub took: bool,
+    /// Top-row keys put back the right way round first (see `Keymap::top_row_fixes`).
+    pub fixed_keys: usize,
+}
+
+/// Sets the keyboard's Fn lock: `true` = the top row sends F1-F12 on its own (shortcuts with
+/// Fn), `false` = shortcuts on their own (F1-F12 with Fn). Same as Fn + Esc, and saved on the
+/// keyboard. First puts the top row's two jobs where Fn lock expects them, so the choice works
+/// even when the keymap got mixed up. Reads the keyboard back to check it took.
+pub fn set_fn_lock(dev: &Device, keymap: Option<&mut Keymap>, on: bool) -> Result<FnLockResult> {
+    let mut fixed_keys = 0;
+    if let Some(km) = keymap {
+        let fixes = km.top_row_fixes();
+        if !fixes.is_empty() {
+            let reqs: Vec<Report> = fixes.iter().map(|&(l, r, c, code)| proto::set_keycode(l, r, c, code)).collect();
+            dev.transact_many(&reqs)?;
+            km.apply(&fixes);
+            let mut keys: Vec<(u8, u8)> = fixes.iter().map(|&(_, r, c, _)| (r, c)).collect();
+            keys.sort_unstable();
+            keys.dedup();
+            fixed_keys = keys.len();
+        }
+    }
+    match dev.transact(&proto::set_layer(on as u8)) {
+        Ok(_) => {}
+        // Keyboard firmware from before Fn lock could be set from the app
+        Err(DeviceError::Protocol(ProtocolError::Unsupported)) => return Ok(FnLockResult { took: false, fixed_keys }),
+        Err(e) => return Err(e),
+    }
+    let took = dev.info()?.layer == Some(on as u8);
+    Ok(FnLockResult { took, fixed_keys })
+}
+
 /// Asks a freshly opened device whether it runs our firmware.
 pub fn identify(dev: Device) -> Found {
     let kind = dev.kind;
