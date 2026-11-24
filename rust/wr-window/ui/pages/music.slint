@@ -12,6 +12,8 @@ export global MusicPage {
     in-out property <int> input-mode;
     in property <[string]> microphones: ["Default microphone"];
     in-out property <int> microphone;
+    // For Home's drop-down: what the laptop is playing, then the microphones
+    in property <[string]> sources: ["What the laptop is playing", "Default microphone"];
     in property <[string]> looks;
     in-out property <int> look;
     in property <string> look-help;

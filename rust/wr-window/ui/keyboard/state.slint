@@ -276,6 +276,8 @@ export global Kb {
     in property <int> audio-input;
     in property <[string]> audio-devices;  // index 0 = "Default microphone"
     in-out property <int> audio-device;
+    // For Home's drop-down: what the PC plays, then audio-devices
+    in property <[string]> audio-sources: ["What the laptop is playing", "Default microphone"];
     callback audio-input-chosen(int);
     callback audio-device-chosen(int);
     callback audio-devices-refresh();
