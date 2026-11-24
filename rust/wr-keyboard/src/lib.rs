@@ -22,3 +22,5 @@ pub mod render;
 pub mod settings;
 pub mod shortcut;
 pub mod sim;
+#[cfg(test)]
+mod fn_lock_stress;

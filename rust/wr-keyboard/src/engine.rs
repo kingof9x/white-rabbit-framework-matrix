@@ -370,9 +370,21 @@ impl Engine {
                 }
             }
             Command::SetFnLock(on) => {
-                if let Some(o) = self.open.get(&key(DeviceKind::Keyboard)) {
-                    if let Err(e) = o.dev.transact(&proto::set_layer(on as u8)) {
-                        self.fail(DeviceKind::Keyboard, e);
+                if let Some(o) = self.open.get_mut(&key(DeviceKind::Keyboard)) {
+                    match device::set_fn_lock(&o.dev, o.keymap.as_mut(), on) {
+                        Ok(r) if !r.took => self.set_message(
+                            "The keyboard didn't change its top row. Update the keyboard firmware on the Firmware page, then try again.",
+                        ),
+                        Ok(r) if r.fixed_keys > 0 => self.set_message(format!(
+                            "Top row set. {} top-row key{} had the shortcut and the F-key the wrong way round, so they were put back.",
+                            r.fixed_keys,
+                            if r.fixed_keys == 1 { "" } else { "s" }
+                        )),
+                        Ok(_) => {}
+                        Err(e) => {
+                            self.fail(DeviceKind::Keyboard, e);
+                            return;
+                        }
                     }
                     self.refresh();
                 }
@@ -788,5 +800,60 @@ impl Engine {
         }
         drop(st);
         (self.repaint)();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::keycodes::{Board, KC_F1};
+    use std::time::Duration;
+
+    fn wait_for(h: &EngineHandle, what: &str, f: impl Fn(&Status) -> bool) {
+        let t = Instant::now();
+        while t.elapsed() < Duration::from_secs(10) {
+            if f(&h.status.lock().unwrap()) {
+                return;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        panic!("timed out waiting for {what}");
+    }
+
+    fn keyboard(s: &Status) -> Option<&DeviceStatus> {
+        match &s.keyboard {
+            Slot::Ready(d) => Some(d),
+            _ => None,
+        }
+    }
+
+    /// The Top row setting through the real engine, on the pretend keyboard: back and forth
+    /// many times, and once with the top row scrambled first.
+    #[test]
+    fn top_row_setting_through_the_engine() {
+        let mut h = start(|| {}, true);
+        wait_for(&h, "the keyboard", |s| keyboard(s).is_some());
+        for i in 0..50 {
+            let on = i % 2 == 0;
+            h.send(Command::SetFnLock(on));
+            wait_for(&h, "Fn lock", |s| keyboard(s).and_then(|d| d.info.layer) == Some(on as u8));
+        }
+        // Swap F1's two jobs on the keyboard, as a mixed-up keymap would have them
+        let (r, c) = Board::Keyboard.matrix()[1];
+        let mute = Board::Keyboard.default_code(0, 1);
+        h.send(Command::SetKeys {
+            kind: DeviceKind::Keyboard,
+            writes: vec![(0, r, c, KC_F1), (1, r, c, mute), (2, r, c, mute), (3, r, c, KC_F1)],
+        });
+        wait_for(&h, "the scramble", |s| keyboard(s).and_then(|d| d.keymap.as_ref()).is_some_and(|k| k.layers[0][1] == KC_F1));
+        h.send(Command::SetFnLock(false));
+        wait_for(&h, "the fix", |s| {
+            keyboard(s).is_some_and(|d| {
+                d.info.layer == Some(0)
+                    && d.keymap.as_ref().is_some_and(|k| k.layers[0][1] == mute && k.layers[1][1] == KC_F1)
+            })
+        });
+        assert!(h.status.lock().unwrap().message.as_deref().unwrap_or("").contains("put back"));
+        h.shutdown();
     }
 }
