@@ -18,9 +18,9 @@ pub mod audio_src;
 pub mod deck;
 pub mod device;
 pub mod engine;
+#[cfg(test)]
+mod fn_lock_stress;
 pub mod render;
 pub mod settings;
 pub mod shortcut;
 pub mod sim;
-#[cfg(test)]
-mod fn_lock_stress;

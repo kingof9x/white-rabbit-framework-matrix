@@ -845,7 +845,9 @@ mod tests {
             kind: DeviceKind::Keyboard,
             writes: vec![(0, r, c, KC_F1), (1, r, c, mute), (2, r, c, mute), (3, r, c, KC_F1)],
         });
-        wait_for(&h, "the scramble", |s| keyboard(s).and_then(|d| d.keymap.as_ref()).is_some_and(|k| k.layers[0][1] == KC_F1));
+        wait_for(&h, "the scramble", |s| {
+            keyboard(s).and_then(|d| d.keymap.as_ref()).is_some_and(|k| k.layers[0][1] == KC_F1)
+        });
         h.send(Command::SetFnLock(false));
         wait_for(&h, "the fix", |s| {
             keyboard(s).is_some_and(|d| {

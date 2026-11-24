@@ -7,7 +7,7 @@
 //! row really sends, with and without Fn.
 
 use crate::device::{self, Device};
-use crate::keycodes::{is_f_key, Board, Keymap, KeyWrite, KC_F1, KC_TRNS};
+use crate::keycodes::{is_f_key, Board, KeyWrite, Keymap, KC_F1, KC_TRNS};
 use crate::keymap_data::QK_MOMENTARY;
 use crate::protocol::{self as proto, DeviceKind};
 use crate::sim::SimPort;
@@ -196,7 +196,13 @@ fn old_firmware_says_it_did_not_take() {
 fn stress_random_steps() {
     let shortcuts: Vec<u16> = (1..=12).map(default_shortcut).collect();
     let f_keys: Vec<u16> = (0..24).map(|i| if i < 12 { KC_F1 + i } else { 0x68 + (i - 12) }).collect();
-    let others = [0x0004u16 /* A */, 0x0029 /* Esc */, crate::keycodes::app_code(0), crate::keycodes::app_code(5), 0x0000 /* nothing */];
+    let others = [
+        0x0004u16, /* A */
+        0x0029,    /* Esc */
+        crate::keycodes::app_code(0),
+        crate::keycodes::app_code(5),
+        0x0000, /* nothing */
+    ];
 
     for seed in 0..40u64 {
         let mut rng = Lcg(seed * 7919 + 1);
@@ -279,6 +285,9 @@ fn stress_random_steps() {
 /// The top row the way Fn lock expects: layer 2 = layer 1 and layer 3 = layer 0, no see-through.
 fn consistent(km: &Keymap) -> bool {
     (1..=12).all(|k| {
-        km.layers[0][k] != KC_TRNS && km.layers[1][k] != KC_TRNS && km.layers[2][k] == km.layers[1][k] && km.layers[3][k] == km.layers[0][k]
+        km.layers[0][k] != KC_TRNS
+            && km.layers[1][k] != KC_TRNS
+            && km.layers[2][k] == km.layers[1][k]
+            && km.layers[3][k] == km.layers[0][k]
     })
 }
