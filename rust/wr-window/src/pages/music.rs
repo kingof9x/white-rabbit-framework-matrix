@@ -155,6 +155,9 @@ fn show_settings(app: &AppWindow, s: &Settings) {
     page.set_sensitivity(s.sensitivity as f32);
 }
 
+/// The first choice in Home's sound drop-downs (the rest are the microphones).
+pub const PLAYBACK_SOURCE: &str = "What the laptop is playing";
+
 fn fill_microphones(app: &AppWindow, state: &mut State, names: Vec<String>) {
     state.microphones = names;
     let mut values: Vec<SharedString> = vec![DEFAULT_MICROPHONE.into()];
@@ -166,6 +169,9 @@ fn fill_microphones(app: &AppWindow, state: &mut State, names: Vec<String>) {
         values.push(format!("{wanted} (not found)").into());
     }
     let page = app.global::<MusicPage>();
+    let mut sources: Vec<SharedString> = vec![PLAYBACK_SOURCE.into()];
+    sources.extend(values.iter().cloned());
+    page.set_sources(ModelRc::new(VecModel::from(sources)));
     page.set_microphones(ModelRc::new(VecModel::from(values)));
     let index =
         if wanted.is_empty() { 0 } else { state.microphones.iter().position(|m| *m == wanted).map_or(0, |i| i + 1) };

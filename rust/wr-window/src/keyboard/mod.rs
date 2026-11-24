@@ -987,6 +987,9 @@ fn push_mics(app: &AppWindow, st: &State) {
     } else {
         names.iter().position(|n| n.as_str() == st.s.audio_device).unwrap_or(0)
     };
+    let mut sources: Vec<SharedString> = vec![crate::pages::music::PLAYBACK_SOURCE.into()];
+    sources.extend(names.iter().cloned());
+    g.set_audio_sources(ModelRc::new(VecModel::from(sources)));
     g.set_audio_devices(ModelRc::new(VecModel::from(names)));
     g.set_audio_device(index as i32);
     g.set_audio_input(st.s.audio_mic as i32);

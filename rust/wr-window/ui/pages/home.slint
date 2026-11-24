@@ -1,11 +1,28 @@
-// Home: each section, with its on/off switch. Click a section to open its page.
+// Home: audio reactivity for the panels and the keyboard first (switch and sound source), then the
+// hardware found, then each section with its on/off switch. Click a section to open its page.
 import { Theme } from "../theme.slint";
 import { App } from "../state.slint";
-import { Card, SectionTitle, Status } from "../widgets.slint";
+import { Card, SectionTitle, Status, SyncedComboBox } from "../widgets.slint";
 import { Sections, SectionSwitch } from "../sections.slint";
 import { HardwareArea } from "hardware.slint";
 import { Kb } from "../keyboard/state.slint";
 import { OnOff } from "../keyboard/parts.slint";
+import { MusicPage } from "music.slint";
+
+// The sound a device listens to: what the laptop plays (0), or a microphone (1 onwards). Follows the
+// app (SyncedComboBox), so changing it on the Audio page shows here too.
+component SourcePicker inherits VerticalLayout {
+    in property <[string]> model;
+    in property <int> index;
+    callback chosen(int);
+    alignment: center;
+    SyncedComboBox {
+        width: 250px;
+        model: root.model;
+        index: root.index;
+        selected => { root.chosen(self.current-index); }
+    }
+}
 
 component Section inherits Card {
     in property <string> key;
@@ -17,6 +34,55 @@ component Section inherits Card {
 
 export component HomePage inherits VerticalLayout {
     spacing: 4px;
+    if App.panels.length > 0 || Kb.kb-present: VerticalLayout {
+        spacing: 4px;
+        SectionTitle { text: "Audio reactivity"; }
+        if App.panels.length > 0: Card {
+            link: true;
+            icon: @image-url("../icons/music_note_2.svg");
+            title: "LED matrix panels";
+            help: "The audio visualizer on both panels.  " + MusicPage.shortcut;
+            clicked => { App.page = "music"; }
+            HorizontalLayout {
+                spacing: 20px;
+                SourcePicker {
+                    model: MusicPage.sources;
+                    index: MusicPage.input-mode == 0 ? 0 : MusicPage.microphone + 1;
+                    chosen(i) => {
+                        if i > 0 {
+                            MusicPage.microphone = i - 1;
+                        }
+                        MusicPage.input-mode = i > 0 ? 1 : 0;
+                        MusicPage.changed();
+                    }
+                }
+                SectionSwitch { key: "music"; }
+            }
+        }
+        if Kb.kb-present: Card {
+            link: true;
+            icon: @image-url("../icons/keyboard.svg");
+            title: "Keyboard" + (Kb.mod-present ? " and macropad" : "");
+            help: "The keys follow the music.  Ctrl+Alt+Shift+M, or F12 + up arrow";
+            clicked => { App.page = "kbaudio"; }
+            HorizontalLayout {
+                spacing: 20px;
+                SourcePicker {
+                    model: Kb.audio-sources;
+                    index: Kb.audio-input == 0 ? 0 : Kb.audio-device + 1;
+                    chosen(i) => {
+                        if i > 0 {
+                            Kb.audio-device = i - 1;
+                            Kb.audio-device-chosen(i - 1);
+                        }
+                        Kb.audio-input-chosen(i > 0 ? 1 : 0);
+                    }
+                }
+                OnOff { checked: Kb.audio-on; toggled(v) => { Kb.audio-toggled(v); } }
+            }
+        }
+        Rectangle { height: 14px; }
+    }
     HardwareArea { }
     Rectangle { height: 14px; }
     if App.panels.length > 0: VerticalLayout {
@@ -24,8 +90,6 @@ export component HomePage inherits VerticalLayout {
         SectionTitle { text: "Show on the panels"; }
         Section { key: "monitor"; title: "System monitor";
             help: "CPU, memory, battery, clock, weather and more. Click to pick what each panel shows."; }
-        Section { key: "music"; title: "Audio reactivity";
-            help: "The audio visualizer on both panels.  Ctrl+Alt+Shift+M"; }
         Section { key: "games"; title: "Games & patterns";
             help: "Snake, Ledris, Breakout and Rabbit run, or a pattern or text."; }
         Section { key: "math"; title: "Math";
@@ -53,14 +117,6 @@ export component HomePage inherits VerticalLayout {
             title: "Lighting";
             help: "Effects, colors and painted keys for the keyboard" + (Kb.mod-present ? " and macropad." : ".");
             clicked => { App.page = "lighting"; }
-        }
-        Card {
-            link: true;
-            icon: @image-url("../icons/music_note_2.svg");
-            title: "Audio show";
-            help: "The keys follow the music.  Ctrl+Alt+Shift+M, or F12 + up arrow";
-            clicked => { App.page = "kbaudio"; }
-            OnOff { checked: Kb.audio-on; toggled(v) => { Kb.audio-toggled(v); } }
         }
         Card {
             link: true;
