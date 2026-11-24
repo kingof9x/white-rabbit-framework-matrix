@@ -71,6 +71,11 @@ fn uf2_payload(data: &[u8]) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
+/// The build number in a .uf2 file (None: not a .uf2, or firmware from before build numbers).
+pub fn uf2_build(data: &[u8]) -> Option<wr_keyboard::protocol::FirmwareBuild> {
+    wr_keyboard::protocol::image_build(&uf2_payload(data).ok()?)
+}
+
 fn contains_utf16(hay: &[u8], needle: &str) -> bool {
     let n: Vec<u8> = needle.encode_utf16().flat_map(|c| c.to_le_bytes()).collect();
     hay.windows(n.len()).any(|w| w == n.as_slice())

@@ -152,6 +152,16 @@ export global Kb {
     callback flash-latest(int);
     callback flash-file(int);
     callback flash-waiting(int);
+    // Firmware build on each device ("build 12", ...; "" when not plugged in), the last update
+    // check's answer for it, and whether that found a newer build ("" = "Update firmware").
+    in property <string> kb-fw-installed;
+    in property <string> mod-fw-installed;
+    in property <string> kb-fw-check;
+    in property <string> mod-fw-check;
+    in property <string> kb-fw-update-label;
+    in property <string> mod-fw-update-label;
+    in property <bool> fw-checking;
+    callback check-firmware();
 
     // 0 system, 1 light, 2 dark, 3 classic
     in-out property <int> theme-choice;

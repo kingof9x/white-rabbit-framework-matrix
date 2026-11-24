@@ -289,6 +289,8 @@ pub fn shoot_action(ui: &AppWindow, _ctx: &Rc<app::Ctx>, action: &str) {
             d.invoke_open();
         }
         "math-graph" => ui.global::<MathPage>().invoke_show_graph(),
+        // kb-check-firmware: the keyboard Firmware page's Check for updates (sample answer with --demo)
+        "kb-check-firmware" => ui.global::<crate::Kb>().invoke_check_firmware(),
         // updates-demo:CASE fills Settings > Updates with sample answers (no panels or internet needed)
         a if a.starts_with("updates-demo:") => pages::updates::demo(ui, _ctx, &a[13..]),
         // game:N starts a game on the Games & patterns page
