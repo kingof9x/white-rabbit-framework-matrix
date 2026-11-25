@@ -1,19 +1,5 @@
 // Made by scripts/export_patterns.py from led_mon/patterns.py and the plugins. Don't edit by hand.
 // Each pattern keeps numpy's shape: `rows` x `cols`, row by row, 1 = lit.
-//
-// Generated data: the pixel pictures the drawing code stamps onto the panels. Read through
-// `crate::patterns` (`Pattern`, `find`, `char_pattern`, `spiral`), never directly. Every table is a list of
-// (key, picture) pairs looked up by key. The tables:
-//   NUMERALS, SYMBOLS, ICONS: 9-wide characters for the clock and weather apps (digits, degrees, units,
-//     weather icons, wind arrows, the clock's PM dot), drawn one under the other by `draw_chars_list`.
-//   DIGITS_3X5: small 3 x 5 digits for the FPS and temperature numbers.
-//   LETTERS_SMALL, LETTERS_5X6: letter fonts exported from Python; no Rust code reads them at present.
-//   ID_PATTERNS: each app's name picture, drawn by `drawing::draw_id(s)` (see `render.rs`):
-//     7 x 15 for a half-panel app, 9 x 34 for a whole-panel app.
-//   SPIRALS: ten 3 x 3 pictures, "0" empty to "9" full, one per CPU core in the cpu app.
-//   LIGHTNING_BOLT: the charging bolt for the battery on the top or bottom half.
-//   TEXT_FONT, NAME_FONT: fonts for the scrolling text app and the panel-name app.
-// To change a picture, change the Python source and run the export script again; edits here are lost.
 
 use crate::patterns::Pattern;
 
