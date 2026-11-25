@@ -6,6 +6,22 @@
 //! On a socket each message is a 4-byte big-endian length and the bytes (a length of -1 means an
 //! 8-byte length follows, for messages over 2 GB). A Windows named pipe in message mode keeps the
 //! messages apart by itself, so there is no length there (see `pipe.rs`).
+//!
+//! # The handshake, step by step
+//!
+//! The key is 32 random bytes the monitor writes to control.key at start-up; only this Windows user
+//! can read that file. The key itself never crosses the pipe. Instead each side proves it has the key
+//! by computing an HMAC (a keyed hash) of random bytes chosen by the other side:
+//!
+//! 1. Monitor -> window: `#CHALLENGE#{sha256}` followed by 40 fresh random bytes.
+//! 2. Window -> monitor: `{sha256}` + HMAC-SHA256(key, `{sha256}` + those 40 bytes).
+//! 3. Monitor checks it and sends `#WELCOME#` (or `#FAILURE#` and hangs up).
+//! 4. The same again the other way round: the window challenges, the monitor answers, and the
+//!    window says `#WELCOME#`. So the window also knows it is talking to the real monitor.
+//!
+//! Only after both directions pass does the monitor read the request. Older Python clients
+//! (3.11 and before) use a bare 20-byte challenge and a bare 16-byte HMAC-MD5 answer, which is also
+//! accepted so either window works with either monitor.
 
 use std::io;
 #[cfg(any(unix, test))]
@@ -14,7 +30,10 @@ use std::io::{Read, Write};
 use hmac::{Hmac, Mac};
 
 /// Sends and receives whole messages.
+/// Implemented by the named pipe (`pipe.rs`), the Unix socket (via `Framed`) and test doubles,
+/// so the handshake and request code doesn't care what carries the bytes.
 pub trait MessageStream {
+    /// Sends one whole message.
     fn send_message(&mut self, data: &[u8]) -> io::Result<()>;
     /// The next message; an error when it is longer than `max` bytes.
     fn recv_message(&mut self, max: usize) -> io::Result<Vec<u8>>;
@@ -24,6 +43,8 @@ pub trait MessageStream {
 #[cfg(any(unix, test))]
 pub struct Framed<S>(pub S);
 
+// Framing: the length header first, then the bytes. `max` is checked before allocating, so a lying
+// header can't make us reserve gigabytes.
 #[cfg(any(unix, test))]
 impl<S: Read + Write> MessageStream for Framed<S> {
     fn send_message(&mut self, data: &[u8]) -> io::Result<()> {
@@ -60,22 +81,28 @@ impl<S: Read + Write> MessageStream for Framed<S> {
     }
 }
 
+/// An "invalid data" error (a broken or oversized frame).
 #[cfg(any(unix, test))]
 fn bad_data(text: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, text.to_string())
 }
 
+/// A "permission denied" error (the handshake failed).
 fn auth_error(text: &str) -> io::Error {
     io::Error::new(io::ErrorKind::PermissionDenied, text.to_string())
 }
 
+/// Prefix of a challenge message.
 const CHALLENGE: &[u8] = b"#CHALLENGE#";
+/// Sent when an answer is right.
 const WELCOME: &[u8] = b"#WELCOME#";
+/// Sent when an answer is wrong (then the connection ends).
 const FAILURE: &[u8] = b"#FAILURE#";
 /// Random bytes in a challenge we send.
 const MESSAGE_LENGTH: usize = 40;
 /// Python before 3.12 sends 20-byte challenges and answers with a bare 16-byte HMAC-MD5.
 const MD5ONLY_MESSAGE_LENGTH: usize = 20;
+/// The size of a bare HMAC-MD5 answer.
 const MD5_DIGEST_LENGTH: usize = 16;
 /// The longest digest name Python allows ("sha3_256").
 const MAX_DIGEST_NAME: usize = 8;
@@ -91,6 +118,7 @@ enum Digest {
 }
 
 impl Digest {
+    /// The digest for a name in a `{name}` prefix; None for names we don't support.
     fn from_name(name: &[u8]) -> Option<Digest> {
         match name {
             b"md5" => Some(Digest::Md5),
@@ -100,6 +128,7 @@ impl Digest {
         }
     }
 
+    /// The name used in the `{name}` prefix.
     fn name(self) -> &'static str {
         match self {
             Digest::Md5 => "md5",
@@ -108,8 +137,10 @@ impl Digest {
         }
     }
 
+    /// HMAC(key, message) with this hash: 16 bytes for MD5, 32 for SHA-256, 48 for SHA-384.
     fn mac(self, key: &[u8], message: &[u8]) -> Vec<u8> {
         fn run<M: Mac + hmac::digest::KeyInit>(key: &[u8], message: &[u8]) -> Vec<u8> {
+            // HMAC accepts keys of any length (long ones are hashed first), so this can't fail.
             let mut mac = <M as hmac::digest::KeyInit>::new_from_slice(key).expect("HMAC takes any key length");
             mac.update(message);
             mac.finalize().into_bytes().to_vec()
@@ -124,11 +155,14 @@ impl Digest {
 
 /// Python's `_get_digest_name_and_payload`: None for the old bare form (MD5), else the digest named
 /// in the `{name}` prefix, and the bytes after it.
+/// Exactly 20 or 16 bytes means the old bare form; otherwise the message must start with
+/// `{md5}`, `{sha256}` or `{sha384}`. Anything else is an authentication error.
 fn digest_and_payload(message: &[u8]) -> io::Result<(Option<Digest>, &[u8])> {
     if message.len() == MD5ONLY_MESSAGE_LENGTH || message.len() == MD5_DIGEST_LENGTH {
         return Ok((None, message));
     }
     if message.first() == Some(&b'{') {
+        // Look for the closing `}` only within the first 10 bytes (`{` + at most 8 name bytes + `}`).
         let end = message.len().min(MAX_DIGEST_NAME + 2);
         if let Some(curly) = message[1..end].iter().position(|&b| b == b'}').map(|i| i + 1) {
             if let Some(digest) = Digest::from_name(&message[1..curly]) {
@@ -140,6 +174,7 @@ fn digest_and_payload(message: &[u8]) -> io::Result<(Option<Digest>, &[u8])> {
 }
 
 /// Python's `_create_response`: the HMAC of the whole challenge (its `{name}` prefix too).
+/// The answer is marked with the same digest name the challenge used.
 fn create_response(key: &[u8], challenge: &[u8]) -> io::Result<Vec<u8>> {
     match digest_and_payload(challenge)?.0 {
         None => Ok(Digest::Md5.mac(key, challenge)),
@@ -152,6 +187,8 @@ fn create_response(key: &[u8], challenge: &[u8]) -> io::Result<Vec<u8>> {
 }
 
 /// Python's `_verify_challenge`: the other end's answer to our challenge `message`.
+/// Ok when the answer is the right HMAC of `message` with our key (in whichever digest the
+/// answer names; a bare answer counts as MD5).
 fn verify_response(key: &[u8], message: &[u8], response: &[u8]) -> io::Result<()> {
     let (digest, mac) = digest_and_payload(response)?;
     let expected = digest.unwrap_or(Digest::Md5).mac(key, message);
@@ -165,6 +202,7 @@ fn verify_response(key: &[u8], message: &[u8], response: &[u8]) -> io::Result<()
 }
 
 /// Random bytes for challenges and new keys.
+/// Taken from the operating system's secure random source; fails only if that is unavailable.
 pub fn random_bytes(n: usize) -> io::Result<Vec<u8>> {
     let mut bytes = vec![0u8; n];
     getrandom::fill(&mut bytes).map_err(|e| io::Error::other(e.to_string()))?;
@@ -172,13 +210,16 @@ pub fn random_bytes(n: usize) -> io::Result<Vec<u8>> {
 }
 
 /// Python's `deliver_challenge`: we ask, the other end proves it has the key.
+/// Steps 1-3 of the handshake (file header). Err if the answer is wrong or the connection fails.
 pub fn deliver_challenge(conn: &mut dyn MessageStream, key: &[u8]) -> io::Result<()> {
+    // The digest prefix is part of what the other end must sign, so it can't be swapped for a weaker one.
     let mut message = b"{sha256}".to_vec();
     message.extend(random_bytes(MESSAGE_LENGTH)?);
     conn.send_message(&[CHALLENGE, &message].concat())?;
     let response = conn.recv_message(MAX_HANDSHAKE)?;
     match verify_response(key, &message, &response) {
         Ok(()) => conn.send_message(WELCOME),
+        // Tell the other end it failed (ignoring a send error, the connection is going anyway).
         Err(e) => {
             let _ = conn.send_message(FAILURE);
             Err(e)
@@ -187,6 +228,7 @@ pub fn deliver_challenge(conn: &mut dyn MessageStream, key: &[u8]) -> io::Result
 }
 
 /// Python's `answer_challenge`: the other end asks, we prove we have the key.
+/// Step 4 from our side. Err if the message isn't a challenge, is too short, or our answer is refused.
 pub fn answer_challenge(conn: &mut dyn MessageStream, key: &[u8]) -> io::Result<()> {
     let message = conn.recv_message(MAX_HANDSHAKE)?;
     let Some(challenge) = message.strip_prefix(CHALLENGE) else {
@@ -203,6 +245,7 @@ pub fn answer_challenge(conn: &mut dyn MessageStream, key: &[u8]) -> io::Result<
 }
 
 /// What a `Listener` with an authkey does on accept: challenge the client, then answer its challenge.
+/// The monitor's side: challenge first, so nothing about the key is revealed to an unproven client.
 pub fn server_handshake(conn: &mut dyn MessageStream, key: &[u8]) -> io::Result<()> {
     deliver_challenge(conn, key)?;
     answer_challenge(conn, key)
@@ -215,6 +258,7 @@ pub fn client_handshake(conn: &mut dyn MessageStream, key: &[u8]) -> io::Result<
     deliver_challenge(conn, key)
 }
 
+/// Tests of the framing and the handshake against Python's behaviour.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -224,6 +268,7 @@ mod tests {
     /// One end of an in-memory pipe that keeps messages apart, like a named pipe.
     struct End(Sender<Vec<u8>>, Receiver<Vec<u8>>);
 
+    /// Two connected ends: what one sends, the other receives.
     fn pair() -> (End, End) {
         let (a_tx, a_rx) = channel();
         let (b_tx, b_rx) = channel();
@@ -243,20 +288,24 @@ mod tests {
         }
     }
 
+    /// Runs the server side on a thread and the client side here; returns both results.
     fn handshake(server_key: &'static [u8], client_key: &'static [u8]) -> (io::Result<()>, io::Result<()>) {
         let (mut s, mut c) = pair();
         let server = std::thread::spawn(move || server_handshake(&mut s, server_key));
         let client = client_handshake(&mut c, client_key);
+        // Closing the client's end lets a server still waiting for a message fail instead of hang.
         drop(c);
         (server.join().unwrap(), client)
     }
 
+    /// Matching keys pass both directions.
     #[test]
     fn the_same_key_passes_both_ways() {
         let (s, c) = handshake(b"secret", b"secret");
         assert!(s.is_ok() && c.is_ok());
     }
 
+    /// A wrong key fails with "permission denied" on the server, and the client fails too.
     #[test]
     fn a_wrong_key_is_refused() {
         let (s, c) = handshake(b"secret", b"guess");
@@ -264,6 +313,7 @@ mod tests {
         assert!(c.is_err());
     }
 
+    /// The answer format matches Python's for both the new (sha256) and the old (bare MD5) form.
     #[test]
     fn answers_like_python() {
         // hmac.new(b"key", b"{sha256}" + bytes(range(40)), "sha256").digest(), prefixed
@@ -281,6 +331,7 @@ mod tests {
         verify_response(b"key", &challenge, &Digest::Md5.mac(b"key", &challenge)).unwrap();
     }
 
+    /// The HMACs match published test vectors, so the crypto is wired correctly.
     #[test]
     fn known_hmac_values() {
         // RFC 2104 / RFC 4231 test vectors
@@ -290,16 +341,19 @@ mod tests {
         assert_eq!(hex(&sha), "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843");
     }
 
+    /// Bytes as lower-case hex.
     fn hex(b: &[u8]) -> String {
         b.iter().map(|x| format!("{x:02x}")).collect()
     }
 
+    /// An unsupported digest or a message without a prefix is refused.
     #[test]
     fn unknown_digests_are_refused() {
         assert!(digest_and_payload(b"{sha1}aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").is_err());
         assert!(digest_and_payload(b"no prefix and the wrong length").is_err());
     }
 
+    /// Short and long length headers are read like Python's, and an oversize length is refused.
     #[test]
     fn framing_matches_python() {
         let mut out = Framed(VecDeque::new());

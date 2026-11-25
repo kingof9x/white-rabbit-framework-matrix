@@ -53,12 +53,18 @@ pub enum UiRequest {
     AppKeys,
 }
 
+/// settings.json key of the tray's "Turn off when lid closes".
 const LID_SETTING: &str = "turn_off_with_lid";
+/// settings.json key of the tray's "Turn off when laptop screen isn't used".
 const SCREEN_UNUSED_SETTING: &str = "turn_off_when_screen_unused";
 
+/// The control channel's request handler (`Handler`), built once in `app::run`.
 pub struct Commands {
+    /// The main loop's shared flags and values.
     pub shared: Arc<Shared>,
+    /// The window's access to the panels' serial ports.
     pub bridge: Arc<Bridge>,
+    /// settings.json (a temp file in tests).
     pub settings_file: PathBuf,
     /// Passes a request to the tray window.
     pub ui: Box<dyn Fn(UiRequest) + Send + Sync>,
@@ -74,8 +80,10 @@ pub trait System: Send + Sync {
     fn gpus(&self) -> Vec<String>;
 }
 
+/// A command's answer: the reply object, or an error text that becomes {"ok": false, "error": ...}.
 type Reply = Result<Map<String, Value>, String>;
 
+/// A JSON value as an object map; anything else becomes an empty map.
 fn object(v: Value) -> Map<String, Value> {
     match v {
         Value::Object(m) => m,
@@ -84,6 +92,9 @@ fn object(v: Value) -> Map<String, Value> {
 }
 
 /// A {"left": rows, "right": rows} picture from the window: each side a list of 9 columns of 34 values.
+///
+/// Extra columns or rows are ignored, missing ones stay dark, non-numbers count as 0 and values are
+/// clamped to 0-255 (LED brightness). None when the side is missing or isn't a list of lists.
 fn preview_grid(value: Option<&Value>) -> Option<Grid> {
     let columns = value?.as_array()?;
     let mut grid = Grid::new();
@@ -96,6 +107,7 @@ fn preview_grid(value: Option<&Value>) -> Option<Grid> {
 }
 
 impl Commands {
+    /// settings.json as raw JSON, for keys `Settings` doesn't model; empty if missing or broken.
     fn settings_json(&self) -> Map<String, Value> {
         std::fs::read_to_string(&self.settings_file)
             .ok()
@@ -104,6 +116,7 @@ impl Commands {
             .unwrap_or_default()
     }
 
+    /// Writes one top-level key into settings.json, keeping every other key (the window's too).
     fn save(&self, key: &str, value: Value) -> Result<(), String> {
         save_key(&self.settings_file, key, value).map_err(|e| format!("couldn't save settings.json: {e}"))
     }
@@ -115,11 +128,14 @@ impl Commands {
         settings
     }
 
+    /// The brightness part of a reply: whether it follows the screen, and the fixed level (0-100).
     fn brightness_state(settings: &Settings) -> Value {
         json!({"follow_screen": settings.follow_screen_brightness, "level": settings.brightness_level})
     }
 
+    /// "status": the open ports, the layout file in use (null = bundled), brightness and GPU names.
     fn status(&self) -> Reply {
+        // Copy the settings out so the lock isn't held while asking Windows for the GPU names.
         let settings = self.shared.settings.lock().unwrap().clone();
         let config_file = crate::paths::layout_file().map(|p| p.display().to_string());
         Ok(object(json!({
@@ -130,9 +146,12 @@ impl Commands {
         })))
     }
 
+    /// "brightness": saves whichever of "follow_screen" / "level" is given, then reports both. The
+    /// main loop uses the new values on its next pass.
     fn brightness(&self, message: &Map<String, Value>) -> Reply {
         if let Some(follow) = message.get("follow_screen").filter(|v| !v.is_null()) {
             // The window sends a bool; Python takes bool(value)
+            // Run the value through `Settings`' own parsing so it's read the same way as from the file.
             let follow = Settings::from_json(&json!({"follow_screen_brightness": follow}).to_string());
             self.save("follow_screen_brightness", json!(follow.follow_screen_brightness))?;
         }
@@ -141,14 +160,19 @@ impl Commands {
             let level = Settings::from_json(&json!({"brightness_level": level}).to_string()).brightness_level;
             self.save("brightness_level", json!(level))?;
         }
+        // Re-read the whole file so `Shared::settings` matches what was just saved.
         let settings = self.reload_settings();
         Ok(object(json!({"brightness": Self::brightness_state(&settings)})))
     }
 
+    /// "power": saves the lid and/or "laptop screen unused" settings and asks the tray window to apply
+    /// them now. Replies with both settings.
     fn power(&self, message: &Map<String, Value>) -> Reply {
         let mut changed = false;
         for key in [LID_SETTING, SCREEN_UNUSED_SETTING] {
             if let Some(v) = message.get(key) {
+                // Both settings are booleans read the same way, so the lid key is borrowed to parse
+                // either value with Python's truthiness rules.
                 let on = Settings::from_json(&json!({LID_SETTING: v}).to_string()).turn_off_with_lid;
                 self.save(key, json!(on))?;
                 info!("{key} {}", if on { "on" } else { "off" });
@@ -159,10 +183,13 @@ impl Commands {
         if changed {
             (self.ui)(UiRequest::Power);
         }
+        // Read from the raw JSON with the same default (true) as `Settings::turn_off_when_screen_unused`.
         let screen_unused = self.settings_json().get(SCREEN_UNUSED_SETTING).map(truthy).unwrap_or(true);
         Ok(object(json!({LID_SETTING: settings.turn_off_with_lid, SCREEN_UNUSED_SETTING: screen_unused})))
     }
 
+    /// "shortcuts": re-reads settings.json, asks the tray to re-register the hotkeys, and replies
+    /// which letters are on.
     fn shortcuts(&self) -> Reply {
         let settings = self.reload_settings();
         (self.ui)(UiRequest::Shortcuts);
@@ -173,6 +200,7 @@ impl Commands {
         Ok(object(json!({"shortcuts": enabled})))
     }
 
+    /// "preview": the layout editor's still pictures, for "seconds" (default 30, at most an hour).
     fn preview(&self, message: &Map<String, Value>) -> Reply {
         let frames = message.get("frames").and_then(Value::as_object);
         let grids =
@@ -188,15 +216,20 @@ impl Commands {
         let on = match message.get("action").and_then(Value::as_str).unwrap_or("status") {
             "on" => Some(true),
             "off" => Some(false),
+            // Read-then-set is safe here: requests are handled one at a time on the control thread.
+            // (The tray's toggle could race it, but at worst one of two near-simultaneous toggles wins.)
             "toggle" => Some(!self.shared.music_mode.load(Ordering::SeqCst)),
+            // The Audio tab changed the look: the main loop restarts the visualizers with it.
             "reload" => {
                 self.shared.music_restart.store(true, Ordering::SeqCst);
                 None
             }
             _ => None,
         };
+        // `on` is None for "status" and "reload", which change nothing here.
         if let Some(on) = on {
             if on {
+                // Music draws on every panel, so a panel the window was borrowing is taken back.
                 let released = self.bridge.release(None);
                 if !released.is_empty() {
                     info!("Audio reactivity took back the panels lent to the window: {}", released.join(", "));
@@ -207,21 +240,26 @@ impl Commands {
         }
         let mut reply = object(json!({"music_mode": self.shared.music_mode.load(Ordering::SeqCst)}));
         let hearing = self.shared.hearing.lock().unwrap().clone();
+        // "hearing" is only included while at least one visualizer runs.
         if hearing.as_object().is_some_and(|h| !h.is_empty()) {
             reply.insert("hearing".into(), hearing);
         }
         reply
     }
 
-    /// "effects" (the Effects tab): reload the settings, try an effect, or show a message. Learning
-    /// which port is where comes with the plug watcher, which the Rust monitor doesn't have yet.
+    /// "effects" (the Effects tab): reload the settings, try an effect, show a message, learn which
+    /// port a device was plugged into ("learn", fed by the plug watcher's last event), or forget all
+    /// learned ports. The reply always has the last plug event and the open ports.
     fn effects(&self, message: &Map<String, Value>) -> Map<String, Value> {
+        // Clone the overlay handle so the `effects` lock isn't held while it works. Without an
+        // overlay (it is set up at start-up) every action is skipped and only the status is replied.
         if let Some(fx) = self.shared.effects.lock().unwrap().clone() {
             match message.get("action").and_then(Value::as_str).unwrap_or("") {
                 "reload" => {
                     let raw = self.settings_json().get("effects").cloned().unwrap_or(Value::Null);
                     fx.effects().configure(wr_core::effects::EffectsSettings::from_json(&raw));
                 }
+                // Plays the plug-in (or with "event": "out", the unplug) effect at a position.
                 "try" => {
                     let position = message.get("position").and_then(Value::as_str);
                     fx.plug(position, message.get("event").and_then(Value::as_str) != Some("out"));
@@ -230,10 +268,12 @@ impl Commands {
                 "learn" => {
                     let key = message.get("key").and_then(Value::as_str).unwrap_or("");
                     let position = message.get("position").and_then(Value::as_str).unwrap_or("");
+                    // Only a key and a valid position ("left", "right-back" ...) are saved.
                     if !key.is_empty() && wr_core::effects::parse_position(position).0.is_some() {
                         self.change_learned_ports(&fx, |ports| {
                             ports.insert(key.into(), Value::String(position.into()));
                         });
+                        // If the corrected port is the one just plugged in, show it as learned at once.
                         let mut last = self.shared.last_plug.lock().unwrap();
                         if last.get("key").and_then(Value::as_str) == Some(key) {
                             last["position"] = json!(position);
@@ -246,6 +286,7 @@ impl Commands {
             }
         }
         let last_plug = self.shared.last_plug.lock().unwrap().clone();
+        // Nothing plugged in yet is sent as an empty object, which the window expects.
         let last_plug = if last_plug.is_null() { json!({}) } else { last_plug };
         object(json!({"last_plug": last_plug, "panels": self.bridge.open_ports()}))
     }
@@ -256,6 +297,8 @@ impl Commands {
         fx: &wr_panel::overlay::EffectsOverlay,
         change: impl FnOnce(&mut Map<String, Value>),
     ) {
+        // Read-modify-write of the "effects" block, so its other settings are kept. A save failure is
+        // logged but the change still applies until the next restart.
         let mut effects = self.settings_json().get("effects").cloned().map(object).unwrap_or_default();
         let mut ports = effects.get("learned_ports").cloned().map(object).unwrap_or_default();
         change(&mut ports);
@@ -267,6 +310,7 @@ impl Commands {
         fx.effects().configure(wr_core::effects::EffectsSettings::from_json(&effects));
     }
 
+    /// "release": gives panels back (all when "ports" isn't a list); the main loop redraws them.
     fn release(&self, message: &Map<String, Value>) -> Reply {
         let released = self.bridge.release(message.get("ports"));
         if !released.is_empty() {
@@ -277,11 +321,14 @@ impl Commands {
 }
 
 /// Python's bool() of a JSON value, for the settings Settings doesn't keep.
+/// Uses the same parsing as `Settings` by borrowing the lid key (see `power`).
 fn truthy(v: &Value) -> bool {
     Settings::from_json(&json!({LID_SETTING: v}).to_string()).turn_off_with_lid
 }
 
 impl Handler for Commands {
+    /// Dispatches one request by its "cmd". An unknown command gets {"ok": false} with an error, not
+    /// an Err, so it isn't logged as a failure. Command names are case-sensitive.
     fn handle(&self, message: &Map<String, Value>) -> Reply {
         let cmd = message.get("cmd").and_then(Value::as_str).unwrap_or("");
         match cmd {
@@ -320,6 +367,7 @@ impl Handler for Commands {
             "hold" => Ok(self.bridge.hold(message)),
             "frames" => Ok(self.bridge.frames()),
             "release" => self.release(message),
+            // None only before `app::run` starts the keyboard part (or in tests).
             "keyboard" => Ok(match crate::keyboard::job() {
                 Some(job) => job.command(message),
                 None => object(json!({"ok": false, "error": "The keyboard part isn't running"})),
@@ -334,6 +382,8 @@ mod tests {
     use super::*;
     use std::sync::Mutex;
 
+    /// Commands over a fresh temp settings.json (one folder per test thread), a fake bridge and a
+    /// fake system; tray requests are collected in the returned list.
     fn commands() -> (Commands, Arc<Mutex<Vec<UiRequest>>>, PathBuf) {
         let dir =
             std::env::temp_dir().join(format!("wr-commands-{}-{:?}", std::process::id(), std::thread::current().id()));
@@ -353,6 +403,7 @@ mod tests {
         (c, asked, dir)
     }
 
+    /// Fixed answers for the Windows-only questions.
     struct FakeSystem;
 
     impl System for FakeSystem {
@@ -364,6 +415,7 @@ mod tests {
         }
     }
 
+    /// sensor_source passes "reload" through and status includes the GPU names.
     #[test]
     fn says_where_temperatures_come_from_and_names_the_gpus() {
         let (c, _, _) = commands();
@@ -374,10 +426,12 @@ mod tests {
         assert_eq!(ask(&c, json!({"cmd": "status"}))["gpus"], json!(["Radeon 7700S"]));
     }
 
+    /// Sends a request through the same path as the control channel (`reply_to`).
     fn ask(c: &Commands, v: Value) -> Value {
         super::super::reply_to(c, v.to_string().as_bytes())
     }
 
+    /// Brightness is saved (level rounded), reported by status, and other settings keys survive.
     #[test]
     fn brightness_is_saved_and_reported() {
         let (c, _, dir) = commands();
@@ -392,6 +446,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    /// Power and shortcuts are saved/read and each asks the tray window once.
     #[test]
     fn power_and_shortcuts_reach_the_tray() {
         let (c, asked, dir) = commands();
@@ -412,6 +467,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    /// Reload, preview, resume, hold/release, quit and music set the right shared flags or requests.
     #[test]
     fn flags_for_the_main_loop() {
         let (c, asked, dir) = commands();
@@ -434,6 +490,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    /// "learn" saves the port, applies it, and marks the last plug event as learned; "forget_ports"
+    /// clears them.
     #[test]
     fn effects_tab_corrects_a_port() {
         let (c, _, dir) = commands();
@@ -458,6 +516,7 @@ mod tests {
     fn fuzzed_requests_always_get_a_reply() {
         let (c, _, dir) = commands();
         let mut seed = 0x5EED_0000_1234_5678u64;
+        // xorshift64, a tiny repeatable pseudo-random generator.
         let mut next = move || {
             seed ^= seed << 13;
             seed ^= seed >> 7;
@@ -529,6 +588,7 @@ mod tests {
             json!([{"port": "COM5", "writes": ["32ac"]}, {"nope": 1}]),
             json!({"left": [[1]], "right": "x"}),
         ];
+        // Each round: one command and up to four random fields with odd values.
         for _ in 0..50_000 {
             let mut m = Map::new();
             m.insert("cmd".into(), json!(cmds[(next() % cmds.len() as u64) as usize]));

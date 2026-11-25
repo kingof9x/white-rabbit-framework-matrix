@@ -6,6 +6,19 @@
 //!
 //! PresentMon needs administrator rights, or the Windows account in the "Performance Log Users"
 //! group. Without either it exits with "access denied", and the app shows a "?".
+//!
+//! # How it fits together
+//!
+//! `FpsReader` keeps one `Capture` per program asked for (blank = the game in front). A capture owns
+//! one PresentMon process; two helper threads per process read its stdout (CSV rows into
+//! `FrameStats`) and its stderr (to spot "access denied" when it exits). The main loop calls
+//! `FpsReader::read` while an fps app is drawn, which starts PresentMon if needed and works out the
+//! FPS from the rows collected so far. A separate `fps-idle` thread (`shared`) calls `tick` every
+//! 2 s so PresentMon is stopped 15 s after the last fps app went off screen, even with the panels off.
+//! Every PresentMon is put in a Windows "job object" that kills it if White Rabbit dies.
+//!
+//! The logic (CSV parsing, FPS maths, game picking, start/stop timing) is platform-neutral and
+//! tested with a fake `Runner`; only `mod windows` touches the real exe and Win32.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
@@ -24,8 +37,10 @@ const STALE: Duration = Duration::from_secs(2);
 /// Readings kept for the histogram under the number, one a second.
 const HISTORY: usize = 9;
 
+/// Whether a capture can measure; anything but `Ok` shows as "?" on the panel.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Status {
+    /// PresentMon started (or is starting) normally.
     Ok,
     /// PresentMon.exe wasn't found or couldn't start.
     NotAvailable,
@@ -34,6 +49,9 @@ pub enum Status {
 }
 
 /// One CSV line split into fields; PresentMon quotes fields that hold commas.
+///
+/// Inside quotes, a doubled quote `""` stands for one `"`. A trailing CR/LF is ignored. Never fails:
+/// malformed input just gives odd fields, which the caller then fails to parse and skips.
 pub fn split_csv(line: &str) -> Vec<String> {
     let mut fields = Vec::new();
     let mut field = String::new();
@@ -55,17 +73,25 @@ pub fn split_csv(line: &str) -> Vec<String> {
 }
 
 /// Recent frames per (process, swap chain), from PresentMon's CSV rows.
+///
+/// Fed one line at a time from PresentMon's stdout thread, read from the main loop; it sits behind a
+/// mutex in `Capture`.
 #[derive(Default)]
 pub struct FrameStats {
+    /// Column name -> index, from the header line. Empty until the header has been seen.
     columns: HashMap<String, usize>,
     /// (pid, swap chain) -> (present time in seconds, ms between presents)
     frames: HashMap<(u32, String), VecDeque<(f64, f64)>>,
+    /// pid -> exe name as PresentMon reports it (e.g. "game.exe").
     names: HashMap<u32, String>,
+    /// pid -> when its last frame row arrived (our clock, not PresentMon's).
     last_seen: HashMap<u32, Instant>,
 }
 
 impl FrameStats {
     /// Reads one line of output: the header, a frame row, or something to skip.
+    /// Lines before the header (PresentMon's start-up messages) are ignored. The column order is
+    /// taken from the header, so different PresentMon versions with other columns still work.
     pub fn add_line(&mut self, line: &str, now: Instant) {
         let row = split_csv(line);
         if self.columns.is_empty() {
@@ -77,6 +103,7 @@ impl FrameStats {
         self.add_row(&row, now);
     }
 
+    /// Stores one frame row. False (and nothing stored) when a needed column is missing or not a number.
     fn add_row(&mut self, row: &[String], now: Instant) -> bool {
         let col = |name: &str| self.columns.get(name).and_then(|&i| row.get(i));
         let (Some(pid), Some(ms)) = (col("ProcessID"), col("MsBetweenPresents")) else {
@@ -85,15 +112,20 @@ impl FrameStats {
         let (Ok(pid), Ok(ms)) = (pid.trim().parse::<u32>(), ms.trim().parse::<f64>()) else {
             return false;
         };
+        // The frame's time in seconds since the trace began; newer PresentMon versions call the column
+        // CPUStartTime, older ones TimeInSeconds.
         let Some(t) = col("CPUStartTime").or(col("TimeInSeconds")).and_then(|t| t.trim().parse::<f64>().ok()) else {
             return false;
         };
+        // A swap chain is one surface an app draws to; a game can have several (e.g. a launcher overlay),
+        // so frames are kept per swap chain and the busiest one wins.
         let swapchain = col("SwapChainAddress").cloned().unwrap_or_default();
         if let Some(name) = col("Application") {
             self.names.insert(pid, name.clone());
         }
         let frames = self.frames.entry((pid, swapchain)).or_default();
         frames.push_back((t, ms));
+        // Keep only the last second of frames for this swap chain.
         while frames.front().is_some_and(|&(first, _)| first < t - 1.0) {
             frames.pop_front();
         }
@@ -102,6 +134,9 @@ impl FrameStats {
     }
 
     /// FPS of the process's busiest swap chain over the last second, 0 if it stopped presenting.
+    ///
+    /// Computed as 1000 / (average milliseconds between presents), which gives a steady number even
+    /// when the one-second window holds a partial frame at each end.
     pub fn fps(&self, pid: u32, now: Instant) -> f64 {
         if self.last_seen.get(&pid).is_none_or(|&seen| now.duration_since(seen) > STALE) {
             return 0.0;
@@ -119,11 +154,14 @@ impl FrameStats {
         best
     }
 
+    /// The process ids whose exe name matches `name`, ignoring case (a game can run several processes).
     pub fn pids_named(&self, name: &str) -> Vec<u32> {
         let name = name.to_lowercase();
         self.names.iter().filter(|(_, n)| n.to_lowercase() == name).map(|(&pid, _)| pid).collect()
     }
 
+    /// Drops everything about processes that presented nothing for a minute (closed apps), so the
+    /// maps don't grow forever and a reused pid starts fresh.
     pub fn forget_old(&mut self, now: Instant) {
         let old: Vec<u32> = self
             .last_seen
@@ -142,7 +180,9 @@ impl FrameStats {
 /// The window in front: its process, and whether it covers its whole screen like a game does.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Front {
+    /// The process that owns the foreground window; None when there is no foreground window.
     pub pid: Option<u32>,
+    /// The window covers its whole monitor (as full-screen and borderless games do).
     pub full_screen: bool,
 }
 
@@ -153,12 +193,15 @@ pub struct Front {
 /// it stops drawing, it shows whatever window is in front.
 #[derive(Default)]
 pub struct GamePicker {
+    /// The pid of the last full-screen app seen presenting frames.
     game: Option<u32>,
 }
 
 impl GamePicker {
+    /// The FPS to show for an fps app with no program set (see the struct's doc for the rules).
     pub fn fps(&mut self, stats: &FrameStats, front: Front, now: Instant) -> f64 {
         let in_front = front.pid.map(|pid| stats.fps(pid, now)).unwrap_or(0.0);
+        // A full-screen window in front that is drawing: that's the game; remember it.
         if front.pid.is_some() && in_front > 0.0 && front.full_screen {
             self.game = front.pid;
             return in_front;
@@ -167,6 +210,7 @@ impl GamePicker {
             if Some(game) == front.pid {
                 return in_front;
             }
+            // Another window is in front: keep showing the remembered game while it still draws.
             let fps = stats.fps(game, now);
             if fps > 0.0 {
                 return fps;
@@ -180,11 +224,15 @@ impl GamePicker {
 /// The FPS readings once a second, newest first, for the histogram.
 #[derive(Default)]
 struct History {
+    /// At most `HISTORY` values, newest at the front.
     samples: VecDeque<f64>,
+    /// When the last value was added.
     last: Option<Instant>,
 }
 
 impl History {
+    /// Adds `value` if a second has passed since the last one (the main loop calls this ~10 times a
+    /// second), and returns the history, newest first.
     fn add(&mut self, now: Instant, value: f64) -> Vec<f64> {
         if self.last.is_none_or(|t| now.duration_since(t) >= Duration::from_secs(1)) {
             self.last = Some(now);
@@ -205,22 +253,34 @@ pub trait Runner: Send {
         line: Box<dyn FnMut(&str) + Send>,
         ended: Box<dyn FnOnce(bool) + Send>,
     ) -> Result<(), String>;
+    /// True while the PresentMon process is alive.
     fn running(&mut self) -> bool;
+    /// Ends PresentMon and its trace session.
     fn stop(&mut self);
+    /// Which window is in front now (used when no program is named).
     fn front(&self) -> Front;
 }
 
+/// One PresentMon process and what it has measured, for one program name (or "the game in front").
 struct Capture {
+    /// Starts/stops the PresentMon process.
     runner: Box<dyn Runner>,
+    /// Frames collected, shared with the stdout reading thread.
     stats: std::sync::Arc<Mutex<FrameStats>>,
+    /// Ok / not available / no permission, shared with the stderr thread that reports the exit.
     status: std::sync::Arc<Mutex<Status>>,
+    /// When an fps app last asked for this capture; PresentMon stops `IDLE` after it.
     last_used: Instant,
+    /// No new start before this time, so a failing PresentMon is tried only every `RETRY`.
     next_start: Option<Instant>,
+    /// Picks the game when no program is named.
     picker: GamePicker,
+    /// The once-a-second values for the histogram.
     history: History,
 }
 
 impl Capture {
+    /// A capture that hasn't started PresentMon yet (that happens on the first `read`).
     fn new(runner: Box<dyn Runner>) -> Capture {
         Capture {
             runner,
@@ -233,6 +293,10 @@ impl Capture {
         }
     }
 
+    /// Marks the capture as used and starts PresentMon if it isn't running and the retry wait is over.
+    /// The old frames are cleared first, and the status is reset to Ok; a start error sets
+    /// NotAvailable (logged only when it wasn't already), and a later "access denied" exit sets
+    /// NoPermission from PresentMon's stderr thread.
     fn touch(&mut self, process: Option<&str>, now: Instant) {
         self.last_used = now;
         if self.runner.running() || self.next_start.is_some_and(|t| now < t) {
@@ -242,7 +306,9 @@ impl Capture {
         *self.stats.lock().unwrap() = FrameStats::default();
         let stats = self.stats.clone();
         let status = self.status.clone();
+        // Runs on the stdout thread for every line PresentMon prints.
         let line = Box::new(move |l: &str| stats.lock().unwrap().add_line(l, Instant::now()));
+        // Runs on the stderr thread once PresentMon has exited.
         let ended = Box::new(move |denied: bool| {
             if denied {
                 let mut status = status.lock().unwrap();
@@ -264,6 +330,8 @@ impl Capture {
         }
     }
 
+    /// The FPS to show now: the busiest process with that exe name, or the picked game. While
+    /// PresentMon is missing or refused, `available` is false (the app draws "?") and 0 goes in the history.
     fn read(&mut self, process: Option<&str>, now: Instant) -> Fps {
         self.touch(process, now);
         let status = *self.status.lock().unwrap();
@@ -294,15 +362,21 @@ impl Capture {
 
 /// One PresentMon per watched program (blank: whichever app is in front).
 pub struct FpsReader {
+    /// Makes a new runner for each new capture (the real PresentMon, or a fake in tests).
     make: Box<dyn Fn() -> Box<dyn Runner> + Send>,
+    /// Program name in lower case ("" = the game in front) -> its capture. Entries stay; idle ones
+    /// only have their PresentMon stopped.
     captures: HashMap<String, Capture>,
 }
 
 impl FpsReader {
+    /// A reader with no captures yet.
     pub fn new(make: impl Fn() -> Box<dyn Runner> + Send + 'static) -> FpsReader {
         FpsReader { make: Box::new(make), captures: HashMap::new() }
     }
 
+    /// The FPS of `process` (an exe name such as "game.exe", any case; blank for the game in front).
+    /// Also stops the PresentMon of any other capture that has gone idle.
     pub fn read(&mut self, process: &str, now: Instant) -> Fps {
         let key = process.trim().to_lowercase();
         for (other, capture) in self.captures.iter_mut() {
@@ -322,6 +396,7 @@ impl FpsReader {
         }
     }
 
+    /// Stops every running PresentMon (on exit).
     pub fn stop_all(&mut self) {
         for capture in self.captures.values_mut() {
             if capture.runner.running() {
@@ -331,17 +406,22 @@ impl FpsReader {
     }
 }
 
+/// Make sure no PresentMon is left running when the reader goes away.
 impl Drop for FpsReader {
     fn drop(&mut self) {
         self.stop_all();
     }
 }
 
+/// The real PresentMon runner.
 #[cfg(windows)]
 pub use self::windows::PresentMon;
 
 /// The fps reader for the monitor, with a thread that stops PresentMon once no fps app is drawn,
 /// even while the panels are off.
+///
+/// The `fps-idle` thread holds only a weak reference, so it ends by itself once every owner of the
+/// reader has dropped it. The lock is released before sleeping so the main loop never waits 2 s.
 #[cfg(windows)]
 pub fn shared() -> std::sync::Arc<Mutex<FpsReader>> {
     let reader = std::sync::Arc::new(Mutex::new(FpsReader::new(|| Box::new(PresentMon::default()) as Box<dyn Runner>)));
@@ -356,6 +436,7 @@ pub fn shared() -> std::sync::Arc<Mutex<FpsReader>> {
     reader
 }
 
+/// The Windows-only part: finding and running PresentMon.exe, and finding the window in front.
 #[cfg(windows)]
 mod windows {
     use super::{Front, Runner, SESSION_NAME};
@@ -378,6 +459,7 @@ mod windows {
         GetDesktopWindow, GetForegroundWindow, GetShellWindow, GetWindowRect, GetWindowThreadProcessId,
     };
 
+    /// Process creation flag: start the console tool without opening a console window.
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
     /// PresentMon.exe next to WhiteRabbit.exe (where the installer puts it), or on the PATH.
@@ -391,6 +473,12 @@ mod windows {
     }
 
     /// A job Windows closes when White Rabbit exits, even if it crashes, taking PresentMon with it.
+    ///
+    /// A job object groups processes; with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, Windows kills every
+    /// process in it when the last handle to the job closes, which happens when our process ends for
+    /// any reason. One job is made on first use and kept (as a number, since a raw handle can't be in
+    /// a static) for the whole run. None if it can't be created; PresentMon then still runs, just
+    /// without that safety net.
     fn job() -> Option<HANDLE> {
         static JOB: OnceLock<usize> = OnceLock::new();
         let job = *JOB.get_or_init(|| unsafe {
@@ -412,9 +500,12 @@ mod windows {
         (job != 0).then_some(job as HANDLE)
     }
 
+    /// Runs the real PresentMon.exe.
     #[derive(Default)]
     pub struct PresentMon {
+        /// The exe that was last started, used to end its trace session on stop.
         exe: Option<PathBuf>,
+        /// The running PresentMon process, if any.
         child: Option<Child>,
     }
 
@@ -427,6 +518,9 @@ mod windows {
         ) -> Result<(), String> {
             let exe = find().ok_or("PresentMon.exe wasn't found next to WhiteRabbit.exe, so FPS can't be measured")?;
             let mut command = Command::new(&exe);
+            // --output_stdout: CSV rows on stdout instead of a file; --no_console_stats: no summary text;
+            // our own --session_name, closing a leftover one from a crash (--stop_existing_session);
+            // --no_track_input/--no_track_gpu: skip columns we don't use, which lowers PresentMon's cost.
             command.args([
                 "--output_stdout",
                 "--no_console_stats",
@@ -446,12 +540,15 @@ mod windows {
                 .creation_flags(CREATE_NO_WINDOW)
                 .spawn()
                 .map_err(|e| format!("couldn't start PresentMon: {e}"))?;
+            // There is a short moment between spawn and this call when a crash would leave PresentMon
+            // running; that is accepted.
             if let Some(job) = job() {
                 // SAFETY: the child's handle is valid while `child` lives.
                 unsafe { AssignProcessToJobObject(job, child.as_raw_handle() as HANDLE) };
             }
             let stdout = child.stdout.take();
             let stderr = child.stderr.take();
+            // The stdout reader: one call of `line` per CSV row until PresentMon exits (stdout closes).
             std::thread::spawn(move || {
                 if let Some(out) = stdout {
                     for l in BufReader::new(out).lines() {
@@ -463,6 +560,8 @@ mod windows {
                     }
                 }
             });
+            // The stderr reader: collect everything PresentMon complains about; when stderr closes (the
+            // process has ended) report whether it was an access error.
             std::thread::spawn(move || {
                 let mut text = String::new();
                 if let Some(mut err) = stderr {
@@ -510,6 +609,7 @@ mod windows {
                 let mut pid = 0u32;
                 GetWindowThreadProcessId(hwnd, &mut pid);
                 let pid = (pid != 0).then_some(pid);
+                // The desktop itself in front is never "full screen", even though it covers the monitor.
                 if hwnd == GetDesktopWindow() || hwnd == GetShellWindow() {
                     return Front { pid, full_screen: false };
                 }
@@ -517,6 +617,7 @@ mod windows {
                 let mut info: MONITORINFO = std::mem::zeroed();
                 info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
                 let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+                // Full screen: the window's rectangle covers the whole of the monitor it is on.
                 let full_screen = GetWindowRect(hwnd, &mut rect) != 0
                     && !monitor.is_null()
                     && GetMonitorInfoW(monitor, &mut info) != 0
@@ -530,13 +631,16 @@ mod windows {
     }
 }
 
+/// Tests for the CSV parsing, FPS maths, game picking and PresentMon start/stop timing.
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::Arc;
 
+    /// A minimal PresentMon CSV header with the columns the parser uses.
     const HEADER: &str = "Application,ProcessID,SwapChainAddress,PresentRuntime,CPUStartTime,MsBetweenPresents";
 
+    /// Feeds `count` evenly spaced frame rows, `ms` milliseconds apart, for one process.
     fn frames(stats: &mut FrameStats, app: &str, pid: u32, ms: f64, count: usize, now: Instant) {
         for i in 0..count {
             let t = i as f64 * ms / 1000.0;
@@ -544,11 +648,14 @@ mod tests {
         }
     }
 
+    /// Quoted commas, doubled quotes, a trailing empty field and CR/LF are handled.
     #[test]
     fn splits_quoted_fields() {
         assert_eq!(split_csv("a,\"b,c\",\"say \"\"hi\"\"\",\r\n"), vec!["a", "b,c", "say \"hi\"", ""]);
     }
 
+    /// Lines before the header are skipped, 60 Hz frames give 60 FPS, names match in any case,
+    /// a silent process shows 0 and is forgotten after a minute.
     #[test]
     fn counts_frames_per_second() {
         let now = Instant::now();
@@ -564,6 +671,7 @@ mod tests {
         assert!(stats.pids_named("game.exe").is_empty());
     }
 
+    /// The full-screen game stays picked while a chat window is in front, until the game stops drawing.
     #[test]
     fn keeps_the_game_while_alt_tabbed() {
         let now = Instant::now();
@@ -584,11 +692,17 @@ mod tests {
 
     /// Stands in for PresentMon: prints the given lines when started, or fails.
     struct Fake {
+        /// Lines "printed" at start.
         lines: Vec<String>,
+        /// Exit at once with "access denied".
         denied: bool,
+        /// Fail to start, as if PresentMon.exe were missing.
         missing: bool,
+        /// Whether this fake is "running".
         running: bool,
+        /// How many fakes are running, across all captures.
         alive: Arc<Mutex<usize>>,
+        /// How many starts were attempted, across all captures.
         starts: Arc<Mutex<usize>>,
     }
 
@@ -626,6 +740,7 @@ mod tests {
         }
     }
 
+    /// An `FpsReader` using fakes, with counters of running fakes and start attempts.
     fn reader(lines: Vec<String>, denied: bool, missing: bool) -> (FpsReader, Arc<Mutex<usize>>, Arc<Mutex<usize>>) {
         let running = Arc::new(Mutex::new(0));
         let starts = Arc::new(Mutex::new(0));
@@ -643,6 +758,7 @@ mod tests {
         (reader, running, starts)
     }
 
+    /// Blank and named programs get separate captures, and `tick` stops both once idle.
     #[test]
     fn reads_the_game_in_front_and_stops_when_idle() {
         let mut lines = vec![HEADER.to_string()];
@@ -660,6 +776,7 @@ mod tests {
         assert_eq!(*running.lock().unwrap(), 0);
     }
 
+    /// Denied or missing PresentMon reads as unavailable, and a missing one is retried only after `RETRY`.
     #[test]
     fn shows_a_question_mark_without_presentmon_or_permission() {
         let now = Instant::now();

@@ -11,6 +11,10 @@
 //!
 //! The ports themselves are shared by the hub: the drawing threads and these commands write through
 //! the same open handle, and a held panel only takes the window's writes.
+//!
+//! Everything here runs on the control thread (one request at a time), except `release_orphans`,
+//! which the `holders` thread in `app.rs` calls every 2 s. Bytes travel in JSON as hex text
+//! ("32ac" = 0x32 0xAC). Port names are compared without regard to case (the hub stores them lower case).
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,11 +24,14 @@ use serde_json::{json, Map, Value};
 use wr_panel::hub::MAX_READ;
 use wr_panel::panel::Panels;
 
+/// The window's access to the panels' serial ports, through the panels' shared hub.
 pub struct Bridge {
+    /// Both panels and their hub (the same object the drawing threads use).
     pub panels: Arc<Panels>,
 }
 
 impl Bridge {
+    /// A bridge over these panels.
     pub fn new(panels: Arc<Panels>) -> Bridge {
         Bridge { panels }
     }
@@ -41,6 +48,7 @@ impl Bridge {
     pub fn serial(&self, message: &Map<String, Value>) -> Result<Map<String, Value>, String> {
         let name = message.get("port").and_then(Value::as_str).ok_or("no port given")?;
         let chunks = chunks(message)?;
+        // How many reply bytes to read after the writes; 0 = don't read.
         let size = message.get("read").and_then(Value::as_u64).unwrap_or(0) as usize;
         let timeout = match message.get("timeout").and_then(Value::as_f64) {
             // Clamped before converting: Duration::from_secs_f64 panics on a value too big for it
@@ -48,9 +56,11 @@ impl Bridge {
             Some(t) if t >= 0.0 => Duration::from_secs_f64(t.min(MAX_READ.as_secs_f64())),
             _ => MAX_READ,
         };
+        // Throw away any stale bytes waiting on the port before writing, so the reply read is fresh.
         let reset = message.get("reset_input").and_then(Value::as_bool).unwrap_or(false);
         let data =
             self.panels.hub().serial(name, reset, &chunks, size, Some(timeout)).map_err(|e| format!("{name}: {e}"))?;
+        // `unwrap` can't fail: a `json!` object literal is always an object.
         Ok(json!({"data": to_hex(&data)}).as_object().unwrap().clone())
     }
 
@@ -62,6 +72,7 @@ impl Bridge {
             let item = item.as_object().ok_or("each port must be an object")?;
             let name = item.get("port").and_then(Value::as_str).ok_or("no port given")?.to_string();
             let mut writes = item.clone();
+            // A port with no "writes" gets an empty list (rather than falling back to "write").
             writes.entry("writes").or_insert(json!([]));
             work.push((name, chunks(&writes)?));
         }
@@ -73,6 +84,7 @@ impl Bridge {
     /// the monitor's last frame on each one, column by column as hex, so the window can play the app
     /// transition from it.
     pub fn hold(&self, message: &Map<String, Value>) -> Map<String, Value> {
+        // The window's process id, so the panels come back by themselves if that process dies.
         let owner = message.get("pid").and_then(Value::as_u64).and_then(|p| u32::try_from(p).ok());
         let names = port_names(message.get("ports"));
         let mut frames = Map::new();
@@ -109,6 +121,7 @@ impl Bridge {
     }
 
     /// Gives back the panels whose window has closed or crashed. True when any were given back.
+    /// `alive` says whether a process id is still running (`pid_alive`).
     pub fn release_orphans(&self, alive: impl Fn(u32) -> bool) -> bool {
         let before = self.panels.hub().held();
         self.panels.hub().release_dead_holders(&alive);
@@ -117,6 +130,11 @@ impl Bridge {
 }
 
 /// Whether a process is still running, to notice a window that closed without giving panels back.
+///
+/// OpenProcess fails with ERROR_INVALID_PARAMETER for a pid that doesn't exist (that includes 0);
+/// a process that exists but can't be opened (access denied) counts as alive, and so does one whose
+/// exit code can't be read. An exited process whose handle someone still holds reports an exit code
+/// other than STILL_ACTIVE, so it counts as gone.
 #[cfg(windows)]
 pub fn pid_alive(pid: u32) -> bool {
     use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_INVALID_PARAMETER, STILL_ACTIVE};
@@ -135,11 +153,14 @@ pub fn pid_alive(pid: u32) -> bool {
     }
 }
 
+/// Whether a process is still running (Linux, for the tests): its /proc entry exists.
 #[cfg(not(windows))]
 pub fn pid_alive(pid: u32) -> bool {
     std::path::Path::new(&format!("/proc/{pid}")).exists()
 }
 
+/// Hex text ("32ac", any case, surrounding spaces ignored) as bytes; Err for an odd length,
+/// non-ASCII text or a non-hex digit. The ASCII check makes the 2-byte slicing below safe.
 fn hex_bytes(text: &str) -> Result<Vec<u8>, String> {
     let text = text.trim();
     if !text.len().is_multiple_of(2) || !text.is_ascii() {
@@ -151,11 +172,14 @@ fn hex_bytes(text: &str) -> Result<Vec<u8>, String> {
         .collect()
 }
 
+/// Bytes as lower-case hex text.
 fn to_hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// The "writes" list (or the single "write") of a request, as bytes.
+/// Each entry is one firmware command, written separately. A missing "write" is an empty write;
+/// a non-string entry in "writes" also counts as empty.
 fn chunks(message: &Map<String, Value>) -> Result<Vec<Vec<u8>>, String> {
     match message.get("writes") {
         Some(Value::Array(list)) => list.iter().map(|c| hex_bytes(c.as_str().unwrap_or(""))).collect(),
@@ -164,6 +188,7 @@ fn chunks(message: &Map<String, Value>) -> Result<Vec<Vec<u8>>, String> {
     }
 }
 
+/// The port names in a JSON list; anything that isn't a list gives none, non-strings are skipped.
 fn port_names(value: Option<&Value>) -> Vec<String> {
     match value {
         Some(Value::Array(list)) => list.iter().filter_map(Value::as_str).map(str::to_string).collect(),
@@ -171,6 +196,7 @@ fn port_names(value: Option<&Value>) -> Vec<String> {
     }
 }
 
+/// Tests of the bridge with fake serial ports. Public so the commands' tests can reuse `bridge()`.
 #[cfg(test)]
 pub mod tests {
     use super::*;
@@ -179,8 +205,10 @@ pub mod tests {
     use wr_panel::hub::{Port, PortSystem};
     use wr_panel::ports::{Pins, PortInfo};
 
+    /// Every write to any fake port: (port name, bytes).
     type Log = Arc<Mutex<Vec<(String, Vec<u8>)>>>;
 
+    /// A port that records writes and answers any read with the bytes 1, 2, 3 ...
     struct FakePort(String, Log);
     impl Port for FakePort {
         fn write_all(&mut self, data: &[u8]) -> io::Result<()> {
@@ -195,6 +223,7 @@ pub mod tests {
         }
     }
 
+    /// A port system whose ports all open (as fakes) and that lists none.
     #[derive(Default)]
     pub struct FakePorts(Log);
     impl PortSystem for FakePorts {
@@ -206,16 +235,19 @@ pub mod tests {
         }
     }
 
+    /// A bridge over fake ports, and the fakes to inspect.
     pub fn bridge() -> (Arc<FakePorts>, Bridge) {
         let fake = Arc::new(FakePorts::default());
         let panels = Panels::new(fake.clone(), Arc::new(Mutex::new(Pins::default())));
         (fake, Bridge::new(panels))
     }
 
+    /// A JSON object literal as a request map.
     fn obj(v: Value) -> Map<String, Value> {
         v.as_object().unwrap().clone()
     }
 
+    /// Each command is its own write, and the requested reply bytes come back as hex.
     #[test]
     fn serial_writes_each_command_and_reads_the_reply() {
         let (fake, bridge) = bridge();
@@ -227,6 +259,7 @@ pub mod tests {
         );
     }
 
+    /// Holding reports the held ports, a dead holder's panels are released, and release lists the rest.
     #[test]
     fn hold_release_and_closed_windows() {
         let (_, bridge) = bridge();
@@ -240,12 +273,14 @@ pub mod tests {
         assert_eq!(bridge.release(None), vec!["com5"]);
     }
 
+    /// With nothing drawn yet there are no frames to report.
     #[test]
     fn frames_are_empty_before_anything_is_drawn() {
         let (_, bridge) = bridge();
         assert_eq!(bridge.frames(), obj(json!({"frames": {}})));
     }
 
+    /// Huge, negative and non-numeric timeouts are handled without panicking.
     #[test]
     fn odd_timeouts_are_clamped_not_a_panic() {
         let (_, bridge) = bridge();
@@ -255,6 +290,7 @@ pub mod tests {
         }
     }
 
+    /// Text that isn't hex is refused.
     #[test]
     fn bad_hex_is_an_error() {
         let (_, bridge) = bridge();

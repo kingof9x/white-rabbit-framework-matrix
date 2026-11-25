@@ -8,10 +8,14 @@
 //! `multiprocessing.connection` (`wire.rs`). Then the window sends one JSON object and gets one JSON
 //! object back with "ok"; one request per connection.
 
+/// The window's direct panel access: raw serial commands, and holding/releasing panels.
 pub mod bridge;
+/// What each request ("cmd") does.
 pub mod commands;
+/// Python's message framing and the key handshake.
 pub mod wire;
 
+/// The Windows named pipe server.
 #[cfg(windows)]
 pub mod pipe;
 
@@ -24,20 +28,26 @@ use wire::MessageStream;
 use wr_core::{error, info, warn};
 
 /// The longest request taken, as in Python.
+/// 16 MB; a bigger request is refused before it is read into memory.
 const MAX_REQUEST: usize = 16 * 1024 * 1024;
 
 /// Answers one request. Err(text) becomes {"ok": false, "error": text}.
 pub trait Handler: Send + Sync {
+    /// Called on the control thread for each request that passed the handshake. `message` is the
+    /// request's JSON object (with "cmd" naming the command).
     fn handle(&self, message: &Map<String, Value>) -> Result<Map<String, Value>, String>;
 }
 
 /// Python's `_user_tag`: the user name with only letters, digits, - and _.
+///
+/// Used in the pipe/socket name so two Windows users on one PC each get their own channel.
 fn user_tag() -> String {
     // getpass.getuser() looks at these in this order
     let name = ["LOGNAME", "USER", "LNAME", "USERNAME"]
         .iter()
         .find_map(|v| std::env::var(v).ok().filter(|s| !s.is_empty()))
         .unwrap_or_else(|| "user".into());
+    // Drop anything that could break a pipe or file name (spaces, slashes, dots ...).
     let tag: String = name.chars().filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_').collect();
     if tag.is_empty() {
         "user".into()
@@ -47,6 +57,9 @@ fn user_tag() -> String {
 }
 
 /// Where the monitor listens, the same name as the Python monitor's.
+///
+/// Windows: `\\.\pipe\WhiteRabbit-<user>`; Linux: `WhiteRabbit-<user>.sock` in XDG_RUNTIME_DIR
+/// (or the temp folder).
 pub fn address() -> String {
     if cfg!(windows) {
         format!(r"\\.\pipe\{}-{}", crate::paths::APP_NAME, user_tag())
@@ -60,7 +73,11 @@ pub fn address() -> String {
 }
 
 /// A new random key in control.key, which the window reads to connect.
+///
+/// 32 random bytes, written fresh at every start, so a key from an earlier run is useless. Err if
+/// the folder or the file can't be written; the control channel then doesn't start.
 pub fn new_key() -> io::Result<Vec<u8>> {
+    // A new key on every start: a window must read the current file to get in.
     let key = wire::random_bytes(32)?;
     let path = crate::paths::control_key_file();
     if let Some(dir) = path.parent() {
@@ -76,7 +93,11 @@ pub fn new_key() -> io::Result<Vec<u8>> {
 }
 
 /// The reply to one request (already past the handshake), as Python's `serve` makes it.
+///
+/// Never fails: a request that isn't a JSON object, or a handler error, becomes `{"ok": false,
+/// "error": ...}`. A successful reply gets `"ok": true` unless the handler set "ok" itself.
 pub fn reply_to(handler: &dyn Handler, request: &[u8]) -> Value {
+    // The request must be a JSON object such as {"cmd": "status"}.
     let message = match serde_json::from_slice::<Value>(request) {
         Ok(Value::Object(m)) => m,
         Ok(_) => return json!({"ok": false, "error": "the request isn't a JSON object"}),
@@ -84,6 +105,7 @@ pub fn reply_to(handler: &dyn Handler, request: &[u8]) -> Value {
     };
     match handler.handle(&message) {
         Ok(mut reply) => {
+            // A handler may set "ok": false itself (a refusal that isn't an error); that is kept.
             reply.entry("ok").or_insert(Value::Bool(true));
             Value::Object(reply)
         }
@@ -96,14 +118,21 @@ pub fn reply_to(handler: &dyn Handler, request: &[u8]) -> Value {
 }
 
 /// One connection: the handshake, one request, one reply.
+///
+/// Err when the handshake fails (wrong key), the request is too big, or the connection breaks;
+/// in that case no reply is sent and the caller just logs it and waits for the next client.
 pub fn serve_connection(conn: &mut dyn MessageStream, key: &[u8], handler: &dyn Handler) -> io::Result<()> {
     wire::server_handshake(conn, key)?;
+    // Only after both sides proved the key is the request read.
     let request = conn.recv_message(MAX_REQUEST)?;
     let reply = reply_to(handler, &request);
     conn.send_message(reply.to_string().as_bytes())
 }
 
 /// Starts the thread that answers the window. False when the channel can't be set up (logged).
+///
+/// Called once from `app::run`. Writes a new key, then starts the `control` thread on the pipe (or
+/// socket). Without a control channel the monitor still runs; only the window can't talk to it.
 pub fn serve(handler: std::sync::Arc<dyn Handler>) -> bool {
     let key = match new_key() {
         Ok(k) => k,
@@ -137,6 +166,8 @@ pub mod unix {
     use std::os::unix::net::UnixListener;
     use std::sync::Arc;
 
+    /// Binds the socket (removing a stale one from an earlier run) and makes it readable and writable
+    /// by this user only.
     pub fn listen(addr: &str) -> io::Result<UnixListener> {
         let _ = std::fs::remove_file(addr);
         let listener = UnixListener::bind(addr)?;
@@ -144,7 +175,10 @@ pub mod unix {
         Ok(listener)
     }
 
+    /// Answers clients one at a time, forever. A client gets 10 s per read, so a silent one can't block
+    /// the others for long.
     pub fn run(listener: UnixListener, key: Vec<u8>, handler: Arc<dyn Handler>) {
+        // One client at a time; a failed accept is skipped.
         for stream in listener.incoming() {
             let Ok(stream) = stream else { continue };
             let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(10)));
@@ -154,6 +188,7 @@ pub mod unix {
         }
     }
 
+    /// Binds the socket here (so errors reach the caller), then answers on the `control` thread.
     pub fn serve(addr: &str, key: Vec<u8>, handler: Arc<dyn Handler>) -> io::Result<()> {
         let listener = listen(addr)?;
         std::thread::Builder::new().name("control".into()).spawn(move || run(listener, key, handler))?;
@@ -165,6 +200,7 @@ pub mod unix {
 mod tests {
     use super::*;
 
+    /// A handler that echoes the request, or fails / refuses for the "fail" / "refuse" commands.
     struct Echo;
     impl Handler for Echo {
         fn handle(&self, m: &Map<String, Value>) -> Result<Map<String, Value>, String> {
@@ -176,6 +212,8 @@ mod tests {
         }
     }
 
+    /// "ok": true is added to plain replies, a handler's own "ok": false is kept, and errors become
+    /// "ok": false with the error text.
     #[test]
     fn replies_get_ok_unless_they_say_otherwise() {
         assert_eq!(reply_to(&Echo, br#"{"cmd": "x", "n": 1}"#), json!({"cmd": "x", "n": 1, "ok": true}));
@@ -184,6 +222,7 @@ mod tests {
         assert_eq!(reply_to(&Echo, b"[1]")["ok"], json!(false));
     }
 
+    /// The address has the same "WhiteRabbit-<user>" form as the Python monitor's.
     #[test]
     fn the_address_matches_python() {
         let a = address();
@@ -195,6 +234,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_real_python_client_connects() {
+        // The script below connects as the window's Python code would, checks a big round trip, a
+        // wrong key being refused, and the old (Python 3.11) handshake done by hand.
         let python = std::env::var("WR_TEST_PYTHON").unwrap_or_else(|_| "python3".into());
         if std::process::Command::new(&python).arg("-V").output().is_err() {
             eprintln!("no {python}; skipping");
@@ -206,6 +247,7 @@ mod tests {
         let key = wire::random_bytes(32).unwrap();
         let listener = unix::listen(&addr).unwrap();
         let k = key.clone();
+        // The server runs on its own thread until the test process ends.
         std::thread::spawn(move || unix::run(listener, k, std::sync::Arc::new(Echo)));
         let hex: String = key.iter().map(|b| format!("{b:02x}")).collect();
         let script = r##"
@@ -257,14 +299,17 @@ mod fuzz {
     use super::*;
     use std::collections::VecDeque;
 
+    /// A tiny xorshift random number generator, so the fuzz tests are repeatable without a crate.
     struct Rng(u64);
     impl Rng {
+        /// The next pseudo-random number (xorshift64: three shifts and XORs).
         fn next(&mut self) -> u64 {
             self.0 ^= self.0 << 13;
             self.0 ^= self.0 >> 7;
             self.0 ^= self.0 << 17;
             self.0
         }
+        /// `n` pseudo-random bytes.
         fn bytes(&mut self, n: usize) -> Vec<u8> {
             (0..n).map(|_| self.next() as u8).collect()
         }
@@ -277,10 +322,12 @@ mod fuzz {
     }
 
     impl wire::MessageStream for Scripted {
+        /// Records what the monitor sends.
         fn send_message(&mut self, data: &[u8]) -> io::Result<()> {
             self.sent.push(data.to_vec());
             Ok(())
         }
+        /// Hands out the next scripted message; end of script reads as the client hanging up.
         fn recv_message(&mut self, max: usize) -> io::Result<Vec<u8>> {
             let m = self.script.pop_front().ok_or(io::ErrorKind::UnexpectedEof)?;
             if m.len() > max {
@@ -290,6 +337,7 @@ mod fuzz {
         }
     }
 
+    /// A handler that echoes every request back.
     struct Echo;
     impl Handler for Echo {
         fn handle(&self, m: &Map<String, Value>) -> Result<Map<String, Value>, String> {
@@ -297,8 +345,11 @@ mod fuzz {
         }
     }
 
+    /// 5000 random handshakes: all fail, none panics, and none gets more than the challenge (and
+    /// maybe #FAILURE#) back.
     #[test]
     fn garbage_handshakes_are_refused_without_panicking() {
+        // Fixed seeds make every run test the same inputs, so a failure can be reproduced.
         let key = b"the key".to_vec();
         let mut rng = Rng(0xA5A5_1234_5678_9ABC);
         for _ in 0..5000 {
@@ -312,6 +363,7 @@ mod fuzz {
                 }
                 messages.push_back(m);
             }
+            // 0-3 random messages: never a valid answer to our random challenge.
             let mut client = Scripted { script: messages, sent: vec![] };
             let result = serve_connection(&mut client, &key, &Echo);
             assert!(result.is_err(), "random bytes passed the handshake");
@@ -320,6 +372,7 @@ mod fuzz {
         }
     }
 
+    /// 20000 random or damaged requests: each gets a JSON reply with a boolean "ok".
     #[test]
     fn random_requests_get_a_json_reply() {
         let mut rng = Rng(0x0123_4567_89AB_CDEF);
@@ -329,6 +382,7 @@ mod fuzz {
             r#"{"cmd": "hold", "ports": ["COM4"], "pid": 1}"#,
         ];
         for i in 0..20_000 {
+            // Half pure noise, half real-looking requests with a few bytes damaged.
             let request = if i % 2 == 0 {
                 let len = (rng.next() % 200) as usize;
                 rng.bytes(len)
@@ -345,6 +399,7 @@ mod fuzz {
         }
     }
 
+    /// Bad length headers give errors rather than huge allocations or hangs.
     #[test]
     fn oversized_and_broken_frames_are_refused() {
         // A 4-byte length saying 2 GB, a negative length, a short body: errors, not allocations or hangs

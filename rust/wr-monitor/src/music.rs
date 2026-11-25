@@ -1,6 +1,13 @@
 //! Music mode and the audio visualizer app: a drawing thread per panel that listens to the sound and
 //! hands a frame to the panel every 30 ms. A port of `run_equalizer` in
 //! `led_mon/plugins/equalizer_plugin.py` and `Equalizer.run` in `led_mon/equalizer_files/visualize.py`.
+//!
+//! `Music` is owned by the main loop (`monitor.rs`), which calls `ensure` each pass for a panel that
+//! should show a visualizer and `stop` when it shouldn't. Each visualizer is its own `music-0` /
+//! `music-1` thread: it takes sound samples from `wr_music::capture` (which runs its own recording
+//! threads), turns them into a picture with `MusicPanel`, and puts the frame straight into that
+//! panel's `FrameQueue`, bypassing the main loop's 10-a-second pace. The main loop shares two values
+//! with the threads through atomics: the LED brightness (`foreground`) and `held`.
 
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Arc, Mutex};
@@ -13,6 +20,7 @@ use wr_core::{error, info};
 use wr_music::{capture, to_leds, MusicPanel, Settings};
 
 /// How often a frame is drawn (Python's UPDATE_RATE: about 33 a second).
+/// The thread sleeps whatever is left of these 30 ms after drawing, so the pace stays even.
 pub const FRAME_EVERY: Duration = Duration::from_millis(30);
 /// After the sound can't be opened, wait this long before trying again.
 const RETRY_AFTER: Duration = Duration::from_secs(30);
@@ -20,23 +28,36 @@ const RETRY_AFTER: Duration = Duration::from_secs(30);
 pub const IDLE_AFTER_SEC: f64 = 4.0;
 
 /// What a panel's visualizer hears, for the window's Audio tab.
+///
+/// Written by the visualizer thread every frame, read by the control thread via `Music::hearing`.
 #[derive(Clone, Default)]
 struct Hearing {
+    /// The name of the sound device being listened to, once known.
     device: Option<String>,
+    /// A problem the capture reports (e.g. the device went away), shown to the user.
     problem: Option<String>,
+    /// How loud the sound is, as the visualizer measures it (for the Audio tab's meter).
     loudness: i64,
+    /// True while the visualizer counts the sound as silence (and shows its idle look).
     silent: bool,
+    /// What is listened to: the input mode's name (e.g. what the PC plays, or a microphone).
     input: String,
 }
 
+/// One running visualizer thread and what is needed to stop it.
 struct Running {
+    /// The settings it was started with; a change restarts it.
     settings: Settings,
+    /// Set to ask the thread to finish its current frame and end.
     stop: Arc<AtomicBool>,
+    /// The thread; None if it couldn't be started.
     thread: Option<JoinHandle<()>>,
+    /// The latest `Hearing`, None until the first frame.
     hearing: Arc<Mutex<Option<Hearing>>>,
 }
 
 impl Running {
+    /// Stops the thread and waits for it (at most one 30 ms frame plus releasing the sound device).
     fn end(mut self) {
         self.stop.store(true, Ordering::SeqCst);
         if let Some(t) = self.thread.take() {
@@ -47,7 +68,9 @@ impl Running {
 
 /// The visualizers running now, one place per panel (0 left, 1 right).
 pub struct Music {
+    /// The visualizer on each side, if one runs.
     sides: [Option<Running>; 2],
+    /// Per side, no new start before this time (after the sound couldn't be opened).
     retry_after: [Option<Instant>; 2],
     /// The brightness of lit LEDs, set by the main loop every pass.
     pub foreground: Arc<AtomicI32>,
@@ -55,6 +78,7 @@ pub struct Music {
     pub held: Arc<AtomicBool>,
 }
 
+// Nothing runs at first; full brightness until the main loop sets it.
 impl Default for Music {
     fn default() -> Self {
         Music {
@@ -67,6 +91,7 @@ impl Default for Music {
 }
 
 impl Music {
+    /// True while a visualizer is (or was started) on `side` (0 left, 1 right).
     pub fn running(&self, side: usize) -> bool {
         self.sides[side].is_some()
     }
@@ -74,6 +99,7 @@ impl Music {
     /// Keeps a visualizer with these settings drawing on this panel: starts one, or starts it again
     /// when the settings changed.
     pub fn ensure(&mut self, side: usize, settings: &Settings, queue: &Arc<FrameQueue>) {
+        // A thread that ended by itself failed to open the sound (it only ends early on that).
         if let Some(r) = &self.sides[side] {
             let ended = r.thread.as_ref().is_some_and(|t| t.is_finished());
             if r.settings == *settings && !ended {
@@ -102,12 +128,14 @@ impl Music {
         self.sides[side] = Some(Running { settings: settings.clone(), stop, thread, hearing });
     }
 
+    /// Stops the visualizer on `side`, if any, and waits for its thread to end.
     pub fn stop(&mut self, side: usize) {
         if let Some(r) = self.sides[side].take() {
             r.end();
         }
     }
 
+    /// Stops both visualizers.
     pub fn stop_all(&mut self) {
         self.stop(0);
         self.stop(1);
@@ -131,12 +159,16 @@ impl Music {
     }
 }
 
+/// No visualizer thread outlives the `Music` that started it.
 impl Drop for Music {
     fn drop(&mut self) {
         self.stop_all();
     }
 }
 
+/// The body of a `music-N` thread: open the sound, then draw a frame every 30 ms until `stop` is set,
+/// then release the sound. If the sound can't be opened it logs an error and returns at once (which
+/// `ensure` notices and retries 30 s later).
 fn draw(
     side: usize,
     settings: Settings,
@@ -160,11 +192,13 @@ fn draw(
         ["left", "right"][side],
         input.as_str()
     );
+    // `side == 1`: the right panel; some styles mirror or continue the picture across the two panels.
     let mut panel = MusicPanel::new(&settings, side == 1, IDLE_AFTER_SEC);
     let mut last = Instant::now();
     let mut first = true;
     while !stop.load(Ordering::SeqCst) {
         let started = Instant::now();
+        // Seconds since the last frame, so animations run at the same speed even if a frame is late.
         let dt = started.duration_since(last).as_secs_f64();
         last = started;
         let frame = panel.frame(&sound.snapshot_f64(), dt);
@@ -175,9 +209,12 @@ fn draw(
             silent: panel.is_silent(),
             input: input.as_str().to_string(),
         });
+        // While held (the panel names are showing) the frame is computed but not sent, so the
+        // picture carries on smoothly when the hold ends.
         if !held.load(Ordering::SeqCst) {
             let grid = to_leds(&frame, foreground.load(Ordering::SeqCst));
             // The panel's own scrolling goes off once, with the first frame
+            // `Some(false)` turns the panel's own scrolling off with this frame; `None` leaves it as is.
             queue.put(Item::Frame(grid, if first { Some(false) } else { None }));
             first = false;
         }

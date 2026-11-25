@@ -8,6 +8,10 @@
 //!     can't run, the port picked on the Effects tab the last time is used.
 //!   - A USB device: a port picked for it on the Effects tab (remembered by the USB root port the
 //!     device is on), else the side of the laptop Windows reports for the port (ACPI _PLD), else unknown.
+//!
+//! Threads: `PlugWatcher`'s methods are called from the `plug-events` thread (plugwin.rs). The `fire`
+//! callback (built in `app.rs`) then starts the ripple/drain effect on the panels and stores the event
+//! for the window. A position is written like "left", "right-back" or "left-middle".
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
@@ -15,14 +19,20 @@ use std::time::Instant;
 
 use serde_json::{json, Value};
 
+/// Framework's USB vendor id; with a product id it identifies Framework's own modules.
 pub const FRAMEWORK_VID: u16 = 0x32AC;
+/// Product id of the Framework audio expansion card (the headphone jack).
 const AUDIO_CARD_PID: u16 = 0x0010;
 /// Devices arriving right after waking up are the ones that were already there.
 const QUIET_AFTER_RESUME_SEC: f64 = 10.0;
 /// A hub or dock brings several devices at once: one ripple per side for those.
 const SAME_SIDE_GAP_SEC: f64 = 1.5;
 
+/// Turns a device interface path (what WM_DEVICECHANGE reports) into the device's instance id (what
+/// the device properties are looked up by), e.g.
 /// `\\?\USB#VID_32AC&PID_0010#123#{a5dcbf10-...}` -> `USB\VID_32AC&PID_0010\123`.
+/// The `{...}` at the end is the interface class GUID and is dropped; the result is upper case so ids
+/// compare equal however Windows cased them. None for an empty name.
 pub fn instance_id_from_interface(name: &str) -> Option<String> {
     if name.is_empty() {
         return None;
@@ -40,6 +50,8 @@ pub fn instance_id_from_interface(name: &str) -> Option<String> {
     Some(text.replace('#', "\\").to_uppercase())
 }
 
+/// The USB vendor and product id in an instance id such as `USB\VID_32AC&PID_0010\...` (hex digits).
+/// None when the id has no `VID_xxxx&PID_xxxx` part (not a USB device).
 pub fn vid_pid(instance_id: &str) -> Option<(u16, u16)> {
     let upper = instance_id.to_uppercase();
     let v = upper.find("VID_")?;
@@ -52,6 +64,7 @@ pub fn vid_pid(instance_id: &str) -> Option<(u16, u16)> {
 
 /// Framework input modules (keyboards, numpad, macropad, LED matrix): moving them isn't plugging anything in.
 pub fn is_ignored(instance_id: &str) -> bool {
+    // Framework's input-module product ids are 0x0012-0x002F; the audio card (0x0010) is not ignored.
     matches!(vid_pid(instance_id), Some((FRAMEWORK_VID, pid)) if (0x0012..0x0030).contains(&pid))
 }
 
@@ -66,12 +79,15 @@ pub fn display_key(instance_id: &str, location_paths: &[String]) -> String {
     location_paths.first().map(|p| p.to_uppercase()).unwrap_or_else(|| instance_id.to_uppercase())
 }
 
+/// True for the Framework audio expansion card, whose plug events count as "headphones".
 pub fn is_audio_card(instance_id: &str) -> bool {
     vid_pid(instance_id) == Some((FRAMEWORK_VID, AUDIO_CARD_PID))
 }
 
 /// The USB root port a device is on, from its location paths:
 /// `PCIROOT(0)#PCI(0801)#PCI(0004)#USBROOT(0)#USB(2)#USB(1)` -> `...#USBROOT(0)#USB(2)`.
+/// Anything plugged into the same physical port (directly or through a hub) gets the same key, which
+/// is what the Effects tab's learned ports are stored by. None when no path goes through USB.
 pub fn location_key(location_paths: &[String]) -> Option<String> {
     for path in location_paths {
         let upper = path.to_uppercase();
@@ -83,6 +99,7 @@ pub fn location_key(location_paths: &[String]) -> Option<String> {
         let Some(end) = port.find(')') else { continue };
         let digits = &port[..end];
         let root_digits = &after_root["#USBROOT(".len()..close];
+        // Both numbers must be plain digits; otherwise this path is malformed, try the next one.
         if digits.is_empty()
             || !digits.chars().all(|c| c.is_ascii_digit())
             || root_digits.is_empty()
@@ -90,17 +107,23 @@ pub fn location_key(location_paths: &[String]) -> Option<String> {
         {
             continue;
         }
+        // Everything up to and including the first `#USB(n)` after `#USBROOT(m)`.
         return Some(upper[..root + close + 1 + "#USB(".len() + end + 1].to_string());
     }
     None
 }
 
 /// Which side of the laptop an ACPI _PLD buffer puts a port on, and its raw numbers for the log.
+///
+/// _PLD ("physical location of device") is a packed bit field from the laptop's firmware. Bits 67-69
+/// are the panel (2 = left side, 3 = right side; others are top/bottom/front/back/unknown), bits 70-71
+/// the vertical and 72-73 the horizontal position. Buffers shorter than 10 bytes don't reach those bits.
 pub fn pld_panel(buffer: Option<&[u8]>) -> (Option<&'static str>, Option<Value>) {
     let Some(buffer) = buffer.filter(|b| b.len() >= 10) else { return (None, None) };
     let mut bytes = [0u8; 16];
     let n = buffer.len().min(16);
     bytes[..n].copy_from_slice(&buffer[..n]);
+    // The first 16 bytes as one little-endian 128-bit number, so a bit field is just a shift and mask.
     let bits = u128::from_le_bytes(bytes);
     let panel = ((bits >> 67) & 0x7) as u8;
     let vertical = ((bits >> 70) & 0x3) as u8;
@@ -114,6 +137,10 @@ pub fn pld_panel(buffer: Option<&[u8]>) -> (Option<&'static str>, Option<Value>)
 }
 
 /// The port charging the laptop from `framework_tool --pd-info` output, as "right-back" etc.
+///
+/// The tool prints one block per port, a `USB-C Port N (Right Back):` header then a `Role:` line;
+/// the laptop is charging from the port whose role is "Sink". None if no port is a sink or the
+/// output isn't understood.
 pub fn parse_pd_info(text: &str) -> Option<String> {
     let mut port_name: Option<String> = None;
     for line in text.lines() {
@@ -125,6 +152,7 @@ pub fn parse_pd_info(text: &str) -> Option<String> {
             let after = rest[digits..].trim_start();
             if digits > 0 {
                 if let Some(inner) = after.strip_prefix('(').and_then(|r| r.split(')').next()) {
+                    // Only a header with a closing bracket counts; remember its name for the Role line.
                     if after[1..].contains(')') {
                         port_name = Some(inner.to_string());
                         continue;
@@ -151,6 +179,8 @@ pub fn parse_pd_info(text: &str) -> Option<String> {
 }
 
 /// Where a USB device's port is, and how we know: (position, "learned" | "side" | "unknown").
+///
+/// A port the user taught on the Effects tab wins, then the side from _PLD.
 pub fn resolve_position(
     key: Option<&str>,
     learned: &BTreeMap<String, String>,
@@ -166,10 +196,15 @@ pub fn resolve_position(
 }
 
 /// What Windows says about a USB device.
+///
+/// Read by plugwin.rs from the Windows device properties.
 #[derive(Clone, Debug, Default)]
 pub struct DeviceProps {
+    /// DEVPKEY_Device_LocationPaths: the device's place in the bus tree (see `location_key`).
     pub location_paths: Vec<String>,
+    /// The raw ACPI _PLD buffer of its port, if the firmware gives one.
     pub pld: Option<Vec<u8>>,
+    /// A friendly name ("USB Mass Storage Device"), for the log and the Effects tab.
     pub name: Option<String>,
 }
 
@@ -178,10 +213,15 @@ pub struct DeviceProps {
 pub struct PlugEvent {
     /// "charger", "headphones", "display" or "usb".
     pub kind: &'static str,
+    /// Which port: "left", "right-back" ...; None when unknown.
     pub position: Option<String>,
+    /// True for plugged in, false for unplugged.
     pub plugged_in: bool,
+    /// The device's name (or its instance id when it has none).
     pub name: String,
+    /// What the port is remembered by when the user corrects it (`location_key`, or "charger").
     pub key: Option<String>,
+    /// How the position was found: "learned", "side", "framework_tool", "remembered" or "unknown".
     pub how: &'static str,
 }
 
@@ -193,6 +233,7 @@ impl PlugEvent {
     }
 }
 
+/// A device that is plugged in now, remembered so its unplug event can say where it was.
 #[derive(Clone)]
 struct Present {
     key: Option<String>,
@@ -202,25 +243,36 @@ struct Present {
     kind: &'static str,
 }
 
+/// Everything `PlugWatcher` remembers between messages; behind one mutex.
 #[derive(Default)]
 struct State {
+    /// Instance id -> the device's details, for every device plugged in.
     present: HashMap<String, Present>,
+    /// Last known "on mains power" state; None until known.
     ac_online: Option<bool>,
+    /// Where the charger was found when it was plugged in, used again for its unplug.
     charger_position: Option<String>,
+    /// Seconds (since the watcher was made) until which events are not fired: just after waking up.
     quiet_until: f64,
+    /// Side ("left", "right", None) -> when its last plug-in effect fired, for `SAME_SIDE_GAP_SEC`.
     last_side_time: HashMap<Option<String>, f64>,
 }
 
 /// Decides what each Windows message means. `learned` gives the Effects tab's corrected ports, `fire`
 /// plays the effect.
 pub struct PlugWatcher {
+    /// What is plugged in and the timing state.
     state: Mutex<State>,
+    /// When the watcher was made; times in `State` are seconds since then.
     start: Instant,
+    /// Returns the learned ports (key -> position) from the Effects settings.
     pub learned: Box<dyn Fn() -> BTreeMap<String, String> + Send + Sync>,
+    /// Plays the effect for an event and records it (never called with the state lock held).
     pub fire: Box<dyn Fn(PlugEvent) + Send + Sync>,
 }
 
 impl PlugWatcher {
+    /// A watcher with nothing plugged in yet.
     pub fn new(
         learned: Box<dyn Fn() -> BTreeMap<String, String> + Send + Sync>,
         fire: Box<dyn Fn(PlugEvent) + Send + Sync>,
@@ -228,12 +280,15 @@ impl PlugWatcher {
         PlugWatcher { state: Mutex::default(), start: Instant::now(), learned, fire }
     }
 
+    /// Seconds since the watcher was made.
     fn now(&self) -> f64 {
         self.start.elapsed().as_secs_f64()
     }
 
+    /// Works out kind, key, position and name for a device, plus the raw _PLD numbers for the log.
     fn present_entry(&self, instance_id: &str, props: &DeviceProps) -> (Present, Option<Value>) {
         let display = is_display(instance_id);
+        // A screen is remembered by the graphics output it's on; a USB device by its root port.
         let key = if display {
             Some(display_key(instance_id, &props.location_paths))
         } else {
@@ -253,19 +308,24 @@ impl PlugWatcher {
     }
 
     /// A device that was already there when the monitor started.
+    /// No effect is played; this only lets its later unplug be placed.
     pub fn remember(&self, instance_id: &str, props: &DeviceProps) {
         let (entry, _) = self.present_entry(instance_id, props);
         self.state.lock().unwrap().present.insert(instance_id.to_string(), entry);
     }
 
+    /// Records the power state at start-up without firing anything.
     pub fn set_ac_online(&self, online: Option<bool>) {
         self.state.lock().unwrap().ac_online = online;
     }
 
+    /// The PC just woke up: ignore plug events for the next 10 s, since Windows re-announces
+    /// devices that were plugged in all along.
     pub fn resumed(&self) {
         self.state.lock().unwrap().quiet_until = self.now() + QUIET_AFTER_RESUME_SEC;
     }
 
+    /// A device was plugged in: remember it, log where, and fire a plug-in event.
     pub fn device_arrived(&self, instance_id: &str, props: &DeviceProps) {
         if is_ignored(instance_id) {
             return;
@@ -290,6 +350,8 @@ impl PlugWatcher {
         });
     }
 
+    /// A device was unplugged: fire an unplug event at the port it was on. Devices we never saw
+    /// arrive (or ignored ones) are skipped.
     pub fn device_removed(&self, instance_id: &str) {
         if is_ignored(instance_id) {
             return;
@@ -312,6 +374,8 @@ impl PlugWatcher {
     }
 
     /// The power source changed. `charger_port` asks framework_tool where the charger is (slow).
+    /// Fires only on a real change (Windows repeats power messages); `charger_port` is only called
+    /// when the charger was just plugged in. The state lock is not held while it runs.
     pub fn power_changed(&self, online: Option<bool>, charger_port: impl FnOnce() -> Option<String>) {
         {
             let mut s = self.state.lock().unwrap();
@@ -349,6 +413,8 @@ impl PlugWatcher {
         }
     }
 
+    /// Fires an event unless it falls in the quiet time after waking, or it is a second plug-in on the
+    /// same side within 1.5 s (a dock bringing several devices). Unplugs and the charger always fire.
     fn send(&self, event: PlugEvent) {
         let now = self.now();
         {
@@ -360,6 +426,7 @@ impl PlugWatcher {
                 let side = event
                     .position
                     .as_deref()
+                    // "left-back" -> "left": the side is the part before the dash.
                     .and_then(|p| p.split('-').next())
                     .filter(|s| !s.is_empty())
                     .map(str::to_string);
@@ -369,15 +436,18 @@ impl PlugWatcher {
                 s.last_side_time.insert(side, now);
             }
         }
+        // Outside the lock: the effect code may take other locks, and must not wait on ours.
         (self.fire)(event);
     }
 }
 
+/// Tests for the device id parsing, port finding and event timing.
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::Arc;
 
+    /// The interface path's prefix and class GUID are dropped and `#` becomes `\`.
     #[test]
     fn interface_names_become_instance_ids() {
         assert_eq!(
@@ -387,6 +457,7 @@ mod tests {
         assert_eq!(instance_id_from_interface(""), None);
     }
 
+    /// Framework input modules are ignored, the audio card isn't, other vendors aren't.
     #[test]
     fn input_modules_are_ignored_and_the_audio_card_is_headphones() {
         assert!(is_ignored(r"USB\VID_32AC&PID_0020\X"));
@@ -396,6 +467,7 @@ mod tests {
         assert_eq!(vid_pid("nothing"), None);
     }
 
+    /// Screens are recognised, keyed by their graphics output, and placed by a learned port.
     #[test]
     fn screens_are_displays_remembered_by_their_output() {
         assert!(is_display(r"DISPLAY\GSM5B7F\5&1A2B&0&UID4352"));
@@ -419,6 +491,7 @@ mod tests {
         assert!(!got[1].plugged_in);
     }
 
+    /// The key stops at the root port, skipping paths that don't go through USB.
     #[test]
     fn location_key_is_the_root_port() {
         let paths = vec![
@@ -429,6 +502,7 @@ mod tests {
         assert_eq!(location_key(&["no usb".into()]), None);
     }
 
+    /// The panel bits of _PLD give left/right; a too-short buffer gives nothing.
     #[test]
     fn pld_side() {
         // panel = bits 67-69: 2 is left, 3 is right
@@ -441,6 +515,7 @@ mod tests {
         assert_eq!(pld_panel(Some(&[0u8; 4])).0, None);
     }
 
+    /// The sink port is the charging one; with no sink there is no answer.
     #[test]
     fn pd_info_finds_the_charging_port() {
         let text =
@@ -449,6 +524,7 @@ mod tests {
         assert_eq!(parse_pd_info("USB-C Port 1 (Right Back):\n  Role: Source\n"), None);
     }
 
+    /// A watcher with fixed learned ports that collects fired events in a list.
     fn watcher(learned: BTreeMap<String, String>) -> (Arc<Mutex<Vec<PlugEvent>>>, PlugWatcher) {
         let events = Arc::new(Mutex::new(Vec::new()));
         let e = events.clone();
@@ -456,6 +532,7 @@ mod tests {
         (events, w)
     }
 
+    /// A USB stick's properties on root port `port`.
     fn props(port: u8) -> DeviceProps {
         DeviceProps {
             location_paths: vec![format!("PCIROOT(0)#PCI(0801)#USBROOT(0)#USB({port})#USB(1)")],
@@ -464,6 +541,7 @@ mod tests {
         }
     }
 
+    /// A learned port is used, a second device on the same side right after is not fired, unplug is.
     #[test]
     fn learned_ports_win_and_a_dock_ripples_once_per_side() {
         let key = "PCIROOT(0)#PCI(0801)#USBROOT(0)#USB(2)".to_string();
@@ -478,6 +556,7 @@ mod tests {
         assert!(!ev[1].plugged_in);
     }
 
+    /// The charger fires on a change only, and its unplug reuses the remembered port.
     #[test]
     fn charger_in_and_out() {
         let (events, w) = watcher(BTreeMap::new());
@@ -491,6 +570,7 @@ mod tests {
         assert_eq!((ev[1].position.as_deref(), ev[1].plugged_in), (Some("right-back"), false));
     }
 
+    /// Nothing fires in the first seconds after waking up.
     #[test]
     fn quiet_after_waking_up() {
         let (events, w) = watcher(BTreeMap::new());
