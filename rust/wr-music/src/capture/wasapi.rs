@@ -1,6 +1,19 @@
 //! The Windows sound devices, through WASAPI in shared mode, as Python's `soundcard` package uses it:
 //! 48 kHz float stereo with AUTOCONVERTPCM | SRC_DEFAULT_QUALITY, so Windows converts whatever the
 //! device's own format is. Playback is the default output device's loopback stream.
+//!
+//! Only compiled on Windows. `capture.rs` calls these through the `Backend` trait: the device lookups
+//! from the supervisor thread every few seconds, and `record` on a recorder thread, where it runs
+//! until told to stop or the device fails.
+//!
+//! COM: every WASAPI object is a COM object, and COM must be initialised on each thread that uses it.
+//! Each `Backend` method therefore makes a `Com` guard first, and makes sure every COM object it
+//! creates is released before that guard un-initialises COM (see `default_device`).
+//!
+//! Recording: an `IAudioClient` is opened on the device in shared mode (other programs keep using it)
+//! asking for 48 kHz, 2-channel, 32-bit float. With the LOOPBACK flag on an output device, Windows
+//! hands over a copy of what is being played. `read_loop` then polls the client's capture buffer every
+//! 5 ms, copies the packets out and passes on about 1024 frames at a time.
 
 use std::time::Duration;
 
@@ -19,28 +32,36 @@ use windows::Win32::System::Com::{
 
 use super::{Backend, Device, CHUNK_SIZE, SAMPLE_RATE};
 
+/// Stereo.
 const CHANNELS: u16 = 2;
 /// WAVE_FORMAT_EXTENSIBLE, SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT and KSDATAFORMAT_SUBTYPE_IEEE_FLOAT,
 /// written out to avoid pulling in two large `windows` feature modules for three constants.
 const WAVE_FORMAT_EXTENSIBLE: u16 = 0xFFFE;
+/// Front left (bit 0) and front right (bit 1).
 const STEREO_MASK: u32 = 0x3;
+/// 32-bit float samples (the standard KSDATAFORMAT_SUBTYPE_IEEE_FLOAT GUID).
 const SUBTYPE_IEEE_FLOAT: GUID = GUID::from_u128(0x00000003_0000_0010_8000_00aa00389b71);
 /// WASAPI's buffer, in 100 ns units (200 ms).
 const BUFFER_DURATION: i64 = 2_000_000;
 /// How long to wait between looks at the buffer (a packet is usually 10 ms).
 const POLL: Duration = Duration::from_millis(5);
 
+/// The real `Backend` on Windows; holds nothing, as every call opens what it needs.
 pub(crate) struct Wasapi;
 
 /// COM on this thread, multithreaded. A thread that already has COM another way (e.g. the UI
 /// thread, single-threaded) keeps it, and COM works there too.
 struct Com {
+    /// True if `CoInitializeEx` succeeded here (also when COM was already set up the same way, which
+    /// Windows counts and needs balancing), so `Drop` must un-initialise.
     initialised: bool,
 }
 
 impl Com {
     fn init() -> Self {
         // SAFETY: plain COM call; balanced by CoUninitialize in Drop when it succeeded.
+        // Fails with RPC_E_CHANGED_MODE on a thread already set up single-threaded; COM still works there,
+        // and it must not be un-initialised by us.
         let hr = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
         Com { initialised: hr.is_ok() }
     }
@@ -55,10 +76,12 @@ impl Drop for Com {
     }
 }
 
+/// A Windows error as the message passed up to `capture.rs` (and on to the user).
 fn text(e: windows::core::Error) -> String {
     e.to_string()
 }
 
+/// The object that lists sound devices and finds the defaults.
 fn enumerator() -> windows::core::Result<IMMDeviceEnumerator> {
     // SAFETY: plain COM call on a thread where `Com::init` ran (every caller holds a `Com`).
     unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL) }
@@ -72,6 +95,7 @@ unsafe fn take_string(value: PWSTR) -> String {
     text
 }
 
+/// A device's id and friendly name. Fails if Windows won't give either.
 fn describe(device: &IMMDevice) -> windows::core::Result<Device> {
     // SAFETY: COM calls on a live device; the strings COM hands back are freed by `take_string`.
     unsafe {
@@ -79,6 +103,7 @@ fn describe(device: &IMMDevice) -> windows::core::Result<Device> {
         let store = device.OpenPropertyStore(STGM_READ)?;
         let mut value = store.GetValue(&PKEY_Device_FriendlyName)?;
         let name = PropVariantToStringAlloc(&value).map(|s| take_string(s));
+        // Frees what the property value holds; a failure here can't be acted on, so it is ignored.
         let _ = PropVariantClear(&mut value);
         Ok(Device { id, name: name? })
     }
@@ -101,16 +126,19 @@ fn default_device(flow: windows::Win32::Media::Audio::EDataFlow) -> Result<Devic
 }
 
 impl Backend for Wasapi {
+    /// Windows audio works if the device enumerator can be created.
     fn check_available(&self) -> Result<(), String> {
         let _com = Com::init();
         enumerator().map(|_| ()).map_err(|e| format!("Windows audio isn't available: {e}"))
     }
 
+    /// The default output device for normal use (eConsole), to record through loopback.
     fn default_speaker(&self) -> Result<Device, String> {
         let _com = Com::init();
         default_device(eRender)
     }
 
+    /// Every active capture device. Loopback devices are not capture endpoints, so they don't appear.
     fn microphones(&self) -> Result<Vec<Device>, String> {
         let _com = Com::init();
         let list = || -> windows::core::Result<Vec<Device>> {
@@ -126,6 +154,7 @@ impl Backend for Wasapi {
         result
     }
 
+    /// The default recording device for normal use (eConsole).
     fn default_microphone(&self) -> Result<Device, String> {
         let _com = Com::init();
         default_device(eCapture)
@@ -146,12 +175,16 @@ impl Backend for Wasapi {
     }
 }
 
+/// Opens `device`, starts recording and runs `read_loop` until `keep_going` says stop or a WASAPI
+/// call fails (device unplugged or disabled, for instance), then stops the client. `loopback` records
+/// what an output device plays instead of an input.
 fn record(
     device: &Device,
     loopback: bool,
     keep_going: &dyn Fn() -> bool,
     sink: &mut dyn FnMut(&[f32], usize),
 ) -> windows::core::Result<()> {
+    // Bytes per frame: 2 channels x 4 bytes (32-bit float).
     let block_align = CHANNELS * 4;
     let format = WAVEFORMATEXTENSIBLE {
         Format: WAVEFORMATEX {
@@ -177,6 +210,7 @@ fn record(
     unsafe {
         let endpoint = enumerator()?.GetDevice(&HSTRING::from(device.id.as_str()))?;
         let client: IAudioClient = endpoint.Activate(CLSCTX_ALL, None)?;
+        // A 200 ms buffer (BUFFER_DURATION); the period argument is 0, as shared mode requires.
         client.Initialize(
             AUDCLNT_SHAREMODE_SHARED,
             flags,
@@ -188,6 +222,7 @@ fn record(
         let capture: IAudioCaptureClient = client.GetService()?;
         client.Start()?;
         let result = read_loop(&capture, keep_going, sink);
+        // A failure to stop is ignored: the client is released right after anyway.
         let _ = client.Stop();
         result
     }
@@ -195,14 +230,19 @@ fn record(
 
 /// Polls the capture buffer, handing on CHUNK_SIZE frames at a time. Loopback gives no packets
 /// while nothing plays; the caller's staleness check turns that into silence.
+///
+/// Silent packets (flagged by Windows) are passed on as zeros. Any WASAPI error ends the loop and is
+/// returned, so the supervisor opens the device again.
 fn read_loop(
     capture: &IAudioCaptureClient,
     keep_going: &dyn Fn() -> bool,
     sink: &mut dyn FnMut(&[f32], usize),
 ) -> windows::core::Result<()> {
     let channels = CHANNELS as usize;
+    // Room for two chunks so the usual overshoot past CHUNK_SIZE doesn't reallocate.
     let mut chunk: Vec<f32> = Vec::with_capacity(CHUNK_SIZE * channels * 2);
     while keep_going() {
+        // Drain every packet that is waiting (usually 10 ms each), then sleep for POLL.
         // SAFETY (this loop): GetBuffer gives `frames` frames in the format asked for in `record`,
         // valid until ReleaseBuffer, which is called once per GetBuffer after the data is copied.
         while unsafe { capture.GetNextPacketSize()? } > 0 {
@@ -218,6 +258,7 @@ fn read_loop(
                 chunk.extend_from_slice(unsafe { std::slice::from_raw_parts(data as *const f32, samples) });
             }
             unsafe { capture.ReleaseBuffer(frames)? };
+            // Whole packets are passed on, so a chunk can be a little over CHUNK_SIZE frames.
             if chunk.len() >= CHUNK_SIZE * channels {
                 sink(&chunk, channels);
                 chunk.clear();
