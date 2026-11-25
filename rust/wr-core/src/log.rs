@@ -20,8 +20,12 @@ use std::sync::{Mutex, MutexGuard};
 /// The largest the log file gets before it is moved aside and a new one starts.
 pub const MAX_BYTES: u64 = 1_000_000;
 
+/// The log file's path once `init` has run; `None` means "write to standard error". The lock also
+/// serialises writers, so each line is written whole.
 static FILE: Mutex<Option<PathBuf>> = Mutex::new(None);
 
+/// Takes the global lock. A poisoned lock (a thread panicked while logging) is taken over rather than
+/// panicking again, so logging keeps working for the rest of the program.
 fn file() -> MutexGuard<'static, Option<PathBuf>> {
     FILE.lock().unwrap_or_else(|e| e.into_inner())
 }
@@ -34,6 +38,9 @@ pub fn old_path(path: &Path) -> PathBuf {
 }
 
 /// Moves a log that has grown past `max` bytes aside, so writing starts a new one.
+///
+/// Errors are ignored: if the size cannot be read the file is left alone, and logging must never stop
+/// the program. The previous `.old` file is deleted first because Windows' rename does not overwrite.
 fn rotate_if_full(path: &Path, max: u64) {
     if std::fs::metadata(path).map(|m| m.len() > max).unwrap_or(false) {
         let old = old_path(path);
@@ -46,6 +53,9 @@ fn rotate_if_full(path: &Path, max: u64) {
 }
 
 /// Where to write from now on. Creates the folder, and moves a full log aside.
+///
+/// Called once by each program at start-up, before its threads start. Failures to create the folder
+/// are ignored; writes will then fail quietly too.
 pub fn init(path: PathBuf) {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
@@ -55,6 +65,10 @@ pub fn init(path: PathBuf) {
 }
 
 /// Writes one line: the local time, the level and the message.
+///
+/// Used through the `info!`, `warn!` and `error!` macros below. The global lock is held while the line
+/// is written, so lines from different threads never interleave. Before `init` the line goes to
+/// standard error. A failed write is dropped silently.
 pub fn write(level: &str, message: &str) {
     let line = format!("{} {level}: {message}\n", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
     let guard = file();
@@ -65,6 +79,8 @@ pub fn write(level: &str, message: &str) {
 }
 
 /// Appends a line to the log at `path`, starting a new file first when it is past `max` bytes.
+///
+/// The file is opened and closed for every line (see the file header for why). Errors are ignored.
 fn append(path: &Path, line: &str, max: u64) {
     rotate_if_full(path, max);
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
@@ -72,16 +88,19 @@ fn append(path: &Path, line: &str, max: u64) {
     }
 }
 
+/// Logs a line at level INFO, with `format!` arguments: `info!("panel {} found", name)`.
 #[macro_export]
 macro_rules! info {
     ($($t:tt)*) => { $crate::log::write("INFO", &format!($($t)*)) };
 }
 
+/// Logs a line at level WARNING, with `format!` arguments.
 #[macro_export]
 macro_rules! warn {
     ($($t:tt)*) => { $crate::log::write("WARNING", &format!($($t)*)) };
 }
 
+/// Logs a line at level ERROR, with `format!` arguments.
 #[macro_export]
 macro_rules! error {
     ($($t:tt)*) => { $crate::log::write("ERROR", &format!($($t)*)) };
@@ -91,6 +110,8 @@ macro_rules! error {
 mod tests {
     use super::*;
 
+    /// Proves the size check happens on every write, not just at start-up: the file never grows more than
+    /// one line past the limit, and the full log is kept once as `.old`.
     #[test]
     fn a_full_log_is_moved_aside_while_running() {
         let dir = std::env::temp_dir().join(format!("wr-log-{}", std::process::id()));

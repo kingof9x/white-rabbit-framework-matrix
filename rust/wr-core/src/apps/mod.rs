@@ -6,6 +6,13 @@
 //! Apps that show readings from the computer: disk and network rates, the GPU graph, FPS, now
 //! playing, weather, temperatures and fans. The drawing and the sums are here, so they can be
 //! tested; reading the values from Windows is in `wr-monitor`.
+//!
+//! Where this sits: `render::render_panel` (called on the monitor's main loop for each panel, about
+//! every frame) looks at each app's name. Names in `CONTENT_APPS` and `DATA_APPS` are recognised as
+//! real apps (anything else is drawn as unknown); the data apps are then dispatched to
+//! `render::draw_data_app`, which asks the `Readings` trait for the value and calls the drawing code
+//! in these files. Nothing here reads the system, opens files (except `panel_names::load_panel_names`
+//! and the picture loader) or starts threads, so every function can be unit-tested with fixed values.
 
 pub mod gpu;
 pub mod meters;
@@ -18,18 +25,30 @@ pub mod text;
 pub mod weather;
 
 /// The app names drawn by this module, added to the ones `render.rs` draws itself.
+/// Apps that show the user's own content: "text" (a scrolling or fixed text line) and "snap" (the
+/// Picture app, which shows a built-in picture or a Draw tab drawing). `render.rs` checks this list
+/// to decide whether an app name is known.
 pub const CONTENT_APPS: [&str; 2] = ["text", "snap"];
 
 /// The apps in this module, which `render_panel` can draw.
+/// Each name is matched in `render::draw_data_app`, so a name added here must also get a branch there,
+/// otherwise it would be accepted as known but draw nothing. The fuzz test feeds every name in this
+/// list into random layouts.
 pub const DATA_APPS: [&str; 10] =
     ["disk", "net", "disk-net", "gpu-graph", "fps", "fps-num", "now-playing", "weather", "temp", "fan"];
 
 /// The fps and fps-num apps' reading: frames a second, the last 9 readings (newest first) for the
 /// histogram, and whether it can be measured at all ("?" when not).
+/// The value is filled in by `wr-monitor` (which counts presented frames of a process) and passed to
+/// `drawing::draw_fps` / `draw_fps_half`.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Fps {
+    /// Frames a second right now. Only meaningful when `available` is true.
     pub value: f64,
+    /// Recent readings, newest first, at most 9 (one per column of the histogram on the 9-wide panel).
     pub history: Vec<f64>,
+    /// False when no frame rate can be measured (no game running, or the counter is missing); the app
+    /// then draws "?" instead of a number.
     pub available: bool,
 }
 
@@ -43,7 +62,9 @@ mod tests {
     use crate::render::{render_panel, Readings};
     use crate::Grid;
 
+    /// A fake `Readings` with fixed values, so the tests below know exactly what each app must draw.
     struct Fixed {
+        /// Whether the fake media player reports a song as playing (changes what the now-playing app draws).
         playing: bool,
     }
     impl Readings for Fixed {
@@ -92,6 +113,8 @@ mod tests {
         }
     }
 
+    /// Builds a one-panel layout with `top` in the top-left quarter and `bottom` in the bottom-left
+    /// quarter (the right quarters show nothing), and returns what the left panel shows right now.
     fn panel(top: &str, bottom: &str) -> PanelApps {
         let text = format!(
             "duration: 10\nquadrants:\n  top-left:\n  - app:\n    name: {top}\n  bottom-left:\n  - app:\n    name: {bottom}\n  top-right:\n  - app:\n    name: none\n  bottom-right:\n  - app:\n    name: none\n"
@@ -99,12 +122,16 @@ mod tests {
         Rotation::new(Layout::parse(&text).unwrap()).panel(false)
     }
 
+    /// Draws the left panel of that layout with the fake readings, at foreground 160 and background 35
+    /// (the brightness values used throughout the tests).
     fn draw(top: &str, bottom: &str, playing: bool) -> Grid {
         let mut g = Grid::new();
         render_panel(&mut g, &panel(top, bottom), &mut Fixed { playing }, 160, 35);
         g
     }
 
+    /// The disk app draws two bars (read on the left, written on the right) in the top half and the net
+    /// app does the same in the bottom half, each with its own border.
     #[test]
     fn disk_on_top_and_net_below() {
         let mut expected = Grid::new();
@@ -117,6 +144,8 @@ mod tests {
         assert_eq!(draw("disk", "net", false), expected);
     }
 
+    /// Fan bars, temperature numbers, the disk-net combined app and the fps-num number each come out
+    /// exactly as the drawing functions draw them on their own.
     #[test]
     fn fans_temps_and_fps() {
         let mut expected = Grid::new();
@@ -134,6 +163,7 @@ mod tests {
         assert_eq!(draw("disk-net", "fps-num", false), expected);
     }
 
+    /// Without a weather reading (no internet, or not fetched yet) the weather app shows two "?".
     #[test]
     fn no_weather_shows_question_marks() {
         let mut expected = Grid::new();
@@ -141,6 +171,8 @@ mod tests {
         assert_eq!(draw("weather", "none", false), expected);
     }
 
+    /// With nothing playing the now-playing app falls back to a 24-hour clock; with a song playing it
+    /// draws something else that is not blank.
     #[test]
     fn now_playing_shows_the_clock_when_nothing_plays() {
         let mut clock = Grid::new();
