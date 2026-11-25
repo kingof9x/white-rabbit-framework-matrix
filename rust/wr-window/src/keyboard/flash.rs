@@ -100,6 +100,7 @@ pub fn check_uf2(data: &[u8], kind: DeviceKind) -> Result<(), String> {
 #[cfg(windows)]
 pub fn waiting_drives() -> Vec<PathBuf> {
     use windows_sys::Win32::Storage::FileSystem::GetLogicalDrives;
+    // SAFETY: plain call with no arguments.
     let mask = unsafe { GetLogicalDrives() };
     (0..26u32)
         .filter(|i| mask & (1 << i) != 0)

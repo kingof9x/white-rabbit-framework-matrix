@@ -3,6 +3,15 @@
 //! the raw HID message format ([`protocol`]), the combined keyboard + macropad layout ([`layout`]),
 //! the PC-drawn effects ([`effects`]), talking to the devices ([`device`]), the lighting engine
 //! ([`engine`]) and the keyboard picture ([`render`]).
+//!
+//! The engine runs on its own thread (`hid-engine`) and owns the devices: everyone else sends it
+//! [`engine::Command`]s over a channel and reads its status. It finds the keyboard and macropad over
+//! USB HID, sends the lighting (the devices run most effects themselves; PC-drawn effects and the
+//! audio show are drawn here and streamed), and finds them again after an unplug. Only one program
+//! may drive them at a time: the window while it is open, otherwise the monitor (`wr-monitor/src/
+//! keyboard.rs`), handed over with the monitor's "keyboard" control command. Settings are a plain
+//! `key=value` text file ([`settings`]), read forgivingly. [`sim`] is a pretend keyboard and macropad
+//! for `--demo` and the tests.
 
 pub mod audio;
 pub mod builtin;

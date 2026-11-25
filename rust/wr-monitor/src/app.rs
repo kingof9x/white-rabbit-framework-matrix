@@ -28,7 +28,8 @@ pub fn run() -> i32 {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let start = launch::start_from(&args);
     if let Start::Window(args) = &start {
-        // The window, its layout editor and the reports are the Python app's
+        // The window, its layout editor and the reports belong to WhiteRabbitWindow.exe (wr-window):
+        // hand the options over to it and stop
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
         launch::open_window(&args);
         return 0;

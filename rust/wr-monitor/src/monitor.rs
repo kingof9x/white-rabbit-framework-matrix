@@ -172,6 +172,8 @@ pub struct Monitor {
     /// The side showed a preview on the last frame.
     previewed: [bool; 2],
     last_check: Instant,
+    /// settings.json's size and change time when it was last read: it is read again only when they change.
+    settings_stamp: Option<(u64, SystemTime)>,
     /// What each panel last showed from its apps, for the old-TV switch-off.
     last_grids: [Option<Grid>; 2],
     low_battery: LowBattery,
@@ -249,6 +251,7 @@ impl Monitor {
             music_settings: None,
             previewed: [false; 2],
             last_check: Instant::now(),
+            settings_stamp: None,
             last_grids: [None, None],
             low_battery: LowBattery::default(),
         }
@@ -281,10 +284,36 @@ impl Monitor {
         if self.source.changed() {
             self.reload();
         }
-        *self.shared.settings.lock().unwrap() = Settings::load(&crate::paths::settings_file());
+        // Parse settings.json only when it changed (it used to be parsed every second regardless)
+        let file = crate::paths::settings_file();
+        let stamp = std::fs::metadata(&file).ok().and_then(|m| Some((m.len(), m.modified().ok()?)));
+        if stamp.is_none() || stamp != self.settings_stamp {
+            self.settings_stamp = stamp;
+            *self.shared.settings.lock().unwrap() = Settings::load(&file);
+        }
     }
 
     /// One pass of the loop. Returns how long to wait before the next one.
+    ///
+    /// In order:
+    /// 1. requests from the tray and the window: read the layout again, a changed layout file or
+    ///    settings.json (checked once a second), panels given back by the window;
+    /// 2. paused (tray) or the lid closed: play the old-TV switch-off once, send dark frames, and with
+    ///    the lid send the panels to sleep; then wait 250 ms and do nothing else;
+    /// 3. brightness from the screen (or the fixed level), the next apps from the rotation, the
+    ///    visualizers started or stopped (`run_music`), the low-battery message;
+    /// 4. identifying: the panel names, then the apps' names, instead of the apps;
+    /// 5. otherwise each panel's picture: the window's preview if there is one, nothing if a visualizer
+    ///    draws that panel, else its apps drawn from the readings. A panel that now shows other apps
+    ///    gets the slide transition; scrolling on/off is sent only when it changes;
+    /// 6. coming back from off: the old-TV switch-on into the new pictures; then the frames go to the
+    ///    drawing threads' queues. Wait 100 ms.
+    ///
+    /// Nothing here waits for slow hardware: the quick readings (CPU, memory, battery) are taken here,
+    /// the slow ones (sensors, GPU, weather, what's playing) come from background threads, and the
+    /// panels are written by the drawing threads, so a slow sensor or a missing panel can't hold up
+    /// the loop.
+    /// (The old-TV effect is the exception: `play_tv` sleeps between its frames, under a second.)
     pub fn step(&mut self) -> Duration {
         if self.shared.reload.swap(false, Ordering::SeqCst) {
             self.reload();

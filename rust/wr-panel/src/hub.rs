@@ -161,7 +161,12 @@ impl Hub {
     /// so the window's pictures look as it expects.
     pub fn hold(&self, ports: &[String], owner: Option<u32>) -> Vec<String> {
         for name in ports {
-            if let Some(port) = self.open.lock().unwrap().get(&name.to_lowercase()).and_then(Weak::upgrade) {
+            // Held first, so from here on the drawing threads' writes (and their dimming) are dropped;
+            // then the current is reset under the port's lock, after any frame being drawn now
+            self.held.lock().unwrap().insert(name.to_lowercase(), owner);
+            // (The map's lock is let go before the port's: a write can take a while)
+            let port = self.open.lock().unwrap().get(&name.to_lowercase()).and_then(Weak::upgrade);
+            if let Some(port) = port {
                 let mut state = port.lock();
                 if state.dimming.current.is_some_and(|c| c != protocol::FULL_CURRENT) {
                     if let Err(e) = state.write_control(&protocol::global_current(protocol::FULL_CURRENT)) {
@@ -170,7 +175,6 @@ impl Hub {
                 }
                 state.dimming.current = None;
             }
-            self.held.lock().unwrap().insert(name.to_lowercase(), owner);
             info!("The window holds {name}");
         }
         self.held()

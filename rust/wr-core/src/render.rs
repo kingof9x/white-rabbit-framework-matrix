@@ -167,7 +167,10 @@ pub fn render_panel_on(
             }
             "time" => {
                 let (digits, pm) = readings.clock(app);
-                let d: Vec<String> = digits.chars().map(|c| c.to_string()).collect();
+                // Always four characters ("0905"); anything else from a reading is padded or cut, so a
+                // bad clock reading can't stop the main loop
+                let mut d: Vec<String> = digits.chars().take(4).map(|c| c.to_string()).collect();
+                d.resize(4, "0".to_string());
                 let chars: Vec<&str> = vec![&d[0], &d[1], "horiz_colon", &d[2], &d[3]];
                 draw_chars_list(grid, &chars, fg, y);
                 if pm {
@@ -299,7 +302,10 @@ fn draw_data_app(grid: &mut Grid, app: &App, readings: &mut dyn Readings, fg: i3
                 clock_app.args = serde_yaml::Mapping::new();
                 clock_app.args.insert("fmt_24_hour".into(), true.into());
                 let (digits, _) = readings.clock(&clock_app);
-                let d: Vec<String> = digits.chars().map(|c| c.to_string()).collect();
+                // Always four characters ("0905"); anything else from a reading is padded or cut, so a
+                // bad clock reading can't stop the main loop
+                let mut d: Vec<String> = digits.chars().take(4).map(|c| c.to_string()).collect();
+                d.resize(4, "0".to_string());
                 if d.len() == 4 {
                     draw_chars_list(grid, &[&d[0], &d[1], "horiz_colon", &d[2], &d[3]], fg, 0);
                 }

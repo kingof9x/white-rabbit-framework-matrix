@@ -114,10 +114,24 @@ fn strip_bus(location: &str) -> String {
     location[a + 1 + c + 1..].to_string()
 }
 
+/// True if a port's USB `location` (e.g. `1-3.3:x.0`) is the USB position `wanted` (e.g. `1-3.3`, as the
+/// layout file saves it, or the full `1-3.3:x.0`).
+///
+/// Python compares with `startswith`, which also takes `1-3.30:x.0` or a device behind a hub at
+/// `1-3.3.1` for `1-3.3`. Here the position must end where `wanted` ends: at the `:` before the
+/// interface number, or at the end of the string.
+pub fn at_position(location: &str, wanted: &str) -> bool {
+    !wanted.is_empty()
+        && location.len() >= wanted.len()
+        && location.is_char_boundary(wanted.len())
+        && location[..wanted.len()].eq_ignore_ascii_case(wanted)
+        && matches!(location.as_bytes().get(wanted.len()), None | Some(b':'))
+}
+
 fn find_port_at_location(ports: &[PortInfo], location: &str) -> Option<String> {
     ports
         .iter()
-        .find(|p| p.location.as_deref().is_some_and(|l| l.starts_with(location)) && is_led_matrix_port(p))
+        .find(|p| p.location.as_deref().is_some_and(|l| at_position(l, location)) && is_led_matrix_port(p))
         .map(|p| p.device.clone())
 }
 
@@ -172,7 +186,9 @@ pub fn find_panel_port(
             return Some(p.device.clone());
         }
         if let Some(p) = ports.iter().find(|p| {
-            p.location.as_deref().is_some_and(|l| l.starts_with(location)) && is_led_matrix_port(p) && !taken(&p.device)
+            p.location.as_deref().is_some_and(|l| at_position(l, location))
+                && is_led_matrix_port(p)
+                && !taken(&p.device)
         }) {
             return Some(p.device.clone());
         }
@@ -225,6 +241,18 @@ mod tests {
         assert_eq!(usb_ids(r"USB\VID_32AC&PID_0020&MI_00\7&1A2B3C&0&0000"), (Some(0x32AC), Some(0x20), Some(0)));
         assert_eq!(usb_ids(r"USB\VID_8087&PID_0026\5&abc"), (Some(0x8087), Some(0x26), None));
         assert_eq!(usb_ids("ACPI\\PNP0501"), (None, None, None));
+    }
+
+    #[test]
+    fn a_pinned_position_is_that_position_only() {
+        assert!(at_position("1-3.3:x.0", "1-3.3"));
+        assert!(at_position("1-3.3", "1-3.3"));
+        assert!(at_position("1-3.3:x.0", "1-3.3:x.0"));
+        assert!(!at_position("1-3.30:x.0", "1-3.3"), "port 30 is not port 3");
+        assert!(!at_position("1-3.3.1:x.0", "1-3.3"), "a device behind a hub at 1-3.3");
+        assert!(!at_position("1-3.3:x.0", ""));
+        let ports = [port("COM9", Some("1-3.30:x.0")), port("COM5", Some("1-3.3:x.0"))];
+        assert_eq!(find_port_at_location(&ports, "1-3.3").as_deref(), Some("COM5"));
     }
 
     #[test]

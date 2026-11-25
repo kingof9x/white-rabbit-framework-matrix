@@ -43,7 +43,9 @@ impl Bridge {
         let chunks = chunks(message)?;
         let size = message.get("read").and_then(Value::as_u64).unwrap_or(0) as usize;
         let timeout = match message.get("timeout").and_then(Value::as_f64) {
-            Some(t) if t >= 0.0 => Duration::from_secs_f64(t).min(MAX_READ),
+            // Clamped before converting: Duration::from_secs_f64 panics on a value too big for it
+            // (1e300 from a client would otherwise end the whole monitor in a release build)
+            Some(t) if t >= 0.0 => Duration::from_secs_f64(t.min(MAX_READ.as_secs_f64())),
             _ => MAX_READ,
         };
         let reset = message.get("reset_input").and_then(Value::as_bool).unwrap_or(false);
@@ -242,6 +244,15 @@ pub mod tests {
     fn frames_are_empty_before_anything_is_drawn() {
         let (_, bridge) = bridge();
         assert_eq!(bridge.frames(), obj(json!({"frames": {}})));
+    }
+
+    #[test]
+    fn odd_timeouts_are_clamped_not_a_panic() {
+        let (_, bridge) = bridge();
+        for t in [json!(1e300), json!(-1), json!(f64::MAX), json!("x"), json!(null)] {
+            let reply = bridge.serial(&obj(json!({"port": "COM4", "write": "32ac", "read": 1, "timeout": t})));
+            assert!(reply.is_ok(), "{t}: {reply:?}");
+        }
     }
 
     #[test]

@@ -8,6 +8,30 @@
 //!   --diagnose / --list-apps                     print a report and exit
 //!
 //! For screenshots and tests away from Windows: --shoot OUT.png PAGE [SCALE] draws a page into a picture.
+//!
+//! # How the window is put together
+//!
+//! - The pages are Slint markup in `ui/` (compiled into Rust by `build.rs` and `include_modules!`);
+//!   the Rust side of each page is in `src/pages/`. `build` makes the window, then `app::wire` and
+//!   `pages::wire` connect every callback.
+//! - One UI thread runs the Slint event loop. Slint objects may only be touched there, so work that
+//!   can take time (talking to the panels or the monitor, reading firmware, downloads) runs on a
+//!   worker thread through `app::Ctx::in_background`, which hands its result back to the UI thread
+//!   with `upgrade_in_event_loop`. Timers (`Ctx::every`, `Ctx::after`) also run on the UI thread.
+//! - Long-running panel work (a game, a Math picture, the clock) is a job (`jobs.rs`): one thread
+//!   per job with a stop flag. Starting a job on a panel stops the one before it there.
+//! - The panels: while the monitor runs it has their serial ports open, so the window sends panel
+//!   commands through the monitor's control channel (`link.rs`), and borrows panels with "hold" /
+//!   "release" while it draws on them (`panels.rs`: `Sender`, `Lender`). Without a monitor the window
+//!   opens the ports itself. Closing the window gives borrowed panels back; if the window crashes the
+//!   monitor notices the dead process id within 2 seconds and takes them back.
+//! - The keyboard and macropad (`keyboard/`): while the window is open it drives them itself and tells
+//!   the monitor to stop ("keyboard" command with "hold"); on close it hands them back.
+//! - Settings are the same `settings.json` and layout file the monitor reads (`settings.rs`,
+//!   `paths.rs`); the monitor picks up a saved change within a second.
+//!
+//! In a release build a panic ends the program (`panic = "abort"` in `Cargo.toml`): the panic hook in
+//! `main` writes it to WhiteRabbit-window.log first.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 // Style lints we choose not to follow: callback types are spelled out where they are used, and some
 // loops index several arrays at once.
