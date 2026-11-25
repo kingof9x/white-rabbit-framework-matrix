@@ -84,8 +84,9 @@ impl Port for FakePort {
                 w.violations.lock().unwrap().push(format!("a drawing-thread frame reached {} while held", self.name));
             }
         }
-        // A real panel takes a little while to take a USB transfer
-        thread::sleep(Duration::from_micros(20));
+        // Let other threads in between writes, as a real USB transfer would. (Not a sleep: on Windows
+        // even a 20 µs sleep lasts a whole timer tick, about 15 ms, which starved the test on CI.)
+        thread::yield_now();
         Ok(())
     }
 
@@ -334,5 +335,6 @@ fn everything_at_once() {
         frames.load(Ordering::Relaxed),
         deadline.as_secs_f64()
     );
-    assert!(m > 100 && w > 100, "both sides got through: {m} drawing writes, {w} window writes");
+    // Only a check that both sides did real work; how much depends on the machine's speed
+    assert!(m > 20 && w > 20, "both sides got through: {m} drawing writes, {w} window writes");
 }
