@@ -68,6 +68,12 @@ fn send_current(port: &mut PortState, value: u8) -> std::io::Result<()> {
 /// range, and the panel's current set to match the brightness (`foreground`). Otherwise the grid as
 /// it was, and the panel's current back to full if it was lowered.
 pub fn prepare(port: &mut PortState, grid: &Grid, enabled: bool, foreground: i32) -> std::io::Result<Grid> {
+    if port.is_held() {
+        // The window has the panel: the monitor's writes are dropped, so nothing may be recorded as
+        // sent either. (Recording a current that never reached the panel left it at full current with
+        // stretched pixels, too bright, after the window gave it back.)
+        return Ok(grid.clone());
+    }
     if !enabled || foreground <= 0 {
         if port.dimming.current.is_some_and(|c| c != FULL_CURRENT) {
             send_current(port, FULL_CURRENT)?;
@@ -125,6 +131,16 @@ mod tests {
         let out = prepare(&mut new_fw.lock(), &g, false, 80).unwrap();
         assert_eq!(out.get(0, 0), 80);
         assert_eq!(fake.written.lock().unwrap().last().unwrap().1, protocol::global_current(255));
+
+        // The window borrows the panel (its current goes back to full) and gives it back: the dimmed
+        // current is sent again, not taken as already sent
+        hub.hold(&["COM4".into()], None);
+        assert_eq!(fake.written.lock().unwrap().last().unwrap().1, protocol::global_current(255));
+        prepare(&mut new_fw.lock(), &g, true, 80).unwrap();
+        assert_eq!(new_fw.lock().dimming.current, None, "nothing reaches a held panel");
+        hub.release(None);
+        prepare(&mut new_fw.lock(), &g, true, 80).unwrap();
+        assert_eq!(fake.written.lock().unwrap().last().unwrap().1, protocol::global_current(80));
 
         let old_fw = hub.open("COM5").unwrap();
         let out = prepare(&mut old_fw.lock(), &g, true, 80).unwrap();
