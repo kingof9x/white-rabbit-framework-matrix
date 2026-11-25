@@ -40,6 +40,7 @@ struct Com {
 
 impl Com {
     fn init() -> Self {
+        // SAFETY: plain COM call; balanced by CoUninitialize in Drop when it succeeded.
         let hr = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
         Com { initialised: hr.is_ok() }
     }
@@ -48,6 +49,7 @@ impl Com {
 impl Drop for Com {
     fn drop(&mut self) {
         if self.initialised {
+            // SAFETY: this thread's CoInitializeEx succeeded (`initialised`), so this balances it.
             unsafe { CoUninitialize() };
         }
     }
@@ -58,17 +60,20 @@ fn text(e: windows::core::Error) -> String {
 }
 
 fn enumerator() -> windows::core::Result<IMMDeviceEnumerator> {
+    // SAFETY: plain COM call on a thread where `Com::init` ran (every caller holds a `Com`).
     unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL) }
 }
 
 /// Copies a string COM allocated, and frees it.
 unsafe fn take_string(value: PWSTR) -> String {
+    // SAFETY: the caller passes a null-terminated string COM allocated; it is freed once, here.
     let text = unsafe { value.to_string() }.unwrap_or_default();
     unsafe { CoTaskMemFree(Some(value.0 as *const _)) };
     text
 }
 
 fn describe(device: &IMMDevice) -> windows::core::Result<Device> {
+    // SAFETY: COM calls on a live device; the strings COM hands back are freed by `take_string`.
     unsafe {
         let id = take_string(device.GetId()?);
         let store = device.OpenPropertyStore(STGM_READ)?;
@@ -87,6 +92,7 @@ fn describe(device: &IMMDevice) -> windows::core::Result<Device> {
 /// would only be dropped after the caller's `_com`.
 fn default_device(flow: windows::Win32::Media::Audio::EDataFlow) -> Result<Device, String> {
     let enumerator = enumerator().map_err(text)?;
+    // SAFETY: plain COM call on a live enumerator.
     let device = unsafe { enumerator.GetDefaultAudioEndpoint(flow, eConsole) }.map_err(text)?;
     let described = describe(&device).map_err(text);
     drop(device);
@@ -108,6 +114,7 @@ impl Backend for Wasapi {
     fn microphones(&self) -> Result<Vec<Device>, String> {
         let _com = Com::init();
         let list = || -> windows::core::Result<Vec<Device>> {
+            // SAFETY: COM calls on this thread, where `_com` initialised COM.
             unsafe {
                 let devices = enumerator()?.EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE)?;
                 (0..devices.GetCount()?).map(|i| describe(&devices.Item(i)?)).collect()
@@ -164,6 +171,9 @@ fn record(
     if loopback {
         flags |= AUDCLNT_STREAMFLAGS_LOOPBACK;
     }
+    // SAFETY: COM calls on objects that live through the block; `format` outlives Initialize, which
+    // copies it. AUTOCONVERTPCM makes Windows deliver exactly that format (32-bit float, CHANNELS
+    // channels), which `read_loop` relies on.
     unsafe {
         let endpoint = enumerator()?.GetDevice(&HSTRING::from(device.id.as_str()))?;
         let client: IAudioClient = endpoint.Activate(CLSCTX_ALL, None)?;
@@ -193,6 +203,8 @@ fn read_loop(
     let channels = CHANNELS as usize;
     let mut chunk: Vec<f32> = Vec::with_capacity(CHUNK_SIZE * channels * 2);
     while keep_going() {
+        // SAFETY (this loop): GetBuffer gives `frames` frames in the format asked for in `record`,
+        // valid until ReleaseBuffer, which is called once per GetBuffer after the data is copied.
         while unsafe { capture.GetNextPacketSize()? } > 0 {
             let mut data: *mut u8 = std::ptr::null_mut();
             let mut frames = 0u32;
