@@ -187,7 +187,8 @@ impl Sender {
             if read == 0 {
                 return Ok(Vec::new());
             }
-            let wait = timeout.unwrap_or(MAX_READ_SECONDS).min(MAX_READ_SECONDS);
+            // Never negative or NaN: Duration::from_secs_f64 panics on those
+            let wait = timeout.filter(|t| *t >= 0.0).unwrap_or(MAX_READ_SECONDS).min(MAX_READ_SECONDS);
             p.read(read, Duration::from_secs_f64(wait))
         })();
         drop(p);

@@ -529,7 +529,7 @@ mod tests {
             json!([{"port": "COM5", "writes": ["32ac"]}, {"nope": 1}]),
             json!({"left": [[1]], "right": "x"}),
         ];
-        for _ in 0..3000 {
+        for _ in 0..50_000 {
             let mut m = Map::new();
             m.insert("cmd".into(), json!(cmds[(next() % cmds.len() as u64) as usize]));
             for _ in 0..next() % 5 {
