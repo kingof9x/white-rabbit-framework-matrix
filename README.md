@@ -407,7 +407,7 @@ With [Rust](https://rustup.rs) installed (the version is pinned in
 ```powershell
 git clone https://github.com/kingof9x/white-rabbit-framework-matrix
 cd white-rabbit-framework-matrix\rust
-cargo test                                         # about 320 tests, including every picture against the golden frames
+cargo test                                         # more than 320 tests, including every picture against the golden frames
 cargo build --release -p wr-monitor -p wr-window   # rust\target\release\WhiteRabbit.exe and WhiteRabbitWindow.exe
 ```
 

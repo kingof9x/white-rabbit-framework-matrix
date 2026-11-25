@@ -37,7 +37,7 @@ files on disk, testing) is in [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md).
 
 ```
 cd rust
-cargo test                                        # about 320 tests; drawing checked against the golden frames
+cargo test                                        # more than 320 tests; drawing checked against the golden frames
 cargo build --release -p wr-monitor -p wr-window  # WhiteRabbit.exe and WhiteRabbitWindow.exe
 ```
 

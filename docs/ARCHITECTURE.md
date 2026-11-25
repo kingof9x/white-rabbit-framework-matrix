@@ -142,7 +142,7 @@ Rough size: about 46,000 lines of Rust and 4,500 lines of Slint.
 | `%APPDATA%\WhiteRabbit\keyboard.txt` | Keyboard and macropad settings. Copied once from the old Keyboard Control app's `settings.txt`, which is left alone. |
 | `%APPDATA%\WhiteRabbit\drawings\*.json` | Drawings from the Draw page. |
 | `%APPDATA%\WhiteRabbit\.env` | Optional `OPENWEATHER_API_KEY` for the weather app. |
-| `%LOCALAPPDATA%\WhiteRabbit\WhiteRabbit-monitor.log`, `WhiteRabbit-window.log` | Logs of the monitor and the window. Each starts over when it passes 1 MB. |
+| `%LOCALAPPDATA%\WhiteRabbit\WhiteRabbit-monitor.log`, `WhiteRabbit-window.log` | Logs of the monitor and the window. When one passes 1 MB it is renamed to `.log.old` (one old copy is kept) and a new one starts. |
 | `control.key` (in the log folder) | The control channel's key, new on every monitor start. |
 
 ## Network use
@@ -170,7 +170,7 @@ Temperatures from Framework Control are read from its local service on
   same cases and must match every pixel. To make that possible the Rust code
   reproduces numpy's and Python's random number generators and rounding
   exactly (`nprand.rs`, `pyrand.rs`, `pyround.rs`, `npmath.rs`).
-- **Unit and end-to-end tests** in each crate (about 320 Rust tests), including
+- **Unit and end-to-end tests** in each crate (more than 320 Rust tests), including
   the whole drawing path with made-up panels (`wr-monitor/src/e2e_test.rs`), the
   control channel handshake, panel discovery, and a stress test that drives a
   copy of the keyboard firmware's key logic through thousands of random steps
