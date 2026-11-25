@@ -202,6 +202,9 @@ PresentMon are put together by `windows.yml`; see there for the exact steps.
 ## Known limits
 
 - The exes are not code-signed, so Windows SmartScreen warns on first run.
+- Release builds use `panic = "abort"` (smaller exes): a panic on any thread is
+  written to the log and then ends that program. If the monitor ends, the panels
+  keep their last picture until it is started again.
 - The monitor is Windows only. The Python version in `led_mon/` still runs on
   Linux in a console, but it is not maintained as a product.
 - The small visualizer under the *Now playing* app's cover is not fed yet (the
