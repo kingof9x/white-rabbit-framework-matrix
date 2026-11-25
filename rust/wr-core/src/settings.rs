@@ -14,11 +14,14 @@
 use serde_json::Value;
 use std::path::Path;
 
+/// The settings the monitor acts on, read from `settings.json` by `Settings::load`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Settings {
+    /// Copy the laptop screen's brightness onto the panels (otherwise `brightness_level` is used).
     pub follow_screen_brightness: bool,
     /// 0-100, used when not following the screen.
     pub brightness_level: u8,
+    /// Turn the panels off while the lid is closed.
     pub turn_off_with_lid: bool,
     /// Turn the panels off when the laptop's own screen isn't in use (docked, "Second screen only").
     pub turn_off_when_screen_unused: bool,
@@ -29,6 +32,7 @@ pub struct Settings {
 }
 
 impl Default for Settings {
+    /// The values used for any key that is missing or unreadable; they match the Python defaults.
     fn default() -> Self {
         Settings {
             follow_screen_brightness: true,
@@ -41,9 +45,14 @@ impl Default for Settings {
     }
 }
 
+/// The letters of the global Ctrl+Alt+Shift shortcuts that can be turned off one by one: `i` identify
+/// the panels, `n` next app, `f` freeze, `u` unfreeze, `m` music on/off (handled in `wr-monitor/src/ui.rs`).
 pub const SHORTCUT_LETTERS: [char; 5] = ['i', 'n', 'f', 'u', 'm'];
 
 /// Python's `clamp_level`: a number from 0 to 100, or the default when it isn't a number.
+///
+/// Accepts numbers, numeric strings ("42.5") and booleans (as 0/1), rounds halves to even like Python,
+/// and clamps to 0-100. Anything else (null, a list, NaN, unparseable text) gives the default 70.
 fn clamp_level(v: &Value) -> u8 {
     let n = match v {
         Value::Number(n) => n.as_f64(),
@@ -58,6 +67,8 @@ fn clamp_level(v: &Value) -> u8 {
 }
 
 impl Settings {
+    /// Reads the settings from the text of `settings.json`. Never fails: text that is not a JSON object
+    /// gives all defaults, and each key that is missing keeps its default.
     pub fn from_json(text: &str) -> Settings {
         let mut s = Settings::default();
         let Ok(Value::Object(map)) = serde_json::from_str::<Value>(text) else { return s };
@@ -77,6 +88,8 @@ impl Settings {
             s.tv_effect = truthy(v);
         }
         if let Some(Value::Object(sc)) = map.get("shortcuts") {
+            // The file stores `"shortcuts": {"m": false, ...}` (true = on). A letter is off only when
+            // its key is present and false-ish; a missing letter stays on.
             s.shortcuts_off = SHORTCUT_LETTERS
                 .iter()
                 .copied()
@@ -91,12 +104,16 @@ impl Settings {
         std::fs::read_to_string(path).map(|t| Settings::from_json(&t)).unwrap_or_default()
     }
 
+    /// True unless the user turned off the Ctrl+Alt+Shift shortcut for `letter`.
     pub fn shortcut_on(&self, letter: char) -> bool {
         !self.shortcuts_off.contains(&letter)
     }
 }
 
 /// Python's `bool(value)` for JSON values.
+///
+/// So `0`, `""`, `[]`, `{}` and `null` are false, as in Python, and the file stays compatible with
+/// values the Python version wrote.
 fn truthy(v: &Value) -> bool {
     match v {
         Value::Null => false,
@@ -109,12 +126,19 @@ fn truthy(v: &Value) -> bool {
 }
 
 /// Changes one key in settings.json and keeps every other key as it is (the window writes other keys).
+///
+/// A missing or broken file (or one whose top level is not an object) is replaced by a new object
+/// holding just this key. The new text goes to `settings.json.tmp` first and is then renamed over the
+/// real file, so a reader (the window, or the monitor's once-a-second check) never sees a half-written
+/// file. Returns an I/O error if the folder or file cannot be written. Not locked against the window
+/// writing at the same moment: the last writer wins.
 pub fn save_key(path: &Path, key: &str, value: Value) -> std::io::Result<()> {
     let mut root = std::fs::read_to_string(path)
         .ok()
         .and_then(|t| serde_json::from_str::<Value>(&t).ok())
         .filter(|v| v.is_object())
         .unwrap_or_else(|| Value::Object(Default::default()));
+    // Cannot panic: `root` was filtered to be an object above, or is a new empty object.
     root.as_object_mut().unwrap().insert(key.to_string(), value);
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
@@ -128,6 +152,8 @@ pub fn save_key(path: &Path, key: &str, value: Value) -> std::io::Result<()> {
 mod tests {
     use super::*;
 
+    /// Proves each key is read, loose values are coerced Python-style ("42.5" -> 42, 0 -> false, 900 ->
+    /// 100), unknown keys are ignored and broken JSON gives the defaults.
     #[test]
     fn reads_the_keys_the_monitor_uses() {
         let s = Settings::from_json(
@@ -145,6 +171,7 @@ mod tests {
         assert_eq!(Settings::from_json(r#"{"brightness_level": 900}"#).brightness_level, 100);
     }
 
+    /// Proves `save_key` changes only its key and keeps keys the window owns (here `music`).
     #[test]
     fn saving_one_key_keeps_the_others() {
         let dir = std::env::temp_dir().join(format!("wr-settings-{}", std::process::id()));

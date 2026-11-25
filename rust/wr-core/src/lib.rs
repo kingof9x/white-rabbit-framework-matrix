@@ -29,6 +29,8 @@ pub mod log;
 pub mod monitors;
 pub mod nprand;
 pub mod patterns;
+/// The generated pixel tables behind `patterns` (kept private: other code goes through `patterns`).
+/// Excluded from rustfmt so each picture stays on one line, as the export script writes it.
 #[rustfmt::skip]
 mod patterns_data;
 pub mod plug_looks;
@@ -39,4 +41,6 @@ pub mod render;
 pub mod sand;
 pub mod settings;
 
+/// The grid type and its size are used everywhere, so they are re-exported at the crate root
+/// (`wr_core::Grid`, `wr_core::WIDTH`, `wr_core::HEIGHT`).
 pub use grid::{Grid, HEIGHT, WIDTH};

@@ -6,6 +6,20 @@
 //! drops out of the active screens when Windows only uses an external one. That is checked when
 //! Windows says the screens changed (WM_DISPLAYCHANGE), after the lid opens or closes, and every few
 //! seconds as a safety net.
+//!
+//! # How a Windows "message window" works
+//!
+//! Windows talks to a program through messages sent to its windows. A program registers a window
+//! class with a callback (`window_proc`), creates a window of that class, and then loops on
+//! `GetMessageW` / `DispatchMessageW`; Windows calls `window_proc` for every message. This window is
+//! never shown: it exists only so the tray icon, hotkeys, timers and power notifications have somewhere
+//! to deliver their messages. All of that runs on the process's main thread, inside `run`, which
+//! returns only when the window is destroyed (Quit).
+//!
+//! Other threads must not touch this window's state directly. The control thread instead calls
+//! `request`, which posts a private message (`WM_CONTROL`) into the queue; it is then handled here on
+//! the main thread. What this file changes for the rest of the program is a few flags in
+//! `monitor::Shared` (paused, frozen, next app, power sleep, quit ...), which the main loop reads.
 
 use std::ptr::{null, null_mut};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -41,12 +55,17 @@ use crate::{launch, paths, startup};
 use wr_core::{info, warn};
 use wr_panel::winports::wide;
 
+/// The message the tray icon sends to our window on a click (WM_APP and up are free for programs).
+/// The low 16 bits of lparam say which mouse event it was.
 const WM_TRAY: u32 = WM_APP + 1;
 /// A request from the control channel (see `request`); wparam says which.
 const WM_CONTROL: u32 = WM_APP + 2;
+/// Our id for the one tray icon; Windows identifies an icon by (window, id).
 const TRAY_ID: u32 = 1;
 
 // Menu item ids
+// Each tray menu item has an id; `TrackPopupMenu` returns the id of the item clicked. The numbers have
+// no meaning beyond being distinct and non-zero (0 means "nothing chosen").
 const ID_OPEN: usize = 5;
 const ID_ANIMATION: usize = 10;
 const ID_MUSIC: usize = 14;
@@ -65,29 +84,51 @@ const ID_SCREEN_UNUSED: usize = 31;
 const ID_QUIT: usize = 40;
 
 /// The keyboard shortcuts (Ctrl+Alt+Shift + letter); M turns audio reactivity on or off.
+/// Hotkey ids are the index here plus 1: I identify panels, N next app, F freeze, U unfreeze, M music.
 const HOTKEYS: [char; 5] = ['i', 'n', 'f', 'u', 'm'];
 
+// WM_POWERBROADCAST's wparam values (winuser.h), defined here because windows-sys doesn't group them.
+/// The PC is about to sleep.
 const PBT_APMSUSPEND: usize = 0x0004;
+/// The PC woke up because the user did something.
 const PBT_APMRESUMESUSPEND: usize = 0x0007;
+/// The PC woke up (sent on every resume, user present or not).
 const PBT_APMRESUMEAUTOMATIC: usize = 0x0012;
+/// A power setting we registered for changed; lparam points at a POWERBROADCAST_SETTING.
 const PBT_POWERSETTINGCHANGE: usize = 0x8013;
 
 // Timers for the built-in screen check: the regular one, and one more shortly after a display or lid
 // change, as Windows can finish rearranging the screens later
+/// Timer id of the every-5-seconds check.
 const TIMER_PERIODIC: usize = 1;
+/// Timer id of the one-off check 1.5 s after a change.
 const TIMER_RECHECK: usize = 2;
+/// Period of the safety-net check of the built-in screen and settings, in milliseconds.
 const DISPLAY_CHECK_MS: u32 = 5000;
+/// Delay of the extra check after a display or lid change, in milliseconds.
 const DISPLAY_RECHECK_MS: u32 = 1500;
 
+/// What `window_proc` needs. Windows calls `window_proc` as a plain function with no user data, so
+/// this lives in a global (`UI`), set once in `run` before the window exists.
 struct Ui {
+    /// The flags and settings shared with the main loop and the control thread.
     shared: Arc<Shared>,
+    /// What Windows last said about lid, screen and sleep. Only the main thread uses it; the mutex is
+    /// there because a global must be safe to share.
     power: std::sync::Mutex<PowerState>,
+    /// The "TaskbarCreated" message number, broadcast when Explorer (and so the taskbar) restarts.
     taskbar_created: u32,
 }
 
+/// The tray window's state; empty until `run` sets it.
 static UI: OnceLock<Ui> = OnceLock::new();
 
 /// Takes the White Rabbit single-instance mutex. False when another White Rabbit monitor is running.
+///
+/// A named mutex is a system-wide object: the first process to create the name owns it, and later
+/// `CreateMutexW` calls with the same name succeed but report ERROR_ALREADY_EXISTS. The handle is never
+/// closed, so the name stays taken until this process exits (Windows closes it then, even after a crash).
+/// The Python monitor uses the same name, so the two never run at once.
 pub fn single_instance() -> bool {
     let name = wide(paths::SINGLE_INSTANCE_MUTEX);
     // SAFETY: the handle is kept for the life of the process on purpose.
@@ -97,6 +138,7 @@ pub fn single_instance() -> bool {
     }
 }
 
+/// Shows a modal message box with a warning icon and waits until the user clicks OK.
 pub fn show_error(message: &str) {
     let text = wide(message);
     let title = wide("White Rabbit");
@@ -106,6 +148,8 @@ pub fn show_error(message: &str) {
     }
 }
 
+/// True when Windows uses the light theme for the taskbar (the registry value SystemUsesLightTheme is
+/// non-zero). If it can't be read, the taskbar counts as dark (white icon).
 fn taskbar_is_light() -> bool {
     let key = wide(r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
     let value = wide("SystemUsesLightTheme");
@@ -126,19 +170,25 @@ fn taskbar_is_light() -> bool {
     r == 0 && data != 0
 }
 
+/// Makes a Windows icon of the rabbit at the tray's small-icon size (16 px at 100 % scaling, more on
+/// high-DPI screens). The caller must free it with `DestroyIcon`.
 fn make_icon(lit: bool) -> HICON {
     // SAFETY: plain metric read.
     let size = unsafe { GetSystemMetrics(SM_CXSMICON) }.max(16) as usize;
     let (side, mut rgba) = crate::icon::tray_icon_rgba(size, lit, taskbar_is_light());
     // 1 bit per pixel, each row padded to 2 bytes; all clear, so the alpha channel decides
+    // CreateIcon wants an "AND mask" (the old 1-bit transparency) plus the colour pixels. With a 32-bit
+    // colour image that has alpha, Windows uses the alpha instead, so the mask is all zeros.
     let and_mask: Vec<u8> = vec![0; side.div_ceil(16) * 2 * side];
     for p in rgba.chunks_mut(4) {
+        // Windows bitmaps store blue first.
         p.swap(0, 2); // RGBA -> BGRA
     }
     // SAFETY: both buffers are as big as the icon needs (side x side, 1 bit and 32 bits per pixel).
     unsafe { CreateIcon(null_mut(), side as i32, side as i32, 1, 32, and_mask.as_ptr(), rgba.as_ptr()) }
 }
 
+/// The text shown when the mouse rests on the tray icon.
 fn tooltip(paused: bool) -> String {
     if paused {
         "White Rabbit - Framework 16 LED Control (stopped)".into()
@@ -147,6 +197,7 @@ fn tooltip(paused: bool) -> String {
     }
 }
 
+/// The part of a Shell_NotifyIcon request that names our icon (window + id); callers add the rest.
 fn tray_data(hwnd: HWND) -> NOTIFYICONDATAW {
     // SAFETY: an all-zero NOTIFYICONDATAW is valid; the size is set.
     let mut data: NOTIFYICONDATAW = unsafe { std::mem::zeroed() };
@@ -156,6 +207,8 @@ fn tray_data(hwnd: HWND) -> NOTIFYICONDATAW {
     data
 }
 
+/// Adds (`NIM_ADD`) or refreshes (`NIM_MODIFY`) the tray icon: picture, tooltip, and the message
+/// (`WM_TRAY`) Windows sends us on clicks. The paused state picks a faded or full icon.
 fn update_tray(hwnd: HWND, message: u32) {
     let ui = UI.get().unwrap();
     let paused = ui.shared.paused.load(Ordering::SeqCst);
@@ -164,16 +217,20 @@ fn update_tray(hwnd: HWND, message: u32) {
     data.uCallbackMessage = WM_TRAY;
     data.hIcon = make_icon(!paused);
     let tip = wide(&tooltip(paused));
+    // szTip holds 128 UTF-16 units; copying at most 127 keeps the last one zero (the struct was zeroed).
     data.szTip[..tip.len().min(127)].copy_from_slice(&tip[..tip.len().min(127)]);
     // SAFETY: the struct is filled in above.
     unsafe {
         if Shell_NotifyIconW(message, &data) == 0 && message == NIM_ADD {
             warn!("Windows didn't take the tray icon");
         }
+        // The shell keeps its own copy of the icon, so ours can be freed straight away.
         DestroyIcon(data.hIcon);
     }
 }
 
+/// Opens a file or folder (or starts a program) the way double-clicking it in Explorer would.
+/// Errors are not reported: if Windows can't open it, nothing happens.
 fn open(path: &std::path::Path) {
     let op = wide("open");
     let file = wide(&path.display().to_string());
@@ -183,6 +240,8 @@ fn open(path: &std::path::Path) {
     }
 }
 
+/// Builds the tray's right-click menu with the current check marks, shows it at the mouse and carries
+/// out the chosen item. Blocks (inside TrackPopupMenu) until the menu closes.
 fn show_menu(hwnd: HWND) {
     let ui = UI.get().unwrap();
     let shared = &ui.shared;
@@ -196,6 +255,8 @@ fn show_menu(hwnd: HWND) {
     // SAFETY: the menu is created and destroyed here; strings live until the menu is shown.
     unsafe {
         let menu = CreatePopupMenu();
+        // The UTF-16 strings are kept alive in `texts` until the menu is destroyed, to be safe about
+        // the menu reading them.
         let mut texts = Vec::new();
         let mut add = |flags: u32, id: usize, text: &str| {
             let t = wide(text);
@@ -232,7 +293,10 @@ fn show_menu(hwnd: HWND) {
         GetCursorPos(&mut pt);
         // The menu closes when clicking elsewhere only if the window is in front
         SetForegroundWindow(hwnd);
+        // TPM_RETURNCMD: return the chosen item's id (0 for none) instead of sending WM_COMMAND.
         let chosen = TrackPopupMenu(menu, TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY, pt.x, pt.y, 0, hwnd, null());
+        // Documented workaround: a dummy message after TrackPopupMenu so the menu works right the next
+        // time it is opened.
         PostMessageW(hwnd, WM_NULL, 0, 0);
         DestroyMenu(menu);
         drop(texts);
@@ -242,6 +306,9 @@ fn show_menu(hwnd: HWND) {
     }
 }
 
+/// Carries out a tray menu item (`id` is one of the `ID_*` constants). Also used for Quit requested
+/// by the control channel. Setting toggles are saved to settings.json (one key only, so the window's
+/// other settings are left alone) and copied into `Shared` so the main loop sees them at once.
 fn command(hwnd: HWND, id: usize) {
     let shared = &UI.get().unwrap().shared;
     match id {
@@ -275,12 +342,14 @@ fn command(hwnd: HWND, id: usize) {
             startup::set_enabled(enabled);
             info!("Start with Windows {}", if enabled { "on" } else { "off" });
         }
+        // Shows each panel's side for 3 seconds.
         ID_IDENTIFY => shared.identify(3.0),
         ID_NEXT => shared.next_app.store(true, Ordering::SeqCst),
         ID_FREEZE => {
             let frozen = !shared.frozen.load(Ordering::SeqCst);
             shared.frozen.store(frozen, Ordering::SeqCst);
         }
+        // The folder may not exist yet on a fresh install; create it so Explorer has something to open.
         ID_FOLDER => {
             let _ = std::fs::create_dir_all(paths::config_dir());
             open(&paths::config_dir());
@@ -306,6 +375,8 @@ fn command(hwnd: HWND, id: usize) {
             info!("Turn off when laptop screen isn't used {}", if enabled { "on" } else { "off" });
             apply_power();
         }
+        // Destroying the window sends WM_DESTROY (below), which removes the icon and ends the
+        // message loop, so `run` returns and `app::run` shuts down.
         ID_QUIT => {
             shared.quit.store(true, Ordering::SeqCst);
             // SAFETY: closes our own window, which ends the message loop.
@@ -328,6 +399,8 @@ fn apply_power() {
     ui.shared.power_sleep.store(sleep, Ordering::SeqCst);
 }
 
+/// Feeds one power event into the state and, if that changed anything, logs it and re-applies the
+/// settings. The power lock is released before the settings are read and the flag is stored.
 fn power_event(event: PowerEvent) {
     let ui = UI.get().unwrap();
     let (changed, text) = {
@@ -343,6 +416,9 @@ fn power_event(event: PowerEvent) {
 }
 
 /// The output technology of each screen QueryDisplayConfig lists with these flags, or None on failure.
+///
+/// `flags` is QDC_ONLY_ACTIVE_PATHS (screens showing something now) or QDC_ALL_PATHS (every screen
+/// Windows knows). Windows needs two calls: one for the array sizes, one to fill the arrays.
 fn display_outputs(flags: u32) -> Option<Vec<u32>> {
     const ERROR_INSUFFICIENT_BUFFER: u32 = 122;
     // The screens can change between the two calls
@@ -353,6 +429,7 @@ fn display_outputs(flags: u32) -> Option<Vec<u32>> {
             return None;
         }
         // SAFETY: plain C structs, valid when zeroed.
+        // At least one element each, so the pointers passed are never to empty buffers.
         let mut path_array: Vec<DISPLAYCONFIG_PATH_INFO> = vec![unsafe { std::mem::zeroed() }; paths.max(1) as usize];
         let mut mode_array: Vec<DISPLAYCONFIG_MODE_INFO> = vec![unsafe { std::mem::zeroed() }; modes.max(1) as usize];
         // SAFETY: the arrays are as long as the counts say.
@@ -367,8 +444,10 @@ fn display_outputs(flags: u32) -> Option<Vec<u32>> {
             )
         };
         if result == 0 {
+            // Windows wrote the real count back into `paths`; each path's target is one screen.
             return Some(path_array[..paths as usize].iter().map(|p| p.targetInfo.outputTechnology as u32).collect());
         }
+        // ERROR_INSUFFICIENT_BUFFER means a screen appeared between the two calls: try again.
         if result != ERROR_INSUFFICIENT_BUFFER {
             return None;
         }
@@ -377,6 +456,8 @@ fn display_outputs(flags: u32) -> Option<Vec<u32>> {
 }
 
 /// Asks Windows whether the laptop's own screen is in use. "Can't tell" counts as in use.
+///
+/// Runs on the main thread; QueryDisplayConfig is quick, so no separate thread is needed.
 fn check_builtin_screen() {
     let unused = match (display_outputs(QDC_ONLY_ACTIVE_PATHS), display_outputs(QDC_ALL_PATHS)) {
         (Some(active), Some(all)) => builtin_screen_unused(&active, &all),
@@ -386,6 +467,8 @@ fn check_builtin_screen() {
 }
 
 /// One more check of the built-in screen shortly, after a display or lid change.
+///
+/// Setting the same timer id again restarts it, so several changes in a row lead to one check.
 fn recheck_soon(hwnd: HWND) {
     // SAFETY: a timer on our own window.
     unsafe {
@@ -394,10 +477,17 @@ fn recheck_soon(hwnd: HWND) {
 }
 
 /// The hidden window, for the control channel's requests (0 until it exists).
+///
+/// Stored as a number because a window handle (a raw pointer) can't sit in an atomic directly.
 static WINDOW: AtomicUsize = AtomicUsize::new(0);
 
 /// Asks the tray window to do something only it can, from another thread (the control channel).
+///
+/// Never blocks the caller: a short-lived thread posts the message. `PostMessageW` is one of the few
+/// window calls that is safe from any thread; the work itself then happens in `window_proc` on the
+/// main thread. If the tray window doesn't exist yet, the request is logged and dropped.
 pub fn request(what: UiRequest) {
+    // The message carries the request as a small number in wparam; `window_proc` decodes it.
     let code = match what {
         UiRequest::Shortcuts => 1,
         UiRequest::Power => 2,
@@ -422,6 +512,12 @@ pub fn request(what: UiRequest) {
 }
 
 /// Registers the keyboard shortcuts that are on in the settings, after dropping any registered before.
+///
+/// RegisterHotKey asks Windows to send us WM_HOTKEY when the key combination is pressed anywhere,
+/// so no keyboard hook is needed. MOD_NOREPEAT stops a held key from repeating. Registration fails
+/// if another program already owns the combination; that is logged and the rest carry on.
+///
+/// Unsafe because it calls Windows with a window handle that must belong to this thread.
 unsafe fn register_hotkeys(hwnd: HWND, settings: &Settings) {
     let mut registered = Vec::new();
     for (i, letter) in HOTKEYS.iter().enumerate() {
@@ -443,13 +539,19 @@ unsafe fn register_hotkeys(hwnd: HWND, settings: &Settings) {
 }
 
 /// Hotkey ids of the keyboard's "Open an app" keys: APP_KEY_ID + slot.
+/// Starts at 100 so these ids never clash with the letter shortcuts (1-5).
 const APP_KEY_ID: i32 = 100;
 
 /// The programs the "Open an app" keys start, as registered.
+/// Used to see which keys changed on the next registration, and to find the program on a key press.
 static APP_KEYS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
 /// Registers Ctrl+Shift+Alt+F13 onwards for the keyboard's "Open an app" keys that have a program.
 /// The keyboard sends these when such a key is pressed.
+///
+/// Only slots whose program changed between empty and non-empty are (un)registered, so a key that is
+/// already registered stays so. F13 and up are keys no normal keyboard has, which makes clashes
+/// with other programs unlikely. Unsafe for the same reason as `register_hotkeys`.
 unsafe fn register_app_keys(hwnd: HWND) {
     let apps = crate::keyboard::job().map(|j| j.apps()).unwrap_or_default();
     let mut registered = APP_KEYS.lock().unwrap_or_else(|e| e.into_inner());
@@ -474,6 +576,7 @@ unsafe fn register_app_keys(hwnd: HWND) {
 }
 
 /// An "Open an app" key was pressed: start its program the way Explorer would.
+/// `slot` is the key's index (0 = first "Open an app" key). An empty slot does nothing.
 fn open_app(slot: usize) {
     let path = APP_KEYS.lock().unwrap_or_else(|e| e.into_inner()).get(slot).cloned().unwrap_or_default();
     let path = path.trim().trim_matches('"');
@@ -486,6 +589,7 @@ fn open_app(slot: usize) {
     }
 }
 
+/// Carries out a Ctrl+Alt+Shift + letter shortcut (see `HOTKEYS`).
 fn hotkey(letter: char) {
     let shared = &UI.get().unwrap().shared;
     match letter {
@@ -511,10 +615,16 @@ fn toggle_music(shared: &Shared) {
     shared.redraw.store(true, Ordering::SeqCst);
 }
 
+/// The hidden window's message handler; Windows calls it on the main thread for each message.
+///
+/// The return value's meaning depends on the message (0 is "handled" for most). Anything not
+/// handled goes to `DefWindowProcW`, Windows' default behaviour. Messages that arrive before `UI` is
+/// set also go there.
 unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     let Some(ui) = UI.get() else { return DefWindowProcW(hwnd, msg, wparam, lparam) };
     match msg {
         WM_TRAY => {
+            // With the classic tray protocol, lparam's low word is the mouse message that happened.
             let event = (lparam & 0xFFFF) as u32;
             if event == WM_LBUTTONUP {
                 // A click opens the window, like the Python tray's default item; right-click shows the menu
@@ -525,6 +635,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
             0
         }
         WM_CONTROL => {
+            // Copy the settings so the lock isn't held while registering hotkeys.
             let settings = ui.shared.settings.lock().unwrap().clone();
             match wparam {
                 1 => register_hotkeys(hwnd, &settings),
@@ -536,6 +647,8 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
             0
         }
         WM_HOTKEY => {
+            // wparam is the id the hotkey was registered with: 100 and up are app keys, 1-5 letters.
+            // `wrapping_sub` turns an unexpected id 0 into a huge index, which `get` safely rejects.
             if wparam >= APP_KEY_ID as usize {
                 open_app(wparam - APP_KEY_ID as usize);
             } else if let Some(letter) = HOTKEYS.get(wparam.wrapping_sub(1)) {
@@ -548,9 +661,12 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                 PBT_POWERSETTINGCHANGE if lparam != 0 => {
                     // SAFETY: Windows passes a POWERBROADCAST_SETTING with this message.
                     let setting = &*(lparam as *const POWERBROADCAST_SETTING);
+                    // For both settings the data is a number whose first byte is the state
+                    // (lid: 0 closed / 1 open; display: 0 off / 1 on / 2 dimmed). No data gives None.
                     let value = (setting.DataLength >= 1).then(|| setting.Data[0]);
                     if same_guid(&setting.PowerSetting, &GUID_LIDSWITCH_STATE_CHANGE) {
                         power_event(PowerEvent::Lid(value));
+                        // Closing or opening the lid often moves Windows to other screens.
                         check_builtin_screen();
                         recheck_soon(hwnd);
                     } else if same_guid(&setting.PowerSetting, &GUID_CONSOLE_DISPLAY_STATE) {
@@ -561,6 +677,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                 PBT_APMRESUMESUSPEND | PBT_APMRESUMEAUTOMATIC => power_event(PowerEvent::Resume),
                 _ => {}
             }
+            // TRUE: we accept every power request (we never block sleep).
             1
         }
         WM_DISPLAYCHANGE => {
@@ -578,6 +695,8 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
             apply_power();
             0
         }
+        // The window is going away (Quit): stop the timers, remove the tray icon, tell the other
+        // threads to stop and end the message loop (PostQuitMessage makes GetMessageW return 0).
         WM_DESTROY => {
             KillTimer(hwnd, TIMER_PERIODIC);
             KillTimer(hwnd, TIMER_RECHECK);
@@ -596,17 +715,22 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
     }
 }
 
+/// Compares two GUIDs field by field.
 fn same_guid(a: &GUID, b: &GUID) -> bool {
     a.data1 == b.data1 && a.data2 == b.data2 && a.data3 == b.data3 && a.data4 == b.data4
 }
 
 /// Shows the tray icon and runs the window's messages until Quit.
+///
+/// Called by `app::run` on the main thread; returns when the window is destroyed. If the window can't
+/// be created it logs a warning and returns at once, which `app::run` treats like Quit.
 pub fn run(shared: Arc<Shared>) {
     let taskbar_created = {
         let name = wide("TaskbarCreated");
         // SAFETY: plain call.
         unsafe { RegisterWindowMessageW(name.as_ptr()) }
     };
+    // `set` only fails if it was already set, which can't happen: `run` is called once.
     let _ = UI.set(Ui { shared: shared.clone(), power: std::sync::Mutex::new(PowerState::default()), taskbar_created });
     let class = wide("WhiteRabbitRustMonitor");
     // SAFETY: standard window class and window creation; the window lives until Quit.
@@ -618,6 +742,8 @@ pub fn run(shared: Arc<Shared>) {
         wc.lpszClassName = class.as_ptr();
         RegisterClassW(&wc);
         let title = wide("White Rabbit");
+        // A plain top-level window that is never shown (no WS_VISIBLE, zero size). Unlike a message-only
+        // window (HWND_MESSAGE), it also receives broadcasts such as TaskbarCreated.
         let hwnd = CreateWindowExW(
             0,
             class.as_ptr(),
@@ -638,6 +764,9 @@ pub fn run(shared: Arc<Shared>) {
         }
         update_tray(hwnd, NIM_ADD);
 
+        // Ask Windows to send WM_POWERBROADCAST / PBT_POWERSETTINGCHANGE when the lid switch or the
+        // console display state changes. Windows sends the current state once right after
+        // registering, so PowerState starts out correct. The registrations end with the process.
         for guid in [GUID_LIDSWITCH_STATE_CHANGE, GUID_CONSOLE_DISPLAY_STATE] {
             if RegisterPowerSettingNotification(hwnd as HANDLE, &guid, 0) == 0 {
                 warn!("Couldn't listen for the lid / screen turning off");
@@ -649,9 +778,12 @@ pub fn run(shared: Arc<Shared>) {
         let settings = shared.settings.lock().unwrap().clone();
         register_hotkeys(hwnd, &settings);
         register_app_keys(hwnd);
+        // From now on the control thread can post requests here.
         WINDOW.store(hwnd as usize, Ordering::SeqCst);
 
         let mut msg: MSG = std::mem::zeroed();
+        // The message loop: GetMessageW waits for the next message and returns 0 after PostQuitMessage
+        // (or -1 on error), which ends the loop.
         while GetMessageW(&mut msg, null_mut(), 0, 0) > 0 {
             TranslateMessage(&msg);
             DispatchMessageW(&msg);

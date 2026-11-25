@@ -3,10 +3,22 @@
 //!
 //! The sound itself is captured and measured by White Rabbit's `wr-music` code in the app; this
 //! module only gets band levels (0..1) and is the same on every platform.
+//!
+//! Who calls it: the lighting engine ([`crate::engine`], thread `hid-engine`) about 30 times a
+//! second while the audio show is on. Each frame it calls [`AudioShow::update`] with the latest
+//! band levels from [`crate::audio_src::Listener`] and the time step, passes on key presses with
+//! [`AudioShow::press`], then [`AudioShow::render`]s every LED of both devices from their positions
+//! on the combined layout (key units, y down). The same code draws the previews in the window.
+//!
+//! State kept between frames: smoothed band levels (fast up, slow down), overall loudness and a
+//! falling peak, a running bass average for beat detection, the beat flash and hue, bass rings
+//! and key presses still showing. All times are in seconds of the show's own clock (sum of `dt`).
 
 use crate::effects::{hsv_to_rgb, Rgb};
 use crate::layout::Point;
 
+/// The different shows. Each has a name and a one-line explanation for the Audio page, and a
+/// short key for the settings file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AudioLook {
     #[default]
@@ -21,6 +33,7 @@ pub enum AudioLook {
 }
 
 impl AudioLook {
+    /// Every show, in the order the Audio page lists them.
     pub const ALL: [AudioLook; 8] = [
         AudioLook::Spectrum,
         AudioLook::CenterOut,
@@ -32,6 +45,7 @@ impl AudioLook {
         AudioLook::Typing,
     ];
 
+    /// Name shown in the window.
     pub fn name(self) -> &'static str {
         match self {
             AudioLook::Spectrum => "Spectrum bars",
@@ -45,6 +59,7 @@ impl AudioLook {
         }
     }
 
+    /// One-sentence explanation shown under the name.
     pub fn about(self) -> &'static str {
         match self {
             AudioLook::Spectrum => "Bars rise from the bottom row: bass on the left, treble on the right of the macropad.",
@@ -58,6 +73,7 @@ impl AudioLook {
         }
     }
 
+    /// Stable word for the settings file (never change these: saved settings use them).
     pub fn key(self) -> &'static str {
         match self {
             AudioLook::Spectrum => "spectrum",
@@ -71,6 +87,7 @@ impl AudioLook {
         }
     }
 
+    /// The show for a settings word; None for an unknown word.
     pub fn from_key(k: &str) -> Option<Self> {
         Self::ALL.iter().copied().find(|l| l.key() == k)
     }
@@ -82,6 +99,7 @@ pub enum AudioColors {
     /// What suits the show: green, yellow and red for the bars and the meter, rainbow otherwise.
     #[default]
     Auto,
+    /// Round the color wheel (red to purple; the last fifth is left out so the ends differ).
     Rainbow,
     /// Green, then yellow, then red at the top, like a sound level meter.
     Meter,
@@ -94,6 +112,7 @@ pub enum AudioColors {
 }
 
 impl AudioColors {
+    /// Settings text: a word, or "one H S" with hue and saturation as 0..=255 whole numbers.
     pub fn key(self) -> String {
         match self {
             AudioColors::Auto => "auto".into(),
@@ -107,6 +126,7 @@ impl AudioColors {
         }
     }
 
+    /// Parses [`AudioColors::key`]'s text; out-of-range numbers are clamped, junk gives None.
     pub fn from_key(k: &str) -> Option<Self> {
         let p: Vec<&str> = k.split_whitespace().collect();
         Some(match p.first().copied()? {
@@ -127,6 +147,7 @@ impl AudioColors {
     /// The colors `look` really uses.
     fn resolve(self, look: AudioLook) -> Self {
         match (self, look) {
+            // Shows with bars use level-meter colors; the others use the rainbow.
             (AudioColors::Auto, AudioLook::Spectrum | AudioLook::CenterOut | AudioLook::Meter) => AudioColors::Meter,
             (AudioColors::Auto, _) => AudioColors::Rainbow,
             (c, _) => c,
@@ -143,6 +164,7 @@ impl AudioColors {
         let t = t.clamp(0.0, 1.0);
         match self {
             AudioColors::Auto | AudioColors::Rainbow => (t * 0.8, 1.0),
+            // Green up to 55%, yellow up to 80%, then red, like a studio level meter.
             AudioColors::Meter => (
                 if t < 0.55 {
                     0.33
@@ -159,6 +181,7 @@ impl AudioColors {
         }
     }
 
+    /// The palette color at `t` (0..1) at brightness `v` (0..1).
     fn rgb(self, t: f32, v: f32) -> Rgb {
         let (h, s) = self.at(t);
         hsv_to_rgb(h, s, v)
@@ -179,8 +202,10 @@ pub enum KeyReact {
 }
 
 impl KeyReact {
+    /// Every style, in the order the Audio page lists them.
     pub const ALL: [KeyReact; 4] = [KeyReact::Off, KeyReact::Glow, KeyReact::Ripple, KeyReact::Splash];
 
+    /// Stable word for the settings file.
     pub fn key(self) -> &'static str {
         match self {
             KeyReact::Off => "off",
@@ -190,6 +215,7 @@ impl KeyReact {
         }
     }
 
+    /// The style for a settings word; None for an unknown word.
     pub fn from_key(k: &str) -> Option<Self> {
         Self::ALL.iter().copied().find(|r| r.key() == k)
     }
@@ -209,6 +235,8 @@ impl KeyReact {
         let fade = (1.0 - age / self.life()).max(0.0);
         match self {
             KeyReact::Off => 0.0,
+            // Glow: a spot 0.7 units across. Ripple: a ring 0.9 wide moving out at 9 units/s.
+            // Splash: a disc that grows by 6 units/s and fades faster (fade squared).
             KeyReact::Glow => (1.0 - d / 0.7).clamp(0.0, 1.0) * fade,
             KeyReact::Ripple => (1.0 - (d - age * 9.0).abs() / 0.9).max(0.0) * fade,
             KeyReact::Splash => (1.0 - d / (0.6 + age * 6.0)).clamp(0.0, 1.0) * fade * fade,
@@ -217,10 +245,14 @@ impl KeyReact {
 }
 
 /// Bands the shows use (bass first).
+/// Whatever number of bands the listener gives is resampled to this many.
 pub const BANDS: usize = 16;
 
+/// A ring of color sent out by a bass beat (BassRipples), alive for 1.6 s.
 struct Ring {
+    /// Show time when it started.
     born: f32,
+    /// Palette position (0..1) it is drawn in.
     hue: f32,
 }
 
@@ -233,26 +265,42 @@ struct Press {
 }
 
 /// The show's state between frames: smoothed levels, beats, rings.
+///
+/// Created when the audio show starts; the engine changes `look`, `colors` and `keys` in place
+/// when the user changes them, without losing the rest.
 pub struct AudioShow {
+    /// Which show is drawn.
     pub look: AudioLook,
+    /// The palette.
     pub colors: AudioColors,
+    /// How key presses show on top.
     pub keys: KeyReact,
     /// Key presses still showing.
     presses: Vec<Press>,
     /// Where the music's weight is, from bass (0) to treble (1), smoothed.
     centroid: f32,
+    /// Smoothed level of each band, 0..1.
     levels: [f32; BANDS],
+    /// Smoothed average of all bands, 0..1.
     loudness: f32,
+    /// Highest recent loudness, falling back at 0.4 per second (the meter's peak mark).
     peak: f32,
+    /// Slow running average of the bass, the baseline a beat must rise above.
     bass_avg: f32,
+    /// Show time of the last beat (starts far in the past so the first one isn't blocked).
     last_beat: f32,
+    /// Beat flash, 1 on a beat, dying away (about 1/e every 1/6 s).
     flash: f32,
+    /// Palette position that moves on by 0.13 with every beat.
     hue: f32,
+    /// Live bass rings.
     rings: Vec<Ring>,
+    /// The show's clock, in seconds (the sum of every `dt`).
     t: f32,
 }
 
 impl AudioShow {
+    /// A silent show with automatic colors and no key reactions.
     pub fn new(look: AudioLook) -> Self {
         Self {
             look,
@@ -277,13 +325,18 @@ impl AudioShow {
         self.t += dt;
         let n = bands.len().max(1);
         for (i, l) in self.levels.iter_mut().enumerate() {
+            // Pick the input band at the same relative position (nearest below, no averaging).
             let src = bands.get(i * n / BANDS).copied().unwrap_or(0.0).clamp(0.0, 1.0);
             // fast up, slower down, so bars don't flicker
+            // Rising: move 60% of the way each frame. Falling: close `dt x 6` of the gap per frame, a
+            // time constant of about 1/6 s whatever the frame rate.
             let k = if src > *l { 0.6 } else { (dt * 6.0).min(1.0) };
             *l += (src - *l) * k;
         }
         let total: f32 = self.levels.iter().sum();
         if total > 0.05 {
+            // The level-weighted average band number, as a 0..1 fraction: low = bass-heavy music.
+            // Skipped in near silence, where it would jump around.
             let c = self.levels.iter().enumerate().map(|(i, l)| i as f32 * l).sum::<f32>() / total / (BANDS - 1) as f32;
             self.centroid += (c - self.centroid) * (dt * 8.0).min(1.0);
         }
@@ -291,6 +344,8 @@ impl AudioShow {
         self.loudness += (loud - self.loudness) * (dt * 10.0).min(1.0);
         self.peak = (self.peak - dt * 0.4).max(self.loudness);
 
+        // Beat: the bottom sixth of the bands jumps 35% (plus a little) above its running average,
+        // is loud enough in itself, and the last beat was over 0.18 s ago (at most ~5 beats a second).
         let bass = bands.iter().take((n / 6).max(1)).sum::<f32>() / (n / 6).max(1) as f32;
         let beat = bass > self.bass_avg * 1.35 + 0.05 && bass > 0.25 && self.t - self.last_beat > 0.18;
         self.bass_avg += (bass - self.bass_avg) * (dt * 2.5).min(1.0);
@@ -300,6 +355,7 @@ impl AudioShow {
             self.hue = (self.hue + 0.13).fract();
             self.rings.push(Ring { born: self.t, hue: self.hue });
         }
+        // Exponential decay that doesn't depend on the frame rate.
         self.flash *= (-dt * 6.0).exp();
         let t = self.t;
         self.rings.retain(|r| t - r.born < 1.6);
@@ -326,6 +382,7 @@ impl AudioShow {
         if self.key_style() == KeyReact::Off {
             return;
         }
+        // The Typing show sizes and colors presses by the music; other shows use plain white, size 1.
         let (color, size) = if self.look == AudioLook::Typing {
             // The music picks the color (bass to treble along the palette) and the size
             let pal = self.colors.resolve(self.look);
@@ -347,6 +404,7 @@ impl AudioShow {
             if w <= 0.0 {
                 continue;
             }
+            // Blend towards the press color by `w`, but never darken a channel.
             let to = press.color.unwrap_or([255, 255, 255]);
             for k in 0..3 {
                 let v = out[k] as f32 + (to[k] as f32 - out[k] as f32) * w;
@@ -356,6 +414,7 @@ impl AudioShow {
         out
     }
 
+    /// The smoothed level at position `f` (0 = bass, 1 = treble), blending the two nearest bands.
     fn band_at(&self, f: f32) -> f32 {
         let x = f.clamp(0.0, 0.999) * (BANDS - 1) as f32;
         let i = x as usize;
@@ -363,18 +422,24 @@ impl AudioShow {
         self.levels[i] * (1.0 - frac) + self.levels[(i + 1).min(BANDS - 1)] * frac
     }
 
+    /// The show's own color at point `p`, before key presses. `xn`/`yn` are the position as 0..1
+    /// fractions of the surface.
     fn color(&self, p: Point, width: f32, height: f32) -> Rgb {
         let xn = (p.x / width.max(0.01)).clamp(0.0, 1.0);
         let yn = (p.y / height.max(0.01)).clamp(0.0, 1.0);
+        // `up` is the height above the bottom row (0..1); `bar(level)` lights the LEDs below `level`,
+        // with a soft edge about 1/6 of the height.
         let up = 1.0 - yn; // 0 bottom row, 1 top row
         let bar = |level: f32| ((level - up) * 6.0 + 0.3).clamp(0.0, 1.0);
         let pal = self.colors.resolve(self.look);
         match self.look {
+            // Spectrum: bass at the left edge to treble at the right; each column is a bar of its band.
             AudioLook::Spectrum => {
                 let l = self.band_at(xn);
                 let t = if pal.by_height() { up } else { xn };
                 pal.rgb(t, 0.04 + 0.96 * bar(l))
             }
+            // Centre out: the same bars mirrored, bass in the middle and treble at both ends.
             AudioLook::CenterOut => {
                 let d = ((xn - 0.5).abs() * 2.0).min(1.0);
                 let l = self.band_at(d);
@@ -386,14 +451,20 @@ impl AudioShow {
                 let level = (self.loudness * 1.4).min(1.0);
                 let lit = ((level - up) * 6.0 + 0.3).clamp(0.0, 1.0);
                 let peak = (self.peak * 1.4).min(1.0);
+                // A thin bright line at the peak height (1/6 of the height wide), on top of the fill.
                 let peak_mark = (1.0 - (up - peak).abs() * 6.0).max(0.0);
                 pal.rgb(up, (0.03 + 0.97 * lit).max(peak_mark))
             }
+            // Beat pulse: everything at one brightness (the beat flash, or some loudness between beats),
+            // the color moving on with each beat and shading slightly across the width.
             AudioLook::BeatPulse => {
                 let v = 0.12 + 0.88 * self.flash.max(self.loudness * 0.4);
                 pal.rgb((self.hue + xn * 0.15).fract(), v)
             }
+            // Bass ripples: each ring is a band 1.6 units wide at its radius, fading as it ages; rings
+            // add up, over a faint background that follows the loudness.
             AudioLook::BassRipples => {
+                // Rings start a bit below the middle of the surface and grow at 14 units/s for 1.6 s.
                 let (cx, cy) = (0.5 * width, 0.55 * height);
                 let d = ((p.x - cx).powi(2) + (p.y - cy).powi(2)).sqrt();
                 let mut c = [0.0f32; 3];
@@ -409,6 +480,8 @@ impl AudioShow {
                 let base = pal.rgb(self.hue, 0.04 + 0.1 * self.loudness);
                 [(c[0] as u8).max(base[0]), (c[1] as u8).max(base[1]), (c[2] as u8).max(base[2])]
             }
+            // Color wash: a slow drift through the palette across the surface, nudged by the treble and
+            // brightened by the loudness.
             AudioLook::ColorWash => {
                 let treble = self.levels[BANDS - 4..].iter().sum::<f32>() / 4.0;
                 let t = (self.t * 0.04 + xn * 0.35 + yn * 0.1 + treble * 0.3).fract();
@@ -416,8 +489,10 @@ impl AudioShow {
                 let t = if matches!(pal, AudioColors::Rainbow) { t } else { 1.0 - (t * 2.0 - 1.0).abs() };
                 pal.rgb(t, 0.15 + 0.85 * (self.loudness * 1.3).min(1.0))
             }
+            // Typing: dark; only the key presses (drawn on top in `with_presses`) light anything.
             AudioLook::Typing => [0, 0, 0],
             AudioLook::Strobe => {
+                // A 60 ms flash right after each beat; dim palette color otherwise.
                 let since = self.t - self.last_beat;
                 if since < 0.06 {
                     match pal {
@@ -436,6 +511,7 @@ impl AudioShow {
 mod tests {
     use super::*;
 
+    /// A 20 x 6 grid of LED positions on a 20 x 6 surface.
     fn pts() -> Vec<Point> {
         let mut v = vec![];
         for y in 0..6 {
@@ -446,6 +522,7 @@ mod tests {
         v
     }
 
+    /// Silence draws (nearly) nothing; a sudden bass hit is a beat and lights the bass side.
     #[test]
     fn silence_is_dark_and_loud_bass_beats() {
         let mut show = AudioShow::new(AudioLook::Spectrum);
@@ -466,6 +543,7 @@ mod tests {
         assert!(lum(left_bottom) > lum(right_bottom) * 2);
     }
 
+    /// Spectrum colors run green to red upwards by default, across with Rainbow; color keys round-trip.
     #[test]
     fn spectrum_is_green_yellow_red_by_default_and_rainbow_on_request() {
         let mut show = AudioShow::new(AudioLook::Spectrum);
@@ -485,6 +563,7 @@ mod tests {
         }
     }
 
+    /// The meter lights the bottom row before the top and is even across a row.
     #[test]
     fn meter_fills_from_the_bottom() {
         let mut show = AudioShow::new(AudioLook::Meter);
@@ -497,6 +576,7 @@ mod tests {
         assert_eq!(c[5 * 20 + 3], c[5 * 20 + 15], "same across a row");
     }
 
+    /// Glow lights the pressed key white and fades; Ripple travels outwards; style keys round-trip.
     #[test]
     fn key_presses_light_up_on_top_of_the_show() {
         let mut show = AudioShow::new(AudioLook::Spectrum);
@@ -525,6 +605,7 @@ mod tests {
         }
     }
 
+    /// In the Typing show, bass makes presses red and treble blue; unpressed keys stay dark.
     #[test]
     fn typing_colors_follow_the_music() {
         let key = Point { x: 3.5, y: 2.5 };
@@ -548,6 +629,7 @@ mod tests {
         assert_eq!(b[1], [0, 0, 0], "other keys stay dark");
     }
 
+    /// Every show draws a color for every LED; look keys round-trip.
     #[test]
     fn every_look_draws_every_led() {
         for look in AudioLook::ALL {

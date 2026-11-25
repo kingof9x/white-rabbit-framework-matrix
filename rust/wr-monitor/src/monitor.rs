@@ -1,5 +1,15 @@
 //! The main loop: ten times a second, pick each panel's apps, draw them and hand the frames to the
 //! panels' drawing threads. A port of `render_iteration` in `led_mon/led_system_monitor.py`.
+//!
+//! `Monitor::run` is the body of the `main-loop` thread (started in `app.rs`). Each pass (`step`)
+//! reads the flags in `Shared` that the tray, the shortcuts, the power messages and the control
+//! channel set, decides what each panel should show, draws a 9 x 34 `Grid` per panel with
+//! `wr_core::render`, and puts it into that panel's `FrameQueue`. It never writes to a serial port
+//! itself: the `panel-0`/`panel-1` drawing threads do that, so a slow or missing panel can't stall it.
+//!
+//! The `Item::Frame(grid, animate)` it queues carries an optional "scrolling" flag: `Some(true)` /
+//! `Some(false)` turns the panel firmware's own scrolling on or off, `None` leaves it as it is. That
+//! flag is only sent when it has to change, because each change costs a serial command.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -24,6 +34,10 @@ use wr_core::{error, info, warn};
 const NAME_SECONDS: f64 = 2.0;
 
 /// What the tray, the shortcuts and the power events change, read by the main loop.
+///
+/// Created once in `app.rs` and shared as `Arc<Shared>` by the main loop, the tray window, the control
+/// thread and the plug watcher. Flags are atomics (no lock needed); values are behind small mutexes
+/// that are held only to copy a value in or out, never while drawing or doing I/O.
 #[derive(Default)]
 pub struct Shared {
     /// Stop animation (tray): the panels go dark.
@@ -36,11 +50,14 @@ pub struct Shared {
     pub power_sleep: AtomicBool,
     /// Read the layout file again.
     pub reload: AtomicBool,
+    /// Quit was chosen: the main loop darkens the panels, stops the drawing threads and ends.
     pub quit: AtomicBool,
     /// Show the apps' names until then.
     pub identify_until: Mutex<Option<Instant>>,
     /// Before the apps' names: each panel's own name (left, right) until then.
     pub panel_names: Mutex<Option<(Instant, [String; 2])>>,
+    /// A copy of settings.json, re-read by the main loop when the file changes and updated directly
+    /// by the tray when it toggles a setting.
     pub settings: Mutex<Settings>,
     /// The window gave panels back: send every panel its picture and scrolling again, since what the
     /// drawing threads think is on the panels is out of date.
@@ -62,6 +79,7 @@ pub struct Shared {
 }
 
 impl Shared {
+    /// Turns music mode on or off (the main loop starts or stops the visualizers on its next pass).
     pub fn set_music_mode(&self, on: bool) {
         self.music_mode.store(on, Ordering::SeqCst);
         info!("Audio reactivity {}", if on { "on" } else { "off" });
@@ -72,6 +90,7 @@ impl Shared {
         self.identify_with_names(seconds, load_panel_names(&crate::paths::settings_file()));
     }
 
+    /// Like `identify`, with the panel names given (used by tests and by callers that already have them).
     pub fn identify_with_names(&self, seconds: f64, names: [String; 2]) {
         let names_until = Instant::now() + Duration::from_secs_f64(NAME_SECONDS);
         *self.panel_names.lock().unwrap() = Some((names_until, names));
@@ -84,10 +103,12 @@ impl Shared {
         names.as_ref().filter(|(until, _)| Instant::now() < *until).map(|(_, n)| n[side].clone())
     }
 
+    /// Shows the layout editor's still pictures (None leaves that side alone) for `seconds`.
     pub fn show_preview(&self, frames: [Option<Grid>; 2], seconds: Duration) {
         *self.preview.lock().unwrap() = Some((Instant::now() + seconds, frames));
     }
 
+    /// Ends a preview at once; the apps come back on the next pass.
     pub fn clear_preview(&self) {
         *self.preview.lock().unwrap() = None;
     }
@@ -98,6 +119,7 @@ impl Shared {
         preview.as_ref().filter(|(until, _)| Instant::now() < *until).and_then(|(_, frames)| frames[side].clone())
     }
 
+    /// True while Identify panels is showing (panel names or app names).
     fn identifying(&self) -> bool {
         self.identify_until.lock().unwrap().is_some_and(|t| Instant::now() < t)
     }
@@ -105,17 +127,22 @@ impl Shared {
 
 /// The layout file and when it was last changed, so an edit in the window is picked up.
 pub struct LayoutSource {
+    /// The layout file in use; None means the bundled layout.
     pub path: Option<PathBuf>,
+    /// The file's modification time when it was located.
     pub modified: Option<SystemTime>,
 }
 
 impl LayoutSource {
+    /// Finds the layout file now in use (see `paths::layout_file`) and notes its modification time.
     pub fn locate() -> LayoutSource {
         let path = crate::paths::layout_file();
         let modified = path.as_ref().and_then(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok());
         LayoutSource { path, modified }
     }
 
+    /// Parses the layout. A broken file is logged and replaced by the bundled layout, so the panels
+    /// always show something. The bundled layout is checked by a test, so its `expect` can't fire.
     pub fn load(&self) -> Layout {
         let text = self.path.as_ref().and_then(|p| std::fs::read_to_string(p).ok());
         let from_file = text.as_deref().map(Layout::parse);
@@ -129,16 +156,19 @@ impl LayoutSource {
         }
     }
 
+    /// True when another layout file is now in use, or this one's modification time changed.
     pub fn changed(&self) -> bool {
         let now = LayoutSource::locate();
         now.path != self.path || now.modified != self.modified
     }
 
+    /// The path for log messages.
     fn display(&self) -> String {
         self.path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "(bundled)".into())
     }
 }
 
+/// The layout's pins: the serial port and/or USB location each side is fixed to (empty = any).
 pub fn pins_of(layout: &Layout) -> Pins {
     Pins {
         left_port: layout.left_port.clone(),
@@ -148,22 +178,33 @@ pub fn pins_of(layout: &Layout) -> Pins {
     }
 }
 
+/// The main loop's state. Owned by the `main-loop` thread; only `shared` is visible to other threads.
 pub struct Monitor {
+    /// The flags and values other threads set.
     pub shared: Arc<Shared>,
+    /// Where frames for the left (0) and right (1) panel go.
     pub queues: [Arc<FrameQueue>; 2],
+    /// Which port each side uses, shared with the panels' port finding; updated when the layout changes.
     pub pins: Arc<Mutex<Pins>>,
+    /// Everything the apps show (`sensors::WindowsReadings`, or a fake in tests).
     pub readings: Box<dyn Readings + Send>,
     /// The screen's brightness, 0.0-1.0.
     pub screen_brightness: Box<dyn Fn() -> f64 + Send>,
+    /// The layout file, to notice changes.
     pub source: LayoutSource,
+    /// The layout and which app each quarter of each panel shows now; moves on as apps' times run out.
     pub rotation: Rotation,
+    /// When the loop started; the rotation's and the apps' clock counts from here.
     started: Instant,
+    /// The panels were sent dark frames (paused or asleep) and haven't been drawn since.
     blanked: bool,
+    /// The panels were sent to sleep (lid/screen/sleep), so it isn't sent again every pass.
     asleep: bool,
     /// Turn the panels' own scrolling back on after showing the names.
     latch: bool,
     /// Send every panel its scrolling on the next frame (see Shared::redraw).
     redraw: bool,
+    /// The audio visualizer threads.
     music: Music,
     /// The names of the apps each panel shows, to slide only when they change.
     shown: [Option<Vec<String>>; 2],
@@ -171,11 +212,13 @@ pub struct Monitor {
     music_settings: Option<wr_music::Settings>,
     /// The side showed a preview on the last frame.
     previewed: [bool; 2],
+    /// When the layout and settings files were last checked.
     last_check: Instant,
     /// settings.json's size and change time when it was last read: it is read again only when they change.
     settings_stamp: Option<(u64, SystemTime)>,
     /// What each panel last showed from its apps, for the old-TV switch-off.
     last_grids: [Option<Grid>; 2],
+    /// The low-battery message's state.
     low_battery: LowBattery,
 }
 
@@ -183,11 +226,15 @@ pub struct Monitor {
 /// `LowBatteryNotice`.
 #[derive(Default)]
 struct LowBattery {
+    /// The message was given and not yet reset by charging.
     said: bool,
+    /// Seconds (main-loop clock) before which the battery isn't looked at again.
     next_check: f64,
 }
 
 impl LowBattery {
+    /// Percent at or below which the message is given; it resets above 22 % (a 2 % margin so it isn't
+    /// repeated when the charge wobbles around 20) or when plugged in.
     const LEVEL: f64 = 20.0;
 
     /// The text to say now, if any. `battery` is (charge 0.0-1.0, plugged in).
@@ -209,6 +256,9 @@ impl LowBattery {
 }
 
 /// Plays the old-TV frames on the panels together, one every `TV_FRAME_SECONDS`.
+///
+/// Blocks the main loop for the length of the animation (under a second). Every frame turns
+/// scrolling off. The two lists may differ in length; the shorter side simply stops early.
 fn play_tv(queues: &[Arc<FrameQueue>; 2], frames: [Vec<Grid>; 2]) {
     let steps = frames.iter().map(Vec::len).max().unwrap_or(0);
     for i in 0..steps {
@@ -222,6 +272,8 @@ fn play_tv(queues: &[Arc<FrameQueue>; 2], frames: [Vec<Grid>; 2]) {
 }
 
 impl Monitor {
+    /// Loads the layout, pins the ports from it and points the picture app at the drawings folder.
+    /// Nothing is drawn until `run`/`step`.
     pub fn new(
         shared: Arc<Shared>,
         queues: [Arc<FrameQueue>; 2],
@@ -257,12 +309,14 @@ impl Monitor {
         }
     }
 
+    /// Locates and reads the layout file again (tray "Reload config", the window, or a changed file).
     fn reload(&mut self) {
         self.source = LayoutSource::locate();
         let layout = self.source.load();
         self.reload_layout(layout);
     }
 
+    /// Puts a new layout into use: new pins, new rotation, and the panels re-matched to their sides.
     fn reload_layout(&mut self, layout: Layout) {
         *self.pins.lock().unwrap() = pins_of(&layout);
         self.rotation.set_layout(layout);
@@ -286,6 +340,8 @@ impl Monitor {
         }
         // Parse settings.json only when it changed (it used to be parsed every second regardless)
         let file = crate::paths::settings_file();
+        // (size, modification time): if neither changed, the file is assumed unchanged. A missing
+        // file (None) is "read" every time, which just gives the defaults.
         let stamp = std::fs::metadata(&file).ok().and_then(|m| Some((m.len(), m.modified().ok()?)));
         if stamp.is_none() || stamp != self.settings_stamp {
             self.settings_stamp = stamp;
@@ -327,6 +383,7 @@ impl Monitor {
 
         let power_sleep = self.shared.power_sleep.load(Ordering::SeqCst);
         if self.shared.paused.load(Ordering::SeqCst) || power_sleep {
+            // First pass after pausing/sleeping: blank once, then only wait.
             if !self.blanked {
                 // Stop the visualizers first so they don't light the panels again
                 self.music.stop_all();
@@ -336,6 +393,8 @@ impl Monitor {
                     let frames = [0, 1].map(|s| wr_core::animations::tv_off_frames(self.last_grids[s].as_ref(), fg));
                     play_tv(&self.queues, frames);
                 }
+                // Scrolling off with a dark frame, then a plain dark frame. The queue merges the
+                // second into the first (keeping "scrolling off"), so both panels go dark and still.
                 for q in &self.queues {
                     q.put(Item::Frame(Grid::new(), Some(false)));
                     q.put(Item::Frame(Grid::new(), None));
@@ -349,6 +408,7 @@ impl Monitor {
                 self.asleep = true;
             }
             self.music.stop_all();
+            // When drawing resumes, the panels' scrolling is set again from the apps.
             self.latch = true;
             return Duration::from_millis(250);
         }
@@ -362,29 +422,36 @@ impl Monitor {
         } else {
             settings.brightness_level as f64 / 100.0
         };
+        // fg: the brightness (0-255) of lit LEDs; bg: of the dim background/borders, both from the ratio.
         let (fg, bg) = brightness_values(ratio);
 
         let now = self.started.elapsed().as_secs_f64();
         self.rotation.frozen = self.shared.frozen.load(Ordering::SeqCst);
         let next = self.shared.next_app.load(Ordering::SeqCst);
+        // `changed` says per side whether the apps moved on this pass (time up, or "next app").
         let changed = self.rotation.step(now, next);
+        // "Next app" is used up once the rotation has moved; while frozen it waits.
         if next && !self.rotation.frozen {
             self.shared.next_app.store(false, Ordering::SeqCst);
         }
         let panels = [self.rotation.panel(false), self.rotation.panel(true)];
         self.music.foreground.store(fg, Ordering::SeqCst);
         let effects = self.shared.effects.lock().unwrap().clone();
+        // Tell the effects overlay the current brightness, and read whether it wants all 256
+        // shades (otherwise the panels use fewer, faster-to-send levels).
         let full_shades = effects.as_ref().is_some_and(|fx| {
             let mut e = fx.effects();
             e.foreground = fg;
             e.settings.full_shades
         });
+        // The drawing threads need the same values for what they draw themselves.
         if let Some(panels) = self.shared.panels.lock().unwrap().as_ref() {
             panels.options.foreground.store(fg, Ordering::SeqCst);
             panels.options.full_shades.store(full_shades, Ordering::SeqCst);
         }
         self.run_music(&panels);
         let now_sec = self.started.elapsed().as_secs_f64();
+        // Borrow just the readings, since `self.low_battery` is borrowed mutably at the same time.
         let readings = &mut self.readings;
         if let Some(text) = self.low_battery.check(now_sec, || readings.battery()) {
             if let Some(fx) = effects.as_ref() {
@@ -422,8 +489,11 @@ impl Monitor {
             }
             let mut grid = Grid::new();
             self.readings.set_panel(side == 1);
+            // Draws this panel's apps into `grid`; `animate` says whether they want the firmware's
+            // scrolling (an app that scrolls text across the panel).
             let animate = render_panel_on(&mut grid, apps, self.readings.as_mut(), fg, bg, ["left", "right"][side]);
             let mut do_animate = None;
+            // The apps changed: tell the panel whether the new ones scroll.
             if [changed.left, changed.right][side] {
                 do_animate = Some(animate);
             }
@@ -435,6 +505,7 @@ impl Monitor {
                     fx.start_slide(side);
                 }
             }
+            // After names/blanking turned scrolling off, turn it back on for apps that scroll.
             if self.latch && apps.animate() {
                 do_animate = Some(true);
             }
@@ -449,11 +520,13 @@ impl Monitor {
             let mut frames: [Vec<Grid>; 2] = [vec![], vec![]];
             for (side, grid, _) in &outputs {
                 let mut f = wr_core::animations::tv_on_frames(Some(grid), fg);
+                // The last switch-on frame is the picture itself, which is sent just below anyway.
                 f.pop();
                 frames[*side] = f;
             }
             play_tv(&self.queues, frames);
         }
+        // Frames are queued only now, after any TV animation, so the switch-on ends on them.
         for (side, grid, do_animate) in outputs {
             self.last_grids[side] = Some(grid.clone());
             self.queues[side].put(Item::Frame(grid, do_animate));
@@ -466,6 +539,9 @@ impl Monitor {
     /// Music mode puts the audio visualizer on every panel; otherwise a panel showing the
     /// "equalizer" app gets one with that app's settings. Panels that no longer want one go back to
     /// their apps.
+    ///
+    /// Also sets `held` (the visualizers keep listening but don't draw while names or a preview
+    /// show) and copies what the visualizers hear into `Shared::hearing` for the window.
     fn run_music(&mut self, panels: &[wr_core::layout::PanelApps; 2]) {
         if self.shared.music_restart.swap(false, Ordering::SeqCst) {
             self.music_settings = None;
@@ -473,12 +549,15 @@ impl Monitor {
         }
         let mut wanted: [Option<wr_music::Settings>; 2] = [None, None];
         if self.shared.music_mode.load(Ordering::SeqCst) {
+            // settings.json is read once when music mode starts (or after a restart request),
+            // not every pass.
             let settings = self.music_settings.get_or_insert_with(load_music_settings).clone();
             wanted = [Some(settings.clone()), Some(settings)];
         } else {
             self.music_settings = None;
             for (side, apps) in panels.iter().enumerate() {
                 if let Some(app) = apps.apps().into_iter().find(|a| a.name == "equalizer") {
+                    // The equalizer app's own YAML arguments, converted to JSON for wr-music.
                     let args = serde_json::to_value(&app.args).unwrap_or_default();
                     wanted[side] = Some(wr_music::from_json(&args));
                 }
@@ -508,6 +587,9 @@ impl Monitor {
         *self.shared.hearing.lock().unwrap() = self.music.hearing();
     }
 
+    /// The `main-loop` thread: one `step` after another until Quit, then dark frames, scrolling off
+    /// and `Stop` for each drawing thread (which then closes its port and ends). Visualizers stop
+    /// when `self` (and its `Music`) is dropped at the end.
     pub fn run(mut self) {
         while !self.shared.quit.load(Ordering::SeqCst) {
             let wait = self.step();
@@ -532,6 +614,8 @@ fn app_changed(shown: &mut Option<Vec<String>>, apps: &wr_core::layout::PanelApp
 }
 
 /// Music mode's look and sound input from settings.json (Python's `app_settings.load_music`).
+///
+/// A missing or broken file gives wr-music's defaults.
 fn load_music_settings() -> wr_music::Settings {
     let text = std::fs::read_to_string(crate::paths::settings_file()).unwrap_or_default();
     let json: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
@@ -539,12 +623,16 @@ fn load_music_settings() -> wr_music::Settings {
 }
 
 /// Logs a panic in a thread before it ends, so a crash leaves a trace in the log.
+///
+/// Called once at start-up. The hook replaces Rust's default one, so the panic text goes to the log
+/// (the release build has no console to print it to). In a release build the program then aborts.
 pub fn log_panics() {
     std::panic::set_hook(Box::new(|info| {
         warn!("Crashed: {info}");
     }));
 }
 
+/// Tests of one pass of the main loop, with fixed readings and no real files or panels.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -552,6 +640,7 @@ mod tests {
     use wr_core::effects::Side;
     use wr_core::layout::App;
 
+    /// Readings that never change (the `Readings` trait gives defaults for the rest).
     struct Fixed;
     impl Readings for Fixed {
         fn cpu_cores(&mut self) -> Vec<f64> {
@@ -574,6 +663,7 @@ mod tests {
         }
     }
 
+    /// A monitor with the bundled layout, fixed readings and fresh queues.
     fn monitor() -> Monitor {
         let source = LayoutSource { path: None, modified: None };
         let queues = [Arc::new(FrameQueue::new()), Arc::new(FrameQueue::new())];
@@ -589,10 +679,12 @@ mod tests {
         m
     }
 
+    /// Takes everything waiting in a queue, without waiting.
     fn frames(q: &FrameQueue) -> Vec<Item> {
         std::iter::from_fn(|| q.get(Duration::ZERO)).collect()
     }
 
+    /// One pass queues exactly one frame per panel.
     #[test]
     fn draws_a_frame_for_each_panel() {
         let mut m = monitor();
@@ -604,6 +696,7 @@ mod tests {
         }
     }
 
+    /// Power sleep queues one dark frame (scrolling off) and one Sleep, however many passes run.
     #[test]
     fn pausing_blanks_once_and_the_lid_sends_the_panels_to_sleep() {
         let mut m = monitor();
@@ -614,6 +707,7 @@ mod tests {
         assert_eq!(frames(&m.queues[0]), vec![Item::Frame(Grid::new(), Some(false)), Item::Sleep]);
     }
 
+    /// Identify first shows each panel's own name.
     #[test]
     fn identify_shows_the_panel_names_first() {
         let mut m = monitor();
@@ -625,6 +719,7 @@ mod tests {
         assert_eq!(*grid, name_grid("Right", 160));
     }
 
+    /// After the panel names, Identify shows the apps' names with scrolling off.
     #[test]
     fn identify_shows_the_names() {
         let mut m = monitor();
@@ -641,6 +736,7 @@ mod tests {
         assert_eq!(*grid, expected);
     }
 
+    /// A preview replaces the apps on its side only; afterwards the scrolling flag is sent once again.
     #[test]
     fn a_preview_shows_then_the_apps_come_back() {
         let mut m = monitor();
@@ -658,6 +754,7 @@ mod tests {
         assert!(matches!(frames(&m.queues[0])[..], [Item::Frame(_, None)]));
     }
 
+    /// A redraw request makes every panel's next frame carry a scrolling flag.
     #[test]
     fn giving_panels_back_redraws_them() {
         let mut m = monitor();
@@ -685,13 +782,16 @@ mod tests {
         (m, fx)
     }
 
+    /// True while either panel's app transition is playing.
     fn sliding(fx: &wr_panel::overlay::EffectsOverlay) -> bool {
         let e = fx.effects();
         [Side::Left, Side::Right].iter().any(|&s| e.player(s).active())
     }
 
+    /// A layout with one app in each quarter, so nothing ever rotates to a different app.
     const ONE_APP_EACH: &str = "duration: 10\nquadrants:\n  top-left:\n  - app:\n    name: cpu\n  bottom-left:\n  - app:\n    name: mem-bat\n  top-right:\n  - app:\n    name: disk\n  bottom-right:\n  - app:\n    name: net\n";
 
+    /// The same app coming round again, or a reload of the same layout, doesn't slide.
     #[test]
     fn one_app_per_panel_never_plays_the_app_transition() {
         let (mut m, fx) = with_layout(ONE_APP_EACH);
@@ -707,6 +807,7 @@ mod tests {
         assert!(!sliding(&fx), "after reading the layout again");
     }
 
+    /// Moving on to a different app slides, only on the panel that changed.
     #[test]
     fn a_different_app_plays_the_app_transition() {
         let two = ONE_APP_EACH.replace("    name: cpu\n", "    name: cpu\n  - app:\n    name: time\n");
@@ -718,12 +819,15 @@ mod tests {
         assert!(!fx.effects().player(Side::Right).active(), "the right panel didn't change");
     }
 
+    /// The layout shipped with the app parses (so `LayoutSource::load`'s `expect` never fires).
     #[test]
     fn the_bundled_layout_reads() {
         let m = monitor();
         assert!(!m.rotation.layout.quadrants.is_empty());
     }
 
+    /// The message comes once per discharge, again after charging, and the battery is read at most
+    /// every 30 s.
     #[test]
     fn low_battery_is_said_once_until_charged() {
         let mut b = LowBattery::default();
@@ -735,6 +839,7 @@ mod tests {
         assert_eq!(b.check(100.0, || panic!("read too soon")), None);
     }
 
+    /// Pausing remembers the last pictures for the TV effect, and with the effect off it doesn't block.
     #[test]
     fn stopping_plays_the_old_tv_switch_off() {
         let mut m = monitor();

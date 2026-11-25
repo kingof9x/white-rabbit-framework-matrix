@@ -4,13 +4,27 @@
 //! Key positions are in key units (1u = one normal key). The keyboard is
 //! 18.25u x 6.75u; the numpad and macropad share one grid of 4.75 x 8.25
 //! "module units" that is drawn at the same physical height as the keyboard.
+//!
+//! Used by the keyboard picture ([`crate::deck`] places these keys on the laptop deck), by the
+//! window's pages (key numbers are indices into these lists, and the keymap tables use the same
+//! order), and by [`crate::device`], which takes LED positions from the tables here instead of
+//! asking the device. Plain data and small pure functions.
+//!
+//! Two coordinate spaces meet here: key units (this file's layouts) and QMK's LED space, where
+//! each device's LEDs sit at x 0..=224, y 0..=64 whatever the device's real size.
+//! [`qmk_point`] and [`map_leds_to_keys`] convert between them.
 
 use crate::protocol::LedPoint;
 
 /// One keycap: legends (small top line, main line) and its rectangle in units.
+///
+/// `x`, `y` is the top-left corner and `w`, `h` the size, all in key units of its device
+/// (keyboard units, or module units for the numpad and macropad).
 #[derive(Debug, Clone, PartialEq)]
 pub struct KeyDef {
+    /// Small upper legend (the shifted symbol, or the MIDI note number); empty if none.
     pub top: String,
+    /// Main legend ("A", "Esc", "F5", an arrow, or a note name).
     pub main: String,
     pub x: f32,
     pub y: f32,
@@ -19,25 +33,31 @@ pub struct KeyDef {
 }
 
 impl KeyDef {
+    /// Centre of the key, in key units.
     pub fn center(&self) -> (f32, f32) {
         (self.x + self.w / 2.0, self.y + self.h / 2.0)
     }
     /// A modifier / non-letter key (QMK's "Alphas / mods" effect colors these differently).
     pub fn is_modifier(&self) -> bool {
+        // "Modifier" here means any key whose legend is longer than one character, except F1..F24.
         self.main.chars().count() > 1
             && !(self.main.starts_with('F') && self.main[1..].chars().all(|c| c.is_ascii_digit()))
     }
 }
 
+/// Shorthand to keep the layout tables below one line per key.
 fn k(top: &str, main: &str, x: f32, y: f32, w: f32, h: f32) -> KeyDef {
     KeyDef { top: top.into(), main: main.into(), x, y, w, h }
 }
 
+/// Keyboard outline in key units, gaps between rows included (width, height).
 pub const KEYBOARD_SIZE: (f32, f32) = (18.25, 6.75);
 /// Side module grid size in module units.
 pub const MODULE_GRID: (f32, f32) = (4.75, 8.25);
 
 /// Framework 16 ANSI keyboard, Framework's default legends ("Super" for the Windows key).
+/// 78 keys, top-left to bottom-right; the index is the key number used everywhere in the app
+/// (keymaps, painted keys). The top row is half height, as on the real keyboard.
 pub fn keyboard_keys() -> Vec<KeyDef> {
     vec![
         k("", "Esc", 0.0, 0.0, 1.25, 0.5),
@@ -121,23 +141,33 @@ pub fn keyboard_keys() -> Vec<KeyDef> {
     ]
 }
 
+/// What sits beside the keyboard in the picture (set by the user on the Setup page).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SideModule {
+    /// Nothing: spacers on both sides.
     None,
+    /// The RGB macropad (24 keys, driven by the app).
     #[default]
     Macropad,
+    /// Framework's numpad (white backlight; the app only draws it).
     Numpad,
 }
 
+/// Side module rows: (top, height) in module units. The first row is a short one, like the
+/// keyboard's function row.
 const ROWS: [(f32, f32); 6] = [(0.0, 0.75), (1.0, 1.25), (2.5, 1.25), (4.0, 1.25), (5.5, 1.25), (7.0, 1.25)];
+/// Note names within one octave, starting at C.
 const NOTE: [&str; 12] = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
 /// MIDI note name with middle C = C4 = 60.
 pub fn note_name(n: u8) -> String {
+    // 12 notes per octave; MIDI note 0 is C-1, so the octave is n / 12 - 1 (60 -> C4).
     format!("{}{}", NOTE[(n % 12) as usize], n as i32 / 12 - 1)
 }
 
 /// What a macropad key sends by default: (layer A, layer B).
+/// Text for the Macropad page's key card. Layer A is described from the note number; layer B
+/// from the default keymap, not what the user may have changed.
 pub fn macropad_sends(i: usize) -> (String, String) {
     let n = 48 + i as u8;
     (
@@ -147,9 +177,12 @@ pub fn macropad_sends(i: usize) -> (String, String) {
 }
 
 /// RGB macropad keys, legends for layer 0 (MIDI) or 1 (numpad).
+/// Keys numbered row by row, 4 per row (6 rows). Layer 0 legends are MIDI notes 48 (C3) to 71
+/// (B4); layer 1 legends come from the default numpad keymap.
 pub fn macropad_keys(layer: u8) -> Vec<KeyDef> {
     (0..24)
         .map(|i| {
+            // Columns are 1.25 units apart (1u key + gap); row tops and heights come from ROWS.
             let (r, c) = (i / 4, i % 4);
             let (top, main) = if layer == 0 {
                 let n = 48 + i as u8;
@@ -163,8 +196,10 @@ pub fn macropad_keys(layer: u8) -> Vec<KeyDef> {
 }
 
 /// Framework numpad (white backlight), default legends.
+/// 21 keys on the same grid as the macropad; "+" and "Enter" are double height.
 pub fn numpad_keys() -> Vec<KeyDef> {
     let l = |main: &str, c: usize, r: usize, w: f32, h: f32| {
+        // `h` of 0 means "the row's own height"; a larger `h` spans rows.
         k("", main, c as f32 * 1.25, ROWS[r].0, w, if h > 0.0 { h } else { ROWS[r].1 })
     };
     vec![
@@ -192,6 +227,7 @@ pub fn numpad_keys() -> Vec<KeyDef> {
     ]
 }
 
+/// The keys of the chosen side module (`layer` only matters for the macropad's legends).
 pub fn module_keys(side: SideModule, layer: u8) -> Vec<KeyDef> {
     match side {
         SideModule::None => vec![],
@@ -201,6 +237,8 @@ pub fn module_keys(side: SideModule, layer: u8) -> Vec<KeyDef> {
 }
 
 /// Key centre in QMK's 0..224 x 0..64 LED space for a device of `size` units.
+/// Scales the key centre to the device's full outline `size` and rounds; clamped so a key on the
+/// very edge can't overflow a byte.
 pub fn qmk_point(key: &KeyDef, size: (f32, f32)) -> (u8, u8) {
     let (cx, cy) = key.center();
     ((cx / size.0 * 224.0).round().clamp(0.0, 224.0) as u8, (cy / size.1 * 64.0).round().clamp(0.0, 64.0) as u8)
@@ -209,13 +247,17 @@ pub fn qmk_point(key: &KeyDef, size: (f32, f32)) -> (u8, u8) {
 /// For every LED, the key it sits under: the key whose rectangle (in QMK
 /// space) contains it, else the nearest key centre. Keys can own several
 /// LEDs (the space bar has more than one).
+///
+/// Returns one key index per LED. With an empty `keys` list every LED maps to 0.
 pub fn map_leds_to_keys(leds: &[LedPoint], keys: &[KeyDef], size: (f32, f32)) -> Vec<usize> {
+    // Key units -> QMK units, separately for x and y (the device's outline maps onto 224 x 64).
     let sx = 224.0 / size.0;
     let sy = 64.0 / size.1;
     leds.iter()
         .map(|p| {
             let (px, py) = (p.x as f32, p.y as f32);
             if let Some(i) = keys.iter().position(|k| {
+                // A 1-unit (QMK units) margin catches LEDs that sit right on a key's edge.
                 px >= k.x * sx - 1.0
                     && px <= (k.x + k.w) * sx + 1.0
                     && py >= k.y * sy - 1.0
@@ -223,6 +265,7 @@ pub fn map_leds_to_keys(leds: &[LedPoint], keys: &[KeyDef], size: (f32, f32)) ->
             }) {
                 return i;
             }
+            // No rectangle matched: take the key whose centre is nearest (squared distance).
             keys.iter()
                 .enumerate()
                 .map(|(i, k)| {
@@ -237,6 +280,9 @@ pub fn map_leds_to_keys(leds: &[LedPoint], keys: &[KeyDef], size: (f32, f32)) ->
 }
 
 /// LED positions from Framework's QMK v0.3.1 (ansi/ansi.c).
+/// Index = LED number as the firmware counts them (the order of FRAME colors and KEY_EVENTS);
+/// value = (x 0..=224, y 0..=64). The order follows the keyboard's wiring, not the key layout.
+/// 97 LEDs for 78 keys: wide keys (space bar, shifts, backspace...) have more than one.
 pub const KEYBOARD_LEDS: [(u8, u8); 97] = [
     (11, 23),
     (0, 23),
@@ -338,6 +384,7 @@ pub const KEYBOARD_LEDS: [(u8, u8); 97] = [
 ];
 
 /// LED positions from Framework's QMK v0.3.1 (macropad/macropad.c).
+/// Same layout of data as [`KEYBOARD_LEDS`], in the macropad's wiring order.
 pub const MACROPAD_LEDS: [(u8, u8); 24] = [
     (73, 10),
     (73, 24),
@@ -366,6 +413,7 @@ pub const MACROPAD_LEDS: [(u8, u8); 24] = [
 ];
 
 /// LED tables as LedPoints (flags = 4, "key light").
+/// Turns a position table into [`LedPoint`]s, as if the device had reported them with LED_INFO.
 pub fn firmware_leds(table: &[(u8, u8)]) -> Vec<LedPoint> {
     table.iter().map(|&(x, y)| LedPoint { x, y, flags: 4 }).collect()
 }
@@ -374,6 +422,7 @@ pub fn firmware_leds(table: &[(u8, u8)]) -> Vec<LedPoint> {
 mod tests {
     use super::*;
 
+    /// The keyboard layout has every key, inside its outline, with Framework's "Super" legend.
     #[test]
     fn keyboard_has_78_keys_inside_its_outline() {
         let keys = keyboard_keys();
@@ -386,6 +435,7 @@ mod tests {
         assert!(!keys.iter().any(|k| k.main == "Win"));
     }
 
+    /// Macropad and numpad key counts and a few legends on each macropad layer.
     #[test]
     fn modules_have_their_key_counts() {
         assert_eq!(macropad_keys(0).len(), 24);
@@ -398,6 +448,7 @@ mod tests {
         assert_eq!(macropad_sends(4).1, "Num Lock");
     }
 
+    /// Mapping the firmware's LEDs onto the drawn keyboard leaves no key without light.
     #[test]
     fn every_keyboard_key_gets_an_led() {
         let keys = keyboard_keys();
@@ -408,6 +459,7 @@ mod tests {
         }
     }
 
+    /// Each macropad key gets exactly one of the 24 LEDs.
     #[test]
     fn every_macropad_key_gets_one_led() {
         let keys = macropad_keys(0);
@@ -418,6 +470,7 @@ mod tests {
         assert_eq!(seen.len(), 24, "{map:?}");
     }
 
+    /// Shift is a modifier; letters and F-keys are not.
     #[test]
     fn modifiers_are_detected() {
         let keys = keyboard_keys();

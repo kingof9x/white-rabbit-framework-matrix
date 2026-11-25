@@ -7,6 +7,21 @@
 //! commands), and two threads never use the same panel. Every frame goes through the effects (ripples,
 //! sliding, the text line) just before it is sent, and while an effect plays the thread redraws the last
 //! frame on its own about 30 times a second so the effect moves smoothly.
+//!
+//! # Who owns what
+//!
+//! `Panels` is created once by the monitor and shared (`Arc`) by the two drawing threads (one `Panel`
+//! each, side 0 = left, 1 = right, each running `Panel::run` on its own thread), the main loop (`swap`,
+//! `align`, `options`, `port_names`) and the control channel thread (`hub()` for the window's commands).
+//! The main loop never writes to a port itself: it puts frames on each side's `FrameQueue`.
+//!
+//! # Finding a panel again
+//!
+//! When a write fails (panel unplugged, keyboard moved, computer slept) the thread lets go of the port
+//! (`lost`) and looks right away; if no panel is found it tries again on later frames, waiting 0.5 s,
+//! then 1, 2, 4 and at most 8 s between tries. It looks first at the USB position (or port name) its
+//! panel last had, so a panel that comes back at the same slot under a new COM number goes back to the
+//! same side. See `Panels::connect` for how the two sides avoid taking each other's panel.
 
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Arc, Mutex};
@@ -20,9 +35,13 @@ use wr_core::queue::{FrameQueue, Item};
 use wr_core::{info, warn, Grid};
 
 /// An unchanged frame is sent again after this long, so the panel never falls asleep.
+/// Also the reason a picture that never changes (a clock showing the same minute) still costs one
+/// frame write every 5 s per panel.
 pub const RESEND_UNCHANGED: Duration = Duration::from_secs(5);
 
 /// Effects drawn over the frames just before they go to a panel (side 0 = left, 1 = right).
+/// Implemented by `overlay::EffectsOverlay` in the app and by a counting fake in the tests. Shared by
+/// both drawing threads, hence `Send + Sync`; implementations do their own locking.
 pub trait Overlay: Send + Sync {
     /// The frame with the effects on it. `new_frame` is false when redrawing the last frame for an effect.
     fn apply(&self, side: usize, grid: &Grid, new_frame: bool) -> Grid;
@@ -35,6 +54,8 @@ pub trait Overlay: Send + Sync {
 }
 
 /// Settings the drawing threads read on every frame.
+/// Atomics rather than a lock, because each value stands alone and is read on every frame; `Relaxed`
+/// ordering is enough since nothing else depends on seeing them in a particular order.
 #[derive(Debug, Default)]
 pub struct Options {
     /// "Keep every shade when the panels are dim" (dimming by LED current).
@@ -43,8 +64,11 @@ pub struct Options {
     pub foreground: AtomicI32,
 }
 
+/// What one side is drawing on now.
 #[derive(Default)]
 struct Conn {
+    /// The open port this side draws on, or None while its panel is missing. Holding the `Arc` keeps the
+    /// port open (see `hub.rs`).
     port: Option<Arc<SharedPort>>,
     /// The panel's USB location (or port name) last seen, looked at first when reconnecting.
     location: Option<String>,
@@ -53,19 +77,29 @@ struct Conn {
 /// Both panels: which port each side draws on, shared by the two drawing threads, the main loop and the
 /// window's commands.
 pub struct Panels {
+    /// All open ports, shared with the window's commands.
     hub: Hub,
+    /// The layout file's left/right pins. Shared with the monitor, which replaces them when the layout
+    /// changes; only ever cloned here, never held while another lock is taken.
     pins: Arc<Mutex<Pins>>,
+    /// Which port each side (0 left, 1 right) draws on. The first lock in the order in `lib.rs`.
     sides: Mutex<[Conn; 2]>,
+    /// Read by the drawing threads on every frame; set by the main loop.
     pub options: Options,
+    /// The effects, once the monitor has set them. Only cloned out under the lock, and used after it is
+    /// released, so effect drawing never runs with this lock held.
     overlay: Mutex<Option<Arc<dyn Overlay>>>,
 }
 
 /// True if two USB locations are the same position, e.g. `1-3.3:x.0` and `1-3.3` (but not `1-3.30`).
+/// Used to keep a missing panel's slot for its side: the interface suffix (after `:`) is ignored and
+/// case doesn't matter.
 fn same_position(a: &str, b: &str) -> bool {
     let base = |l: &str| l.split(':').next().unwrap_or(l).to_lowercase();
     base(a) == base(b)
 }
 
+/// "left" for 0, "right" for anything else; for log messages.
 fn side_name(side: usize) -> &'static str {
     if side == 0 {
         "left"
@@ -75,6 +109,7 @@ fn side_name(side: usize) -> &'static str {
 }
 
 impl Panels {
+    /// Both sides start with no panel; the drawing threads connect when they start (`Panel::run`).
     pub fn new(system: Arc<dyn PortSystem>, pins: Arc<Mutex<Pins>>) -> Arc<Panels> {
         Arc::new(Panels {
             hub: Hub::new(system),
@@ -90,10 +125,12 @@ impl Panels {
         &self.hub
     }
 
+    /// Sets the effects drawn over every frame (called once at start-up, before the threads draw).
     pub fn set_overlay(&self, overlay: Arc<dyn Overlay>) {
         *self.overlay.lock().unwrap() = Some(overlay);
     }
 
+    /// A clone of the overlay, so the caller can use it without holding the `overlay` lock.
     fn overlay(&self) -> Option<Arc<dyn Overlay>> {
         self.overlay.lock().unwrap().clone()
     }
@@ -104,12 +141,21 @@ impl Panels {
         [0, 1].map(|s| sides[s].port.as_ref().map(|p| p.name().to_string()))
     }
 
+    /// A clone of this side's port handle, taken under `sides` and used after `sides` is released, so a
+    /// frame being written never blocks `swap`, `connect` or `port_names`.
     fn port(&self, side: usize) -> Option<Arc<SharedPort>> {
         self.sides.lock().unwrap()[side].port.clone()
     }
 
     /// Finds, opens and claims this side's panel; tells it to scroll or not.
+    /// On success, returns the port name and tells the overlay this side has a panel. Errors are messages
+    /// for the log ("no free LED panel found", or the open/write error). Holds `sides` from the choice
+    /// until the port is recorded, so the two sides can never pick the same panel at once; inside that it
+    /// takes `Hub::open` and the port's lock, which follows the lock order in `lib.rs`. The scroll command
+    /// is the one write that proves the port works before the side takes it (unless the window holds it).
     fn connect(&self, side: usize, animate: bool) -> Result<String, String> {
+        // The port list and a copy of the pins are fetched before `sides` is locked: listing ports asks
+        // Windows (slow) and the pins lock must not be held together with `sides`.
         let list = self.hub.list();
         let pins = self.pins.lock().unwrap().clone();
         let mut sides = self.sides.lock().unwrap();
@@ -119,6 +165,8 @@ impl Panels {
         // position is kept for it. Otherwise, when the modules come back one at a time (moving the
         // keyboard), the first side to look grabs whichever panel showed up first, and the two swap.
         let reserved = other.port.is_none().then(|| other.location.clone()).flatten().filter(|l| !l.is_empty());
+        // A port is taken if the other side draws on it now, or if it is (or sits at the USB position of)
+        // the panel the other side is still waiting for.
         let taken = |p: &str| {
             other_port.as_deref() == Some(p.to_lowercase().as_str())
                 || reserved.as_deref().is_some_and(|r| {
@@ -133,6 +181,8 @@ impl Panels {
             .ok_or_else(|| "no free LED panel found".to_string())?;
         let port = self.hub.open(&name).map_err(|e| e.to_string())?;
         port.lock().write(&protocol::animate(animate)).map_err(|e| e.to_string())?;
+        // The USB position is remembered for finding this panel again; a port without one (not USB, or
+        // Windows didn't say) remembers its port name instead, which `find_panel_port` also accepts.
         let location = list
             .iter()
             .find(|p| p.device.eq_ignore_ascii_case(&name))
@@ -144,6 +194,8 @@ impl Panels {
             location.as_deref().unwrap_or("?")
         );
         sides[side] = Conn { port: Some(port), location };
+        // `sides` is released before calling the overlay, whose lock comes later in the lock order and
+        // whose effects code may take a while.
         drop(sides);
         if let Some(o) = self.overlay() {
             o.panel_present(side, true);
@@ -152,6 +204,8 @@ impl Panels {
     }
 
     /// Lets go of this side's port (it stays open while the window or the other side uses it).
+    /// Tells the overlay the panel is gone only if the side had one, so it isn't told twice. The side's
+    /// remembered USB position is kept, so the next `connect` looks there first.
     fn disconnect(&self, side: usize) {
         let had = self.sides.lock().unwrap()[side].port.take().is_some();
         if had {
@@ -162,6 +216,8 @@ impl Panels {
     }
 
     /// Swap left and right, straight away: each drawing thread now draws on the other's panel.
+    /// Called from the main loop (a hotkey or the tray). Running effects are dropped on both sides, since
+    /// they were drawn for the other panel. The remembered USB positions move with the ports.
     pub fn swap(&self) {
         let names = {
             let mut sides = self.sides.lock().unwrap();
@@ -185,6 +241,8 @@ impl Panels {
     /// settings now give the other side. True if they were swapped.
     pub fn align(&self) -> bool {
         let [Some(left), Some(right)] = self.port_names() else { return false };
+        // `discover` puts the left panel first, by the pins or by USB position. Only an exact cross-over
+        // (each side on the other's panel) swaps; any other mismatch is left to the drawing threads.
         let found = discover(&self.hub.list(), &self.pins.lock().unwrap());
         if found.len() < 2 {
             return false;
@@ -199,17 +257,26 @@ impl Panels {
 }
 
 /// One panel's drawing thread.
+/// Owned by its drawing thread (not shared); `run` consumes it.
 pub struct Panel {
+    /// 0 = left, 1 = right.
     side: usize,
+    /// The shared state of both sides.
     panels: Arc<Panels>,
+    /// True while the firmware's own scroll is on: frames are then not drawn, the panel scrolls by itself.
     animate: bool,
+    /// The last frame from the queue, before effects, kept so an effect can be redrawn over it.
     last_grid: Option<Grid>,
+    /// How long to wait after the next failed search (0.5 s, doubling up to 8 s; reset on success).
     backoff: Duration,
+    /// No search before this moment unless forced.
     next_try: Instant,
+    /// So "No left panel yet" is logged once per absence, not on every try.
     warned_missing: bool,
 }
 
 impl Panel {
+    /// A drawing thread's state for one side, not yet connected; the first search may happen at once.
     pub fn new(side: usize, panels: Arc<Panels>) -> Panel {
         Panel {
             side,
@@ -223,6 +290,8 @@ impl Panel {
     }
 
     /// Finds and opens this side's panel; false (and try again later) when there is none.
+    /// `force` ignores the wait (`next_try`); used at start-up and right after losing the panel. A failed
+    /// search also lets go of whatever port the side still had.
     pub fn connect(&mut self, force: bool) -> bool {
         let now = Instant::now();
         if !force && now < self.next_try {
@@ -247,6 +316,8 @@ impl Panel {
         }
     }
 
+    /// Sends one command (sleep, scroll on/off) to this side's panel under the port's lock; does nothing
+    /// without a panel. Dropped while the window holds the panel.
     fn send(&self, bytes: &[u8]) -> std::io::Result<()> {
         match self.panels.port(self.side) {
             Some(p) => p.lock().write(bytes),
@@ -254,6 +325,8 @@ impl Panel {
         }
     }
 
+    /// Sends one frame (already with effects) to this side's panel, or nothing if there is none. An error
+    /// means a write failed; the caller then calls `lost`.
     fn draw(&self, grid: &Grid) -> std::io::Result<()> {
         let Some(port) = self.panels.port(self.side) else { return Ok(()) };
         // The whole frame under the port's lock, so the window's commands can't land in the middle
@@ -265,6 +338,7 @@ impl Panel {
             options.full_shades.load(Ordering::Relaxed),
             options.foreground.load(Ordering::Relaxed),
         )?;
+        // The bytes after dimming are what the panel would show, so they are what is compared and kept.
         let key = grid.to_bytes();
         if let Some((shown, at)) = &state.shown {
             if *shown == key && at.elapsed() < RESEND_UNCHANGED {
@@ -277,6 +351,8 @@ impl Panel {
         for command in protocol::frame_commands(&grid) {
             state.write(&command)?;
         }
+        // While held the writes above were dropped, so the frame must not be recorded as shown (or the
+        // window would get a stale `last_frame` and the first frame after release would be skipped).
         if !state.is_held() {
             state.shown = Some((key, Instant::now()));
             state.last_frame = Some(key);
@@ -285,6 +361,9 @@ impl Panel {
     }
 
     /// Handles one item from the queue. False when the thread should stop.
+    /// `Item::Frame(grid, animate)`: `animate` is Some when the main loop switched the firmware scroll on or
+    /// off for this frame (a scrolling app came or went), None otherwise. Write errors are not returned:
+    /// they make the thread look for its panel again (`lost`).
     pub fn handle(&mut self, item: Item) -> bool {
         let result = match item {
             Item::Stop => return false,
@@ -299,10 +378,12 @@ impl Panel {
                 if let Some(a) = animate {
                     self.animate = a;
                 }
+                // No panel and too early to look again: the frame is dropped (the next one will be newer anyway).
                 if self.panels.port(self.side).is_none() && !self.connect(false) {
                     return true;
                 }
                 let mut r = Ok(());
+                // While the firmware scrolls by itself, frames are not sent: a frame would stop the scroll.
                 if !self.animate {
                     let shown = match self.panels.overlay() {
                         Some(o) => o.apply(self.side, &grid, true),
@@ -311,6 +392,8 @@ impl Panel {
                     self.last_grid = Some(grid);
                     r = self.draw(&shown);
                 }
+                // The scroll command goes after the frame, so the firmware scrolls the picture just drawn. Like
+                // every write, it makes the next frame be sent even if it is unchanged.
                 if let (Ok(()), Some(a)) = (&r, animate) {
                     r = self.send(&protocol::animate(a));
                 }
@@ -324,6 +407,8 @@ impl Panel {
     }
 
     /// An effect is playing and no new frame came: draw its next step over the last frame.
+    /// Called when the queue gave nothing within the effect's interval. Does nothing while scrolling, with
+    /// no panel, or before the first frame.
     fn redraw_effect(&mut self) {
         let (Some(grid), Some(overlay)) = (&self.last_grid, self.panels.overlay()) else { return };
         if self.animate || self.panels.port(self.side).is_none() {
@@ -335,12 +420,17 @@ impl Panel {
         }
     }
 
+    /// A write failed: log it, let go of the port (it is broken, see `hub.rs`) and look for the panel at
+    /// once, ignoring the backoff.
     fn lost(&mut self, e: std::io::Error) {
         warn!("Lost the {} panel ({e}); looking for it again", side_name(self.side));
         self.panels.disconnect(self.side);
         self.connect(true);
     }
 
+    /// The drawing thread's body, until `Item::Stop`. Waits on the queue for at most the effect interval
+    /// while an effect plays (about 33 ms), or 1 s otherwise; the 1 s timeout only keeps the loop checking
+    /// whether an effect started. Lets go of the port when it ends.
     pub fn run(mut self, queue: Arc<FrameQueue>) {
         self.connect(true);
         loop {
@@ -365,6 +455,8 @@ mod tests {
     use crate::hub::fake::*;
     use wr_core::HEIGHT;
 
+    /// Two fake panels: COM4 at USB position 1-3.2 (so left) and COM5 at 1-3.3 (so right), listed in the
+    /// wrong order on purpose; no pins.
     fn setup() -> (Arc<Fake>, Arc<Panels>, Panel, Panel) {
         let fake = Arc::new(Fake::default());
         *fake.ports.lock().unwrap() = vec![panel_port("COM5", "1-3.3:x.0"), panel_port("COM4", "1-3.2:x.0")];
@@ -374,14 +466,17 @@ mod tests {
         (fake, panels, left, right)
     }
 
+    /// Every (port, bytes) written so far.
     fn writes(fake: &Fake) -> Vec<(String, Vec<u8>)> {
         fake.written.lock().unwrap().clone()
     }
 
+    /// Shorthand for `Some(s.to_string())`.
     fn some(s: &str) -> Option<String> {
         Some(s.to_string())
     }
 
+    /// Proves that sides are chosen by USB position, not by COM number or list order.
     #[test]
     fn left_and_right_by_usb_position() {
         let (_, panels, mut left, mut right) = setup();
@@ -389,6 +484,8 @@ mod tests {
         assert_eq!(panels.port_names(), [some("COM4"), some("COM5")]);
     }
 
+    /// Proves the exact bytes of a frame, that an unchanged frame is skipped, that any other write makes
+    /// the next frame go out again, and that an unchanged frame is resent after `RESEND_UNCHANGED`.
     #[test]
     fn unchanged_frames_are_skipped_until_the_keepalive() {
         let (fake, panels, mut left, _) = setup();
@@ -419,6 +516,7 @@ mod tests {
         assert_eq!(writes(&fake).len(), 8);
     }
 
+    /// Proves that when both panels move to new slots and COM ports, each side still gets the right one.
     #[test]
     fn a_moved_panel_is_found_again() {
         let (fake, panels, mut left, mut right) = setup();
@@ -432,6 +530,8 @@ mod tests {
         assert_eq!(panels.port_names(), [some("COM8"), some("COM9")]);
     }
 
+    /// Proves that a failed write makes the thread switch to the panel now on its side within the same
+    /// frame, and that later frames go there.
     #[test]
     fn a_failed_write_finds_the_panel_again() {
         let (fake, panels, mut left, _) = setup();
@@ -447,6 +547,8 @@ mod tests {
         assert_eq!(writes(&fake).last().unwrap().0, "COM7");
     }
 
+    /// Proves the reservation in `Panels::connect`: a side does not take the panel the other side is
+    /// waiting for, so panels plugged back one at a time don't swap sides.
     #[test]
     fn panels_coming_back_one_at_a_time_keep_their_sides() {
         // Callum's log: both panels unplugged (keyboard moved), then the right one (1-3.3) came back
@@ -467,6 +569,7 @@ mod tests {
         assert_eq!(panels.port_names(), [some("COM3"), some("COM5")]);
     }
 
+    /// Proves that the reservation only covers the other side's own slot: a panel in a new slot is used.
     #[test]
     fn a_lone_panel_in_a_new_place_is_still_used() {
         // Both panels gone; one comes back at a position neither side had: the first side to look takes it
@@ -481,6 +584,8 @@ mod tests {
         assert_eq!(panels.port_names(), [None, some("COM6")]);
     }
 
+    /// Proves that `swap` sends frames to the other panel at once, and that `align` puts them back to
+    /// match the positions or the pins (and does nothing when they already match).
     #[test]
     fn swap_and_align() {
         let (fake, panels, mut left, mut right) = setup();
@@ -502,6 +607,7 @@ mod tests {
         assert_eq!(panels.port_names(), [some("COM5"), some("COM4")]);
     }
 
+    /// Proves that nothing reaches a held panel and that drawing resumes (column + flush) after release.
     #[test]
     fn held_panels_are_not_drawn_on() {
         let (fake, panels, mut left, _) = setup();
@@ -517,6 +623,7 @@ mod tests {
         assert_eq!(writes(&fake).len(), before + 2, "drawn again once released (column + flush)");
     }
 
+    /// Proves that the monitor's last frame stays readable through the hub after the window holds the panel.
     #[test]
     fn the_last_frame_is_kept_for_the_window_while_it_holds_the_panel() {
         let (_, panels, mut left, _) = setup();
@@ -552,6 +659,8 @@ mod tests {
         }
     }
 
+    /// Proves that the overlay is applied to every frame sent, that the thread redraws on its own while an
+    /// effect plays ("step"), and that the panel appearing is reported first.
     #[test]
     fn effects_go_over_the_frames_and_keep_moving() {
         let (fake, panels, left, _) = setup();

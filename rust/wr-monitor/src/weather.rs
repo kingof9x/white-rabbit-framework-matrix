@@ -3,6 +3,11 @@
 //! otherwise the internet address; then the weather from
 //! OpenWeather when OPENWEATHER_API_KEY is set, and from Open-Meteo otherwise or when that fails.
 //! Asked again every 30 seconds, on its own thread.
+//!
+//! `sensors.rs` keeps one `background.rs` reader per distinct weather setting (`WeatherSettings::key`),
+//! so two weather apps with different places each get their own thread. Everything here blocks
+//! (HTTP with a 10 s time limit), which is fine on that thread. The parsing of the services' JSON
+//! answers lives in `wr_core::apps::weather` so it can be tested without the network.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -14,24 +19,38 @@ use wr_core::layout::App;
 
 use crate::background::OnceLog;
 
+/// How often the weather thread asks again.
 pub const REFRESH: Duration = Duration::from_secs(30);
 
+/// OpenWeather (needs an API key from the OPENWEATHER_API_KEY environment variable).
 const OPENWEATHER_HOST: &str = "https://api.openweathermap.org";
+/// Open-Meteo's forecast service (free, no key).
 const OPEN_METEO_HOST: &str = "https://api.open-meteo.com";
+/// Open-Meteo's place-name search, used to turn a zip code into coordinates without a key.
 const OPEN_METEO_GEOCODE_HOST: &str = "https://geocoding-api.open-meteo.com";
 
 /// The app's settings that change what is asked.
+///
+/// Built from the layout's app arguments. Two apps with equal settings share one reader.
 #[derive(Clone, Debug, PartialEq)]
 pub struct WeatherSettings {
+    /// `zip_info`: (zip or postal code, country code), e.g. ("10001", "US").
     pub zip: Option<(String, String)>,
+    /// `lat_lon`: (latitude, longitude) in degrees, typed in by the user.
     pub lat_lon: Option<(f64, f64)>,
+    /// "windows" to try Windows Location first; anything else ("manual", the default) skips it.
     pub location_source: String,
+    /// "metric" (°C, km/h), "imperial" (°F, mph) or "standard" (OpenWeather's kelvin).
     pub units: String,
+    /// Show a forecast instead of the current weather.
     pub forecast: bool,
+    /// Days ahead for the forecast (1 = tomorrow); negative counts as 0 (today).
     pub forecast_day: i64,
+    /// Hour of the forecast day (0-23).
     pub forecast_hour: i64,
 }
 
+/// A YAML value as a number, accepting both `51.5` and `"51.5"` since layouts are hand-edited.
 fn yaml_f64(v: &serde_yaml::Value) -> Option<f64> {
     match v {
         serde_yaml::Value::Number(n) => n.as_f64(),
@@ -40,6 +59,7 @@ fn yaml_f64(v: &serde_yaml::Value) -> Option<f64> {
     }
 }
 
+/// A YAML value as text; numbers are accepted (a zip code like 10001 is read by YAML as a number).
 fn yaml_string(v: &serde_yaml::Value) -> String {
     match v {
         serde_yaml::Value::String(s) => s.clone(),
@@ -49,6 +69,8 @@ fn yaml_string(v: &serde_yaml::Value) -> String {
 }
 
 impl WeatherSettings {
+    /// Reads the settings from one weather app of the layout, with defaults for anything missing.
+    /// Unknown units are logged and replaced with metric; a malformed pair is ignored (None).
     pub fn of(app: &App) -> WeatherSettings {
         let pair = |key: &str| app.arg(key).and_then(|v| v.as_sequence()).filter(|s| s.len() == 2).cloned();
         let int = |key: &str, default: i64| app.arg(key).and_then(yaml_f64).map(|v| v as i64).unwrap_or(default);
@@ -69,29 +91,39 @@ impl WeatherSettings {
     }
 
     /// One string per distinct setting, to keep one reader per setting.
+    ///
+    /// The `Debug` text of the whole struct serves as the key: equal settings give equal text.
     pub fn key(&self) -> String {
         format!("{self:?}")
     }
 }
 
 /// Locations found once are kept: a zip code's or this computer's place doesn't move.
+///
+/// Keys are "zip:(code, country)" or "ip". Shared by all weather threads; lock errors are ignored
+/// (the lookup is then just done again).
 static LOCATIONS: Mutex<Option<HashMap<String, (f64, f64)>>> = Mutex::new(None);
 
+/// A location found before under this key, if any.
 fn remembered(key: &str) -> Option<(f64, f64)> {
     LOCATIONS.lock().ok()?.as_ref()?.get(key).copied()
 }
 
+/// Keeps a found location for the rest of the run.
 fn remember(key: &str, loc: (f64, f64)) {
     if let Ok(mut map) = LOCATIONS.lock() {
         map.get_or_insert_with(HashMap::new).insert(key.to_string(), loc);
     }
 }
 
+/// An HTTP client with its connection pool, kept for the life of one weather reader.
 struct Client {
     agent: ureq::Agent,
 }
 
 impl Client {
+    /// Every request gives up after 10 s in total. Windows' own TLS (NativeTls) is used, so the
+    /// system's certificates (and any company proxy certificates) are trusted.
     fn new() -> Client {
         let tls = ureq::tls::TlsConfig::builder().provider(ureq::tls::TlsProvider::NativeTls).build();
         let config =
@@ -99,6 +131,8 @@ impl Client {
         Client { agent: config.into() }
     }
 
+    /// GETs `url` with the query parameters (URL-encoded by ureq) and parses the answer as JSON.
+    /// Err holds a readable message for network errors or an answer that isn't JSON.
     fn json(&self, url: &str, query: &[(&str, String)]) -> Result<Value, String> {
         let mut request = self.agent.get(url);
         for (k, v) in query {
@@ -109,6 +143,7 @@ impl Client {
         response.body_mut().read_json::<Value>().map_err(|e| e.to_string())
     }
 
+    /// The coordinates of a zip code from OpenWeather's geocoding service.
     fn zip_openweather(&self, zip: &(String, String), key: &str) -> Result<(f64, f64), String> {
         let data = self.json(
             &format!("{OPENWEATHER_HOST}/geo/1.0/zip"),
@@ -120,6 +155,7 @@ impl Client {
         }
     }
 
+    /// The coordinates of a zip code from Open-Meteo's place search, taking the first match.
     fn zip_open_meteo(&self, zip: &(String, String)) -> Result<(f64, f64), String> {
         let url = format!("{OPEN_METEO_GEOCODE_HOST}/v1/search");
         let country = zip.1.to_uppercase();
@@ -134,6 +170,8 @@ impl Client {
         }
         let mut data = self.json(&url, &query)?;
         let empty = |d: &Value| d.get("results").and_then(Value::as_array).is_none_or(|r| r.is_empty());
+        // Nothing found with the country filter: search again for "code COUNTRY" as plain text,
+        // without the filter (`pop` removes the countryCode parameter, which was added last).
         if empty(&data) && !country.is_empty() {
             query[0].1 = format!("{} {country}", zip.0);
             query.pop();
@@ -147,8 +185,11 @@ impl Client {
     }
 
     /// This computer's place from its internet address, from the first of three services that answers.
+    ///
+    /// Tries ipwho.is, ipapi.co, then ipinfo.io; the error lists why each one failed.
     fn by_ip(&self) -> Result<(f64, f64), String> {
         let mut errors = Vec::new();
+        // ipwho.is answers 200 even on failure, with `"success": false`.
         match self.json("https://ipwho.is", &[]) {
             Ok(d) if d.get("success").and_then(Value::as_bool) == Some(true) => {
                 if let (Some(lat), Some(lon)) = (d["latitude"].as_f64(), d["longitude"].as_f64()) {
@@ -170,6 +211,7 @@ impl Client {
         }
         match self.json("https://ipinfo.io/json", &[]) {
             Ok(d) => {
+                // ipinfo.io gives the place as one string, "lat,lon".
                 let loc = d["loc"].as_str().and_then(|s| s.split_once(','));
                 if let Some((Ok(lat), Ok(lon))) = loc.map(|(a, b)| (a.trim().parse(), b.trim().parse())) {
                     return Ok((lat, lon));
@@ -181,6 +223,9 @@ impl Client {
         Err(format!("No location set and finding it from the internet address failed ({})", errors.join("; ")))
     }
 
+    /// Where to get the weather for, in this order: Windows Location (if chosen and it works), the
+    /// typed-in coordinates, the zip code (OpenWeather if there is a key, else or then Open-Meteo),
+    /// and last the internet address. Zip and internet-address results are remembered.
     fn location(&self, s: &WeatherSettings, api_key: Option<&str>) -> Result<(f64, f64), String> {
         if s.location_source == "windows" {
             // When Windows can't say (logged once by location.rs), the typed-in location or the
@@ -219,15 +264,20 @@ impl Client {
         Ok(loc)
     }
 
+    /// The weather for these settings: OpenWeather first when a key is set, then Open-Meteo.
+    /// Err joins the reasons both failed. A failing OpenWeather is logged on every call.
     fn weather(&self, s: &WeatherSettings) -> Result<Weather, String> {
         let api_key = std::env::var("OPENWEATHER_API_KEY").ok().filter(|k| !k.trim().is_empty());
         let loc = self.location(s, api_key.as_deref())?;
+        // The forecast's date in UTC, matching Open-Meteo's `timezone=GMT` below.
         let date = (chrono::Utc::now().date_naive() + chrono::Days::new(s.forecast_day.max(0) as u64))
             .format("%Y-%m-%d")
             .to_string();
+        // None for the current weather; Some((date, hour)) picks one entry from the forecast list.
         let forecast = s.forecast.then_some((date.as_str(), s.forecast_hour));
         let mut errors = Vec::new();
         if let Some(key) = &api_key {
+            // OpenWeather's free 5-day/3-hour forecast, or the current weather.
             let path = if s.forecast { "forecast" } else { "weather" };
             let answer = self
                 .json(
@@ -248,6 +298,7 @@ impl Client {
                 }
             }
         }
+        // The values the weather app draws; asked for hour by hour for a forecast, else for now.
         let fields = "temperature_2m,apparent_temperature,wind_speed_10m,wind_direction_10m,weather_code";
         let imperial = s.units == "imperial";
         let query = [
@@ -272,6 +323,9 @@ impl Client {
 }
 
 /// Reads the weather for one setting. Made and called on that setting's weather thread.
+///
+/// Each call blocks for up to a few web requests. None when the weather can't be had; the failure
+/// is logged once (until it changes or works again).
 pub fn reader(settings: WeatherSettings) -> Box<dyn FnMut() -> Option<Weather>> {
     let client = Client::new();
     let mut log = OnceLog::default();

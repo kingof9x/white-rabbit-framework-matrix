@@ -9,6 +9,16 @@
 //! going in and the frame coming out, as it does for the drain. Power surge and ripple ring can run on
 //! a picture as wide as both panels and the keyboard between them, so they cross from one panel to the
 //! other.
+//!
+//! Where it sits: `effects.rs` (`Effects::apply`, on each panel's drawing thread) asks these functions
+//! for a frame at time `t` whenever one of these looks or transitions is playing; the window's Effects
+//! page lists the looks by `key` and `label`. Nothing here keeps state, reads a clock or talks to a panel.
+//!
+//! How the frames are made: each look is a set of small functions of (picture, time) built from simple
+//! physics and easing curves. Randomness (rain, sparks, static) comes from `h`, a hash of whole numbers
+//! such as (column, row, frame number), so it looks random but is the same every time it is asked.
+//! Brightness given in the code is for full brightness (160) and scaled to the panels' current level
+//! through `Ctx::v`, so the effects are not glaring on a dim panel.
 
 use crate::animations::{tv_off_frames, tv_on_frames, TV_FRAME_SECONDS};
 use crate::effects::Picture;
@@ -17,15 +27,22 @@ use crate::{Grid, HEIGHT, WIDTH};
 /// One of the plug animations (the ripple and the drain are in `effects`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Look {
+    /// Power surge: squeezed into a line sucked into the port; a spark and a flood of light coming in.
     Surge,
+    /// Pixel rain: the picture crumbles and falls away; it floats back up into place.
     Rain,
+    /// Old TV: switch-off squeeze to a dot, and switch-on (frames from `animations`).
     Tv,
+    /// Ripple ring: a bright ring spreading from the port wipes the picture away or reveals it.
     Ring,
+    /// Zipper: the picture unzips and falls apart; it slides back and zips up (app transition only).
     Zipper,
+    /// Glitch: the picture tears and fills with static until the signal cuts; static clears into it.
     Glitch,
 }
 
 impl Look {
+    /// Every look, in the order the window lists them.
     pub const ALL: [Look; 6] = [Look::Surge, Look::Rain, Look::Tv, Look::Ring, Look::Zipper, Look::Glitch];
     /// The ones offered for plugging in and out (the zipper is an app transition only).
     pub const PLUG: [Look; 5] = [Look::Surge, Look::Rain, Look::Tv, Look::Ring, Look::Glitch];
@@ -42,6 +59,7 @@ impl Look {
         }
     }
 
+    /// The look saved under `key` (any look, the zipper included); `None` for an unknown key.
     pub fn from_key(key: &str) -> Option<Look> {
         Look::ALL.into_iter().find(|l| l.key() == key)
     }
@@ -73,6 +91,7 @@ impl Look {
         match self {
             Look::Surge => 1.2,
             Look::Rain => 2.05,
+            // The TV frames plus five more frames on the last (dark) one, so it holds a moment.
             Look::Tv => (tv_off_frames(None, 160).len() + 5) as f64 * TV_FRAME_SECONDS,
             Look::Ring => 1.0,
             Look::Zipper => 1.25,
@@ -83,6 +102,7 @@ impl Look {
     /// How long the picture takes to come in, in seconds.
     pub fn in_seconds(self) -> f64 {
         match self {
+            // Spark and flood until SURGE_RAIN_AT, then the charge rains away at SURGE_RAIN_SPEED.
             Look::Surge => SURGE_RAIN_AT + RAIN_OUT_SECONDS / SURGE_RAIN_SPEED,
             Look::Rain => 1.2,
             Look::Tv => (tv_on_frames(None, 160).len() + 5) as f64 * TV_FRAME_SECONDS,
@@ -95,15 +115,20 @@ impl Look {
     /// The picture going, `t` seconds in; None once it has gone. The picture can be wider than a panel
     /// (both panels and the gap between them). `port_row` is the row the port is level with (its
     /// middle), `bright` the panels' foreground brightness.
+    ///
+    /// `pic` is in LED values 0-255, with the port at its right-hand edge (the caller flips for a left
+    /// port). The result has the same size as `pic`.
     pub fn out_frame(self, pic: &Picture, t: f64, port_row: f64, bright: f64) -> Option<Picture> {
         if t >= self.out_seconds() {
             return None;
         }
         let p = Px::from(pic);
+        // Brightness relative to full (160); at least 1 so a zero brightness does not blank the effect.
         let k = Ctx { row: port_row, b: bright.max(1.0) / 160.0 };
         let f = match self {
             Look::Surge => surge_out(&p, t, &k),
             Look::Rain => rain_out(&p, t),
+            // The TV look works on one panel only (`to_grid` takes the first 9 columns).
             Look::Tv => tv_at(&tv_off_frames(Some(&pic.to_grid()), bright as i32), t),
             Look::Ring => ring(&p, t, 1.0, false, &k),
             Look::Zipper => zip_out(&p, t, &k),
@@ -113,6 +138,8 @@ impl Look {
     }
 
     /// The picture coming in, `t` seconds in; None once it is all there.
+    ///
+    /// Same conventions as `out_frame`; the last frames converge on `pic` itself.
     pub fn in_frame(self, pic: &Picture, t: f64, port_row: f64, bright: f64) -> Option<Picture> {
         if t >= self.in_seconds() {
             return None;
@@ -137,12 +164,14 @@ impl Look {
 const RAIN_SPEED: (f64, f64) = (2.0, 1.5);
 /// The new app starts raining in this long after the old one starts falling.
 const RAIN_OVERLAP: f64 = 0.35;
+/// How much faster than the plug version the zipper plays as a transition (both halves).
 const ZIP_SPEED: f64 = 2.5;
 
 /// How long changing apps takes with this look (only pixel rain and zipper are app transitions).
 pub fn transition_seconds(look: Look) -> f64 {
     match look {
         Look::Zipper => look.out_seconds() / ZIP_SPEED + look.in_seconds() / ZIP_SPEED,
+        // Every other look counts as pixel rain here (the caller only passes rain or zipper).
         _ => RAIN_OVERLAP + Look::Rain.in_seconds() / RAIN_SPEED.1,
     }
 }
@@ -154,6 +183,7 @@ pub fn transition_frame(look: Look, old: &Picture, new: &Picture, t: f64, bright
     if t >= transition_seconds(look) {
         return None;
     }
+    // There is no port in a transition; the looks are played as if from the middle row.
     let mid = HEIGHT as f64 / 2.0;
     if look == Look::Zipper {
         let out_part = look.out_seconds() / ZIP_SPEED;
@@ -170,6 +200,7 @@ pub fn transition_frame(look: Look, old: &Picture, new: &Picture, t: f64, bright
     } else {
         Look::Rain.in_frame(new, (t - RAIN_OVERLAP) * RAIN_SPEED.1, mid, bright).unwrap_or_else(|| new.clone())
     };
+    // Old and new are both drawn: the brighter wins where they overlap.
     for (o, c) in out.data.iter_mut().zip(&coming.data) {
         *o = o.max(*c);
     }
@@ -177,6 +208,8 @@ pub fn transition_frame(look: Look, old: &Picture, new: &Picture, t: f64, bright
 }
 
 /// How long the picture takes to come back after the unplug animation with this transition.
+///
+/// Only the "coming in" half of the transition, used after the unplug drain's dark pause.
 pub fn return_seconds(look: Look) -> f64 {
     match look {
         Look::Zipper => look.in_seconds() / ZIP_SPEED,
@@ -185,6 +218,8 @@ pub fn return_seconds(look: Look) -> f64 {
 }
 
 /// The picture coming back after the unplug animation with this transition; None once it is back.
+///
+/// Any look other than the zipper counts as pixel rain.
 pub fn return_frame(look: Look, new: &Picture, t: f64, bright: f64) -> Option<Picture> {
     let mid = HEIGHT as f64 / 2.0;
     match look {
@@ -195,11 +230,14 @@ pub fn return_frame(look: Look, new: &Picture, t: f64, bright: f64) -> Option<Pi
 
 // Drawing ----------------------------------------------------------------------------------------------
 
+/// The frame rate the random parts change at (sparks, static, jitter): 30 a second, like the redraws.
 const FPS: f64 = 30.0;
 
 /// Where the port is and how bright the panels are (1.0 at full brightness).
 struct Ctx {
+    /// The row the port is level with (its middle, e.g. 16.5).
     row: f64,
+    /// The panels' brightness as a fraction of full (160): 1.0 at full.
     b: f64,
 }
 
@@ -213,15 +251,19 @@ impl Ctx {
 /// A picture as columns of HEIGHT rows, 0-255; `w` columns wide (a panel, or both panels and the gap).
 #[derive(Clone)]
 struct Px {
+    /// Width in columns.
     w: usize,
+    /// Values column by column: `d[x * HEIGHT + y]` (the transpose of `Picture`'s layout).
     d: Vec<f64>,
 }
 
 impl Px {
+    /// An all-dark picture `w` columns wide.
     fn dark(w: usize) -> Px {
         Px { w, d: vec![0.0; w * HEIGHT] }
     }
 
+    /// From an effects `Picture`; values clamped to 0-255, rows past HEIGHT dropped.
     fn from(p: &Picture) -> Px {
         let mut f = Px::dark(p.cols);
         for y in 0..HEIGHT.min(p.rows) {
@@ -232,6 +274,7 @@ impl Px {
         f
     }
 
+    /// From a panel grid (9 columns), values clamped to 0-255.
     fn from_grid(g: &Grid) -> Px {
         let mut f = Px::dark(WIDTH);
         for x in 0..WIDTH {
@@ -242,6 +285,7 @@ impl Px {
         f
     }
 
+    /// Back to an effects `Picture`, clamped to 0-255.
     fn to_picture(&self) -> Picture {
         let mut p = Picture::zeros(HEIGHT, self.w);
         for y in 0..HEIGHT {
@@ -252,10 +296,12 @@ impl Px {
         p
     }
 
+    /// The value at column `x`, row `y`. Panics outside the picture; callers clamp first.
     fn at(&self, x: usize, y: usize) -> f64 {
         self.d[x * HEIGHT + y]
     }
 
+    /// Whether (x, y) is on the picture; positions are signed because moving pixels can leave it.
     fn inside(&self, x: i64, y: i64) -> bool {
         x >= 0 && (x as usize) < self.w && y >= 0 && (y as usize) < HEIGHT
     }
@@ -268,6 +314,7 @@ impl Px {
         }
     }
 
+    /// Sets a pixel, overwriting what is there; off the picture is ignored.
     fn set(&mut self, x: i64, y: i64, v: f64) {
         if self.inside(x, y) {
             self.d[x as usize * HEIGHT + y as usize] = v;
@@ -276,6 +323,10 @@ impl Px {
 }
 
 /// Repeatable noise in 0..1.
+///
+/// The three numbers are mixed with large odd constants and then scrambled with the "splitmix64"
+/// finishing steps; the top 53 bits become a float in 0..1. `c` is used as a channel number so that
+/// different uses (shake, drift, sparks...) get independent noise from the same (column, row, frame).
 fn h(a: i64, b: i64, c: i64) -> f64 {
     let mut x = (a as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
         ^ (b as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F)
@@ -286,11 +337,13 @@ fn h(a: i64, b: i64, c: i64) -> f64 {
     (x >> 11) as f64 / (1u64 << 53) as f64
 }
 
+/// The "smoothstep" easing curve: 0 at 0, 1 at 1, gentle at both ends (`t` is clamped to 0..1).
 fn smooth(t: f64) -> f64 {
     let t = t.clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
 }
 
+/// The old-TV frame for time `t`: each frame shows for `TV_FRAME_SECONDS`; past the end the last one.
 fn tv_at(frames: &[Grid], t: f64) -> Px {
     Px::from_grid(&frames[((t / TV_FRAME_SECONDS) as usize).min(frames.len() - 1)])
 }
@@ -301,9 +354,13 @@ fn tv_at(frames: &[Grid], t: f64) -> Px {
 
 /// When the charge starts to rain away, and how much faster than the unplug rain it falls.
 const SURGE_RAIN_AT: f64 = 0.75;
+/// How many times faster than the plain pixel rain the charge rains away.
 const SURGE_RAIN_SPEED: f64 = 1.8;
+/// How long the plain pixel rain takes to go (the same as `Look::Rain.out_seconds()`).
 const RAIN_OUT_SECONDS: f64 = 2.05;
 
+/// The picture squeezed vertically towards the port's row: `share` is the remaining height as a fraction
+/// (1.0 unchanged). Squeezed light is brighter, up to 2.2 times.
 fn squeeze_to_port(pic: &Px, share: f64, row: f64) -> Px {
     let mut f = Px::dark(pic.w);
     let gain = (1.0 / share.max(0.05).sqrt()).min(2.2);
@@ -319,6 +376,8 @@ fn squeeze_to_port(pic: &Px, share: f64, row: f64) -> Px {
     f
 }
 
+/// Power surge going out: a brief brightening (0-0.12 s), the squeeze into a line at the port row
+/// (to 0.55 s), the line sucked into the port from the far side (to 0.85 s), then a few sparks fizzle.
 fn surge_out(pic: &Px, t: f64, k: &Ctx) -> Px {
     let row = k.row as i64;
     let w = pic.w;
@@ -362,12 +421,15 @@ fn surge_out(pic: &Px, t: f64, k: &Ctx) -> Px {
     f
 }
 
+/// Power surge coming in: a spark races from the port across the picture (0-0.3 s), the light floods up
+/// and down from the port row (to 0.75 s), then that light rains away with the picture showing behind.
 fn surge_in(pic: &Px, t: f64, k: &Ctx) -> Px {
     let row = k.row as i64;
     let w = pic.w;
     let mut f = Px::dark(w);
     if t < 0.3 {
         // A spark races out of the port, all the way across, with a trail behind it
+        // The spark's head moves from the port column to just past the far edge in 0.3 s.
         let head = (w - 1) as f64 - t / 0.3 * (w as f64 + 1.0);
         for x in 0..w as i64 {
             let behind = x as f64 - head;
@@ -381,6 +443,7 @@ fn surge_in(pic: &Px, t: f64, k: &Ctx) -> Px {
     }
     if t < SURGE_RAIN_AT {
         // The charge floods up and down from the port's row, with a crackling edge
+        // Far enough to reach both the top and bottom edges, wherever the port row is.
         let reach = smooth((t - 0.3) / (SURGE_RAIN_AT - 0.3))
             * (HEIGHT as f64 / 2.0 + 1.5 + (k.row - HEIGHT as f64 / 2.0).abs());
         let n = (t * FPS) as i64;
@@ -412,8 +475,11 @@ fn surge_in(pic: &Px, t: f64, k: &Ctx) -> Px {
 
 // Pixel rain: the picture crumbles and falls away; it floats back up into place.
 
+/// Rows per second per second for falling (and rising) pixels.
 const GRAVITY: f64 = 70.0;
 
+/// Pixel rain going out: each lit pixel waits a moment (lower rows first, plus some randomness), shakes
+/// for 0.06 s, then falls under gravity with a little sideways drift until it leaves the bottom.
 fn rain_out(pic: &Px, t: f64) -> Px {
     let mut f = Px::dark(pic.w);
     for x in 0..pic.w {
@@ -430,6 +496,7 @@ fn rain_out(pic: &Px, t: f64) -> Px {
                 // A little shake before it lets go
                 f.put(xi + (h(xi, yi, 9) > 0.5) as i64, yi, v);
             } else {
+                // Distance fallen after `a` seconds: half g t squared.
                 let fy = y as f64 + 0.5 * GRAVITY * a * a;
                 let fx = x as f64 + (h(xi, yi, 8) - 0.5) * 1.6 * a;
                 f.put(fx.round() as i64, fy.round() as i64, v);
@@ -439,6 +506,8 @@ fn rain_out(pic: &Px, t: f64) -> Px {
     f
 }
 
+/// Pixel rain coming in: the reverse of falling. Each pixel starts below its place and rises, slowing
+/// to a stop exactly in place at its arrival time (0.45-1.19 s; the top rows land first).
 fn rain_in(pic: &Px, t: f64) -> Px {
     let mut f = Px::dark(pic.w);
     for x in 0..pic.w {
@@ -462,11 +531,15 @@ fn rain_in(pic: &Px, t: f64) -> Px {
 // Ripple ring: a bright ring spreads from the port, across both panels when there are two, wiping the
 // picture away or showing it.
 
+/// Ripple ring over `secs` seconds. The ring spreads from the port (at the right edge, row `k.row`); with
+/// `reveal` the picture shows inside the ring (coming in), otherwise outside it (going out). Near the
+/// ring the picture is pushed along, and a bright crest (plus a fainter one behind) fades out at the end.
 fn ring(pic: &Px, t: f64, secs: f64, reveal: bool, k: &Ctx) -> Px {
     let w = pic.w;
     let port_x = w as f64;
     // Far enough to pass the furthest corner
     let reach = port_x.hypot(k.row.max(HEIGHT as f64 - k.row) * 0.8) + 2.0;
+    // The ring's radius now, eased; it starts just behind the port.
     let r = smooth(t / secs) * (reach + 1.0) - 1.0;
     let fade = 1.0 - smooth((t / secs - 0.75) / 0.2);
     let mut f = Px::dark(w);
@@ -496,6 +569,9 @@ fn ring(pic: &Px, t: f64, secs: f64, reveal: bool, k: &Ctx) -> Px {
 // Zipper (an app transition): the two halves of the picture come apart below a zip pull and fall away to
 // the sides; they slide back in and zip up.
 
+/// One zipper frame. Rows below the pull (`pull`, a row number) are parted: each half moves sideways by
+/// 0.45 columns per row below the pull, plus `apart` columns for everyone. While the halves are still
+/// together (`apart` < 0.5) the pull itself is drawn as a small bright T.
 fn zipper(pic: &Px, pull: f64, apart: f64, k: &Ctx) -> Px {
     let mut f = Px::dark(pic.w);
     let mid = pic.w / 2;
@@ -522,6 +598,8 @@ fn zipper(pic: &Px, pull: f64, apart: f64, k: &Ctx) -> Px {
     f
 }
 
+/// Zipper going out: the pull runs from the bottom to the top (0.9 s), then both halves fall away to the
+/// sides, speeding up.
 fn zip_out(pic: &Px, t: f64, k: &Ctx) -> Px {
     let far = pic.w as f64 / 2.0 + 4.0;
     if t < 0.9 {
@@ -532,6 +610,8 @@ fn zip_out(pic: &Px, t: f64, k: &Ctx) -> Px {
     }
 }
 
+/// Zipper coming in: both halves slide back in from the sides (0.3 s), then the pull runs back down,
+/// closing it.
 fn zip_in(pic: &Px, t: f64, k: &Ctx) -> Px {
     let far = pic.w as f64 / 2.0 + 4.0;
     if t < 0.3 {
@@ -544,6 +624,9 @@ fn zip_in(pic: &Px, t: f64, k: &Ctx) -> Px {
 
 // Glitch: the picture tears and fills with static until the signal cuts out; static clears into it.
 
+/// The picture damaged by `amount` (0 clean to 1 heavy) for glitch frame `n`: sometimes the whole picture
+/// jumps up or down and dims, bands of three rows are torn sideways, single pixels turn to static, and
+/// now and then a solid bright block appears. The same `n` always gives the same damage.
 fn glitched(pic: &Px, amount: f64, n: i64, k: &Ctx) -> Px {
     let w = pic.w as i64;
     let mut f = Px::dark(pic.w);
@@ -577,6 +660,8 @@ fn glitched(pic: &Px, amount: f64, n: i64, k: &Ctx) -> Px {
     f
 }
 
+/// Glitch going out: damage grows over 0.75 s, a bright line flashes as the signal cuts, then a few
+/// specks fade.
 fn glitch_out(pic: &Px, t: f64, k: &Ctx) -> Px {
     // The glitches hold for two frames, like a real signal
     let n = (t * FPS) as i64 / 2;
@@ -602,6 +687,8 @@ fn glitch_out(pic: &Px, t: f64, k: &Ctx) -> Px {
     f
 }
 
+/// Glitch coming in: bursts of static for 0.25 s, then the picture appears with damage fading away. The
+/// frame numbers are offset by 1000 so it does not repeat the going-out noise.
 fn glitch_in(pic: &Px, t: f64, k: &Ctx) -> Px {
     let n = (t * FPS) as i64 / 2 + 1000;
     if t < 0.25 {
@@ -625,6 +712,7 @@ fn glitch_in(pic: &Px, t: f64, k: &Ctx) -> Px {
 mod tests {
     use super::*;
 
+    /// Test helper: a striped picture `cols` wide with two thirds of its pixels lit at 160.
     fn picture(cols: usize) -> Picture {
         let mut p = Picture::zeros(HEIGHT, cols);
         for y in 0..HEIGHT {
@@ -637,14 +725,17 @@ mod tests {
         p
     }
 
+    /// Test helper: how many pixels are lit at all.
     fn lit(p: &Picture) -> usize {
         p.data.iter().filter(|v| **v >= 0.5).count()
     }
 
+    /// Test helper: how many pixels differ by more than 20 between two pictures.
     fn off(a: &Picture, b: &Picture) -> usize {
         a.data.iter().zip(&b.data).filter(|(a, b)| (**a - **b).abs() > 20.0).count()
     }
 
+    /// Proves every look's saved key reads back as that look, and the zipper is not offered for plugs.
     #[test]
     fn keys_round_trip_and_the_zipper_is_not_a_plug_look() {
         for look in Look::ALL {
@@ -655,6 +746,8 @@ mod tests {
         assert_eq!(Look::plug_from_key("rain"), Some(Look::Rain));
     }
 
+    /// Proves every look ends (nearly) dark going out and (nearly) on the picture coming in, on one panel
+    /// and on the wide picture, and stops exactly at its stated length.
     #[test]
     fn every_look_ends_dark_going_out_and_on_the_picture_coming_in() {
         // One panel, and both panels with the gap where the looks span them
@@ -678,6 +771,7 @@ mod tests {
         }
     }
 
+    /// Proves the wide ring and surge start near the port and reach the far panel later.
     #[test]
     fn the_wide_ring_and_surge_start_at_the_port_and_cross_to_the_far_panel() {
         let wide = 2 * WIDTH + 4;
@@ -694,6 +788,7 @@ mod tests {
         assert!(lit(&flood.columns(0, WIDTH)) > 100);
     }
 
+    /// Proves rain and zipper transitions start on the old app, end on the new one, and stop on time.
     #[test]
     fn transitions_go_from_the_old_app_to_the_new_one() {
         let old = picture(WIDTH);
@@ -713,6 +808,7 @@ mod tests {
         }
     }
 
+    /// Proves no look produces a value outside 0-255 for any port row or brightness, at 30 frames a second.
     #[test]
     fn frames_stay_in_range_at_any_port_row_and_brightness() {
         let pic = picture(WIDTH);

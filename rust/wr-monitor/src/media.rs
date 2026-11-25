@@ -1,6 +1,14 @@
 //! What is playing, for the now-playing app: Windows' media controls (the ones the volume pop-up
 //! shows), read through WinRT as `led_mon/now_playing.py` does, about once a second while the app shows.
 //! The small visualizer under the cover isn't fed yet (no sound capture here), so it stays dark.
+//!
+//! WinRT is Windows' modern API set (the one Store apps use). Its calls are asynchronous; here each
+//! one is simply waited for with `.join()`, which is fine because `reader` runs on its own
+//! now-playing thread (`background.rs`), never on the main loop. A "session" is one app that reports
+//! media to Windows (Spotify, a browser tab ...); the "manager" lists them.
+//!
+//! The cover picture is decoded by Windows, cut to an 18 x 18 grey image and contrast-stretched so it
+//! shows well on the LED panel. It is decoded only when the song changes.
 
 use windows::Graphics::Imaging::{
     BitmapAlphaMode, BitmapBounds, BitmapDecoder, BitmapInterpolationMode, BitmapPixelFormat, BitmapTransform,
@@ -17,6 +25,7 @@ use wr_core::apps::now_playing::{Media, NowPlaying, COVER};
 
 use crate::background::OnceLog;
 
+/// True when the session reports "Playing"; paused, stopped or unreadable count as not playing.
 fn is_playing(session: &Session) -> bool {
     session.GetPlaybackInfo().and_then(|i| i.PlaybackStatus()).map(|s| s == Status::Playing).unwrap_or(false)
 }
@@ -38,6 +47,9 @@ fn pick_session(manager: &Manager) -> Option<Session> {
 }
 
 /// (media without its cover, the app playing, the cover's picture if there is one).
+///
+/// The app is the session's AppUserModelId (e.g. "Spotify.exe"). With no session at all, everything is
+/// empty. Errors come from WinRT (e.g. the media service not running) and are logged by the caller.
 fn read() -> windows::core::Result<(Media, String, Option<IRandomAccessStreamReference>)> {
     let manager = Manager::RequestAsync()?.join()?;
     let Some(session) = pick_session(&manager) else { return Ok((Media::default(), String::new(), None)) };
@@ -53,6 +65,9 @@ fn read() -> windows::core::Result<(Media, String, Option<IRandomAccessStreamRef
 }
 
 /// numpy's percentile (linear between the two nearest values) of sorted values.
+///
+/// `p` is 0-100 and `sorted` must be non-empty and sorted ascending. Example: p = 98 with 324 values
+/// points 0.98 of the way along the list, between two neighbours, and mixes them by that fraction.
 fn percentile(sorted: &[f64], p: f64) -> f64 {
     let at = p / 100.0 * (sorted.len() - 1) as f64;
     let (lo, hi) = (at.floor() as usize, at.ceil() as usize);
@@ -61,6 +76,9 @@ fn percentile(sorted: &[f64], p: f64) -> f64 {
 
 /// The cover as 18 x 18 grey values, cropped to a square and stretched so the darkest part is off
 /// and the lightest full (as `cover_from_image`).
+///
+/// Returns 18 * 18 = 324 values in 0.0-1.0, row by row, top first. None when the picture is empty or
+/// Windows returns too few pixels; Err when it can't be opened or decoded.
 fn read_cover(picture: &IRandomAccessStreamReference) -> windows::core::Result<Option<Vec<f64>>> {
     let stream = picture.OpenReadAsync()?.join()?;
     let decoder = BitmapDecoder::CreateAsync(&stream)?.join()?;
@@ -70,10 +88,13 @@ fn read_cover(picture: &IRandomAccessStreamReference) -> windows::core::Result<O
     }
     // Scale so the shorter side is 18, then cut the middle square
     let scale = COVER as f64 / w.min(h) as f64;
+    // e.g. a 300 x 200 picture: scale 0.09, so 27 x 18; the crop below then keeps x 4..22.
+    // `max(18)` guards against rounding below 18, which would make the crop go negative.
     let (sw, sh) = (((w as f64 * scale).round() as u32).max(18), ((h as f64 * scale).round() as u32).max(18));
     let transform = BitmapTransform::new()?;
     transform.SetScaledWidth(sw)?;
     transform.SetScaledHeight(sh)?;
+    // Fant averages all source pixels under each target pixel: the best quality for big shrinks.
     transform.SetInterpolationMode(BitmapInterpolationMode::Fant)?;
     transform.SetBounds(BitmapBounds { X: (sw - 18) / 2, Y: (sh - 18) / 2, Width: 18, Height: 18 })?;
     let pixels = decoder
@@ -97,6 +118,8 @@ fn read_cover(picture: &IRandomAccessStreamReference) -> windows::core::Result<O
         .collect();
     let mut sorted = grey.clone();
     sorted.sort_by(f64::total_cmp);
+    // Stretch the contrast between the 5th and 98th percentile (not the very darkest and lightest
+    // pixel), so a few stray dots don't spoil the stretch. Nearly flat covers are left as they are.
     let (low, high) = (percentile(&sorted, 5.0), percentile(&sorted, 98.0));
     if high - low < 0.05 {
         return Ok(Some(grey.iter().map(|v| v.clamp(0.0, 1.0)).collect()));
@@ -105,13 +128,19 @@ fn read_cover(picture: &IRandomAccessStreamReference) -> windows::core::Result<O
 }
 
 /// Asks Windows what is playing. Made and called on the now-playing thread.
+///
+/// The returned function is called about once a second on that thread. It never fails: a WinRT error
+/// gives an empty result and is logged once. It keeps the last cover between calls, and logs a line
+/// whenever the app, the play state or the song changes.
 pub fn reader() -> Box<dyn FnMut() -> NowPlaying> {
     // SAFETY: joins this thread to the multithreaded apartment, once, before any WinRT call.
     if let Err(e) = unsafe { RoInitialize(RO_INIT_MULTITHREADED) } {
         wr_core::warn!("Now playing: can't start WinRT ({e})");
     }
     let mut last = NowPlaying::default();
+    // (title, artist) of the song whose cover was decoded last; the same song reuses it.
     let mut cover_key: Option<(String, String)> = None;
+    // (app, playing, song) last logged, so the log gets one line per change rather than per second.
     let mut seen: Option<(String, bool, String)> = None;
     let mut log = OnceLog::default();
     Box::new(move || {
@@ -152,6 +181,7 @@ pub fn reader() -> Box<dyn FnMut() -> NowPlaying> {
             }
             seen = Some(now_seen);
         }
+        // `last_cover` keeps the most recent picture even after the player stops giving one.
         if media.cover.is_some() {
             last.last_cover = media.cover.clone();
         }

@@ -33,12 +33,15 @@ use wr_panel::protocol;
 /// A tiny random number generator (xorshift), so the test needs no extra crate and a seed repeats a run.
 struct Rng(u64);
 impl Rng {
+    /// The next pseudo-random number (Marsaglia's xorshift64: three shift-and-xor steps). The seed must
+    /// not be 0, or every number is 0.
     fn next(&mut self) -> u64 {
         self.0 ^= self.0 << 13;
         self.0 ^= self.0 >> 7;
         self.0 ^= self.0 << 17;
         self.0
     }
+    /// A number in 0..n (slightly uneven for large n, which doesn't matter here). `n` must not be 0.
     fn below(&mut self, n: u64) -> u64 {
         self.next() % n
     }
@@ -47,6 +50,7 @@ impl Rng {
 /// The first byte the "window" writes after the magic: the drawing threads never send it.
 const WINDOW_MARK: u8 = 0xEE;
 
+/// The made-up hardware, shared by the fake ports, the fake system and the "USB" and "window" threads.
 #[derive(Default)]
 struct World {
     /// The ports plugged in now: (COM name, USB position)
@@ -57,19 +61,26 @@ struct World {
     confirmed_held: Mutex<HashSet<String>>,
     /// Problems seen by the fake ports
     violations: Mutex<Vec<String>>,
+    /// Writes that came from the drawing threads (frames, scroll, sleep, LED current).
     monitor_writes: AtomicU64,
+    /// Writes that came from the "window" thread (marked with `WINDOW_MARK`).
     window_writes: AtomicU64,
 }
 
+/// One opened fake port. It checks the world on every write, so unplugging a panel in `World` breaks
+/// ports that are already open, as on real hardware.
 struct FakePort {
     name: String,
     world: Arc<World>,
 }
 
 impl Port for FakePort {
+    /// Fails if the port is unplugged or set to fail; otherwise counts the write and records a violation
+    /// if it is a drawing-thread frame (StageCol or FlushCols) on a port the window has confirmed it holds.
     fn write_all(&mut self, data: &[u8]) -> io::Result<()> {
         let w = &self.world;
         let key = self.name.to_lowercase();
+        // An open handle to a port that has been unplugged fails, as on real hardware.
         let unplugged = !w.plugged.lock().unwrap().iter().any(|(n, _)| n.eq_ignore_ascii_case(&self.name));
         if unplugged || w.failing.lock().unwrap().contains(&key) {
             return Err(io::Error::other("the device is gone"));
@@ -79,6 +90,8 @@ impl Port for FakePort {
             w.window_writes.fetch_add(1, Ordering::Relaxed);
         } else {
             w.monitor_writes.fetch_add(1, Ordering::Relaxed);
+            // Only frame commands count as violations. The LED current is also a drawing-thread write, but
+            // the hub may legally reset it (in `hold`) while the panel is being held.
             let is_frame = matches!(data.get(2), Some(&protocol::STAGE_COL) | Some(&protocol::FLUSH_COLS));
             if is_frame && w.confirmed_held.lock().unwrap().contains(&key) {
                 w.violations.lock().unwrap().push(format!("a drawing-thread frame reached {} while held", self.name));
@@ -90,6 +103,7 @@ impl Port for FakePort {
         Ok(())
     }
 
+    /// Always answers at once with zeros (at most 32 bytes), like White Rabbit firmware.
     fn read(&mut self, size: usize, _timeout: Duration) -> io::Result<Vec<u8>> {
         Ok(vec![0; size.min(protocol::ANSWER_LEN)])
     }
@@ -99,9 +113,11 @@ impl Port for FakePort {
     }
 }
 
+/// Lists the plugged ports as LED panels and opens only those.
 struct FakeSystem(Arc<World>);
 
 impl PortSystem for FakeSystem {
+    /// Every plugged port, as an LED panel at its USB position.
     fn list(&self) -> Vec<PortInfo> {
         self.0
             .plugged
@@ -118,6 +134,7 @@ impl PortSystem for FakeSystem {
             .collect()
     }
 
+    /// Opens a plugged port; an unplugged one gives "not found".
     fn open(&self, name: &str) -> io::Result<Box<dyn Port>> {
         if !self.0.plugged.lock().unwrap().iter().any(|(n, _)| n.eq_ignore_ascii_case(name)) {
             return Err(io::Error::from(io::ErrorKind::NotFound));
@@ -126,10 +143,13 @@ impl PortSystem for FakeSystem {
     }
 }
 
+/// How long to run, from `WR_STRESS_SECONDS` (default 2 s).
 fn seconds() -> f64 {
     std::env::var("WR_STRESS_SECONDS").ok().and_then(|s| s.parse().ok()).unwrap_or(2.0)
 }
 
+/// Proves that the panel layer has no deadlock, never lets a drawing-thread frame reach a held panel,
+/// and finds both panels again, while every thread that touches it runs at full speed at once.
 #[test]
 fn everything_at_once() {
     let world = Arc::new(World::default());
@@ -137,6 +157,7 @@ fn everything_at_once() {
     let panels = Panels::new(Arc::new(FakeSystem(world.clone())), Arc::new(Mutex::new(Pins::default())));
     let overlay = EffectsOverlay::new(EffectsSettings::default());
     panels.set_overlay(overlay.clone());
+    // Dimming by LED current on, so the current commands and the dimming query are exercised too.
     panels.options.full_shades.store(true, Ordering::Relaxed);
     panels.options.foreground.store(120, Ordering::Relaxed);
 
@@ -145,6 +166,7 @@ fn everything_at_once() {
     let deadline = Duration::from_secs_f64(seconds());
     let mut threads: Vec<(&str, thread::JoinHandle<()>)> = Vec::new();
 
+    // (They are kept at the front of `threads`: they are joined last, after the panels are back.)
     // The two drawing threads, as the monitor starts them
     for (side, queue) in queues.iter().enumerate() {
         let (panel, queue) = (Panel::new(side, panels.clone()), queue.clone());
@@ -158,6 +180,7 @@ fn everything_at_once() {
         threads.push((
             "main loop",
             thread::spawn(move || {
+                // Fixed seeds, so a failing run can be repeated (thread timing still varies from run to run).
                 let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
                 while !stop.load(Ordering::Relaxed) {
                     for q in &queues {
@@ -170,6 +193,7 @@ fn everything_at_once() {
                             1 => Some(false),
                             _ => None,
                         };
+                        // Mostly random frames; now and then a change of the firmware scroll or a sleep.
                         q.put(if rng.below(500) == 0 { Item::Sleep } else { Item::Frame(g, animate) });
                     }
                     match rng.below(200) {
@@ -201,8 +225,11 @@ fn everything_at_once() {
                         thread::sleep(Duration::from_millis(1));
                         continue;
                     }
+                    // One of three made-up process ids, so the orphan check below has others that are still "alive".
                     let pid = 1000 + rng.below(3) as u32;
                     panels.hub().hold(&names, Some(pid));
+                    // Only after `hold` has returned is a drawing-thread frame a violation: during `hold` a frame
+                    // already being written may still finish, which is allowed.
                     world.confirmed_held.lock().unwrap().extend(names.iter().map(|n| n.to_lowercase()));
                     for _ in 0..rng.below(20) {
                         let name = &names[rng.below(names.len() as u64) as usize];
@@ -218,6 +245,7 @@ fn everything_at_once() {
                             names.iter().map(|n| (n.clone(), vec![mark.clone(), mark.clone()])).collect();
                         let _ = panels.hub().serial_many(&many);
                     }
+                    // No longer checked from here, before the release starts, for the same reason.
                     for n in &names {
                         world.confirmed_held.lock().unwrap().remove(&n.to_lowercase());
                     }
@@ -263,6 +291,7 @@ fn everything_at_once() {
                                 }
                             }
                         }
+                        // Make the next writes to one panel fail, as when the keyboard is lifted mid-frame.
                         2 => {
                             let p = world.plugged.lock().unwrap();
                             if let Some((n, _)) = p.get(rng.below(2) as usize) {
@@ -292,6 +321,9 @@ fn everything_at_once() {
 
     // The helpers end within a few seconds, or something is stuck
     let (done_tx, done_rx) = mpsc::channel();
+    // The first two threads are the drawing threads; the rest (main loop, window, USB) must end by
+    // themselves now that `stop` is set. They are joined on another thread so that a stuck one shows
+    // up as a timeout here instead of hanging the test run.
     let helpers: Vec<_> = threads.drain(2..).collect();
     let drawing: Vec<_> = threads;
     {
@@ -319,6 +351,7 @@ fn everything_at_once() {
     for q in &queues {
         q.put(Item::Stop);
     }
+    // Same for the drawing threads: Stop was queued, so they must end within the deadline.
     thread::spawn(move || {
         for (name, t) in drawing {
             t.join().unwrap_or_else(|_| panic!("the {name} thread panicked"));

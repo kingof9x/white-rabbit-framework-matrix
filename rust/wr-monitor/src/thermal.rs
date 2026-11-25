@@ -4,6 +4,15 @@
 //!   framework_control       Framework Control's local service (no admin rights needed)
 //!   libre_hardware_monitor  Libre Hardware Monitor's sensors through WMI (it must run as admin)
 //!   framework_tool          framework_tool --thermal (White Rabbit must run as admin)
+//!
+//! `reader` runs on the `sensors` reading thread (`background.rs`, started from `sensors.rs`) and is
+//! called every `sensor_refresh_seconds` (2 s by default) while a temperature or fan app is on screen.
+//! Each source is slow in its own way (an HTTP call, a WMI query, starting a process), which is why
+//! none of it runs on the main loop. The JSON parsing of each source's answer lives in
+//! `wr_core::apps::temp_fan` so it can be tested without the hardware.
+//!
+//! After each reading a summary (`SourceStatus`) is stored in a global, so the control thread can
+//! answer the window's "sensor_source" question (`source_status`) without touching the sources.
 
 use std::collections::HashMap;
 use std::os::windows::process::CommandExt;
@@ -18,14 +27,20 @@ use wr_core::apps::temp_fan::{
 
 use crate::background::OnceLog;
 
+/// Seconds between readings when settings.json doesn't say.
 const DEFAULT_REFRESH: f64 = 2.0;
 /// When Libre Hardware Monitor isn't running, ask again this often at most.
 const RETRY: Duration = Duration::from_secs(10);
+/// Process creation flag: run framework_tool without flashing a console window.
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// Windows' "the exe asks for admin rights and this program isn't running as admin".
 const ERROR_ELEVATION_REQUIRED: i32 = 740;
 
 /// The source picked and how often to read, from settings.json.
+///
+/// Read from disk on every call so a change made in the window applies at the next reading. A
+/// missing or broken file, or an unknown source name, gives "auto"; the interval is kept within
+/// 0.5-60 s.
 pub fn settings() -> (String, Duration) {
     let text = std::fs::read_to_string(crate::paths::settings_file()).unwrap_or_default();
     let json: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
@@ -40,8 +55,11 @@ pub fn settings() -> (String, Duration) {
 
 // Framework Control ---------------------------------------------------------------------------------
 
+/// Framework Control: a Windows service with a small web API on 127.0.0.1 (this computer only).
 struct FrameworkControl {
+    /// HTTP client with a 1 s time limit (the service is local, so a slow answer means it's stuck).
     agent: ureq::Agent,
+    /// Logs each distinct failure once; its last error is reported to the window.
     log: OnceLog,
 }
 
@@ -51,6 +69,8 @@ impl FrameworkControl {
         FrameworkControl { agent: config.into(), log: OnceLog::default() }
     }
 
+    /// The service's port, from its config file under Program Files. Read on every call so a changed
+    /// port or a fresh install is picked up. None when Framework Control isn't installed.
     fn port() -> Option<u16> {
         for var in ["ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"] {
             let Some(dir) = std::env::var_os(var) else { continue };
@@ -62,6 +82,7 @@ impl FrameworkControl {
         None
     }
 
+    /// GET /api/thermal and parse it; empty readings when not installed or not answering.
     fn read(&mut self) -> Thermal {
         let Some(port) = Self::port() else { return Thermal::default() };
         let url = format!("http://127.0.0.1:{port}/api/thermal");
@@ -86,13 +107,20 @@ impl FrameworkControl {
 
 // Libre Hardware Monitor ----------------------------------------------------------------------------
 
+/// Libre Hardware Monitor: when running (as admin) it publishes its sensors as WMI objects in the
+/// root\LibreHardwareMonitor namespace, which any program can query.
 struct LibreHardwareMonitor {
+    /// COM set up on this thread (WMI goes through COM); kept so it is initialised once.
     com: Option<wmi::COMLibrary>,
+    /// The open WMI connection; None until connected, and again after a failed query.
     connection: Option<wmi::WMIConnection>,
+    /// No connection attempt before this time, so a closed LHM isn't asked for every reading.
     next_try: Instant,
     log: OnceLog,
 }
 
+/// A WMI value as a number, whatever numeric type WMI used (LHM's Value is a 32-bit float, Index
+/// an integer). Numbers written as text are parsed too; anything else is None.
 fn variant_f64(v: Option<&wmi::Variant>) -> Option<f64> {
     use wmi::Variant::*;
     Some(match v? {
@@ -111,6 +139,7 @@ fn variant_f64(v: Option<&wmi::Variant>) -> Option<f64> {
     })
 }
 
+/// A WMI value as text; empty when missing or not a string.
 fn variant_str(v: Option<&wmi::Variant>) -> String {
     match v {
         Some(wmi::Variant::String(s)) => s.clone(),
@@ -119,10 +148,13 @@ fn variant_str(v: Option<&wmi::Variant>) -> String {
 }
 
 impl LibreHardwareMonitor {
+    /// Not connected yet; the first `read` connects.
     fn new() -> Self {
         LibreHardwareMonitor { com: None, connection: None, next_try: Instant::now(), log: OnceLog::default() }
     }
 
+    /// All temperature and fan sensors LHM knows. Connects first if needed (at most every 10 s, or
+    /// every `interval` if that is longer); empty readings while LHM isn't running.
     fn read(&mut self, interval: Duration) -> Thermal {
         if self.connection.is_none() {
             if Instant::now() < self.next_try {
@@ -138,6 +170,7 @@ impl LibreHardwareMonitor {
                     }
                 }
             }
+            // `COMLibrary` is a small copyable marker that COM is ready on this thread.
             let Some(com) = self.com else { return Thermal::default() };
             match wmi::WMIConnection::with_namespace_path("root\\LibreHardwareMonitor", com) {
                 Ok(c) => self.connection = Some(c),
@@ -148,6 +181,7 @@ impl LibreHardwareMonitor {
             }
         }
         let Some(connection) = self.connection.as_ref() else { return Thermal::default() };
+        // WQL, WMI's SQL-like query language. Only temperatures and fans are fetched.
         let query = "SELECT Name, Identifier, Parent, SensorType, Value, Index FROM Sensor \
                      WHERE SensorType = 'Temperature' OR SensorType = 'Fan'";
         let rows: Result<Vec<HashMap<String, wmi::Variant>>, _> = connection.raw_query(query);
@@ -178,13 +212,17 @@ impl LibreHardwareMonitor {
 
 // framework_tool ------------------------------------------------------------------------------------
 
+/// framework_tool: Framework's command-line tool, which talks to the laptop's embedded controller.
 struct FrameworkTool {
+    /// The tool's path: outer None = not looked for yet; Some(None) = looked for and not found
+    /// (it isn't searched for again until a restart).
     tool: Option<Option<PathBuf>>,
     /// Windows refused to start it without admin rights; it won't work until a restart.
     needs_admin: bool,
     log: OnceLog,
 }
 
+/// framework_tool's path: the first folder on PATH that has it, then the folder of WhiteRabbit.exe.
 pub fn find_framework_tool() -> Option<PathBuf> {
     let names = ["framework_tool.exe", "framework_tool"];
     let mut dirs: Vec<PathBuf> =
@@ -196,10 +234,13 @@ pub fn find_framework_tool() -> Option<PathBuf> {
 }
 
 impl FrameworkTool {
+    /// Not looked for yet.
     fn new() -> Self {
         FrameworkTool { tool: None, needs_admin: false, log: OnceLog::default() }
     }
 
+    /// Runs `framework_tool --thermal` once and parses what it prints. Blocks up to 10 s; a tool
+    /// that takes longer is killed. Gives up for the rest of the run if Windows says it needs admin.
     fn read(&mut self) -> Thermal {
         if self.needs_admin {
             return Thermal::default();
@@ -238,6 +279,7 @@ impl FrameworkTool {
         loop {
             match child.try_wait() {
                 Ok(Some(_)) => break,
+                // Still running: poll every 50 ms. (`wait_with_output` alone has no time limit.)
                 Ok(None) if started.elapsed() < Duration::from_secs(10) => {
                     std::thread::sleep(Duration::from_millis(50))
                 }
@@ -249,6 +291,8 @@ impl FrameworkTool {
                 }
             }
         }
+        // The tool has exited; this only collects its output. The pipes can't fill up and block it,
+        // since `thermal` output is a few hundred bytes.
         match child.wait_with_output() {
             Ok(out) if out.status.success() => {
                 let thermal = parse_framework_tool(&String::from_utf8_lossy(&out.stdout));
@@ -276,6 +320,9 @@ impl FrameworkTool {
 
 /// Reads the picked source (in auto, the first that gives temperatures, and the first that gives
 /// fans). Made and called on the sensors thread.
+///
+/// `interval` is the reading thread's period, updated here from `sensor_refresh_seconds`. Each call
+/// also stores a `SourceStatus` for `source_status`. The three sources keep their state between calls.
 pub fn reader(interval: crate::background::Interval) -> Box<dyn FnMut() -> Thermal> {
     let mut fc = FrameworkControl::new();
     let mut lhm = LibreHardwareMonitor::new();
@@ -290,6 +337,7 @@ pub fn reader(interval: crate::background::Interval) -> Box<dyn FnMut() -> Therm
             wr_core::info!("Temperatures and fans now come from: {choice}");
             last_choice = choice.clone();
         }
+        // "auto" tries all three; temperatures and fans may end up coming from different sources.
         let order: Vec<&str> = match choice.as_str() {
             "auto" => vec!["framework_control", "libre_hardware_monitor", "framework_tool"],
             other => vec![other],
@@ -311,10 +359,12 @@ pub fn reader(interval: crate::background::Interval) -> Box<dyn FnMut() -> Therm
                 result.fans = t.fans;
                 status.fans_from = Some(source.to_string());
             }
+            // Both found: the later sources aren't asked (saves starting framework_tool).
             if status.temps_from.is_some() && status.fans_from.is_some() {
                 break;
             }
         }
+        // Collect each source's current error (if any) for the window, even of sources that were skipped.
         for source in order {
             let error = match source {
                 "framework_control" => fc.log.error(),
@@ -337,14 +387,21 @@ pub fn reader(interval: crate::background::Interval) -> Box<dyn FnMut() -> Therm
 /// Where the last readings came from, for the window's Panels tab and layout editor.
 #[derive(Clone, Default)]
 struct SourceStatus {
+    /// The source setting at the time ("auto" or one source name).
     choice: String,
+    /// The source the temperatures came from; None when none gave any.
     temps_from: Option<String>,
+    /// The source the fan speeds came from; None when none gave any.
     fans_from: Option<String>,
+    /// Source name -> its last error message, for sources that are failing.
     errors: serde_json::Map<String, serde_json::Value>,
+    /// The readings themselves.
     thermal: Thermal,
+    /// When the reading was taken.
     read_at: Option<Instant>,
 }
 
+/// The latest `SourceStatus`, written by whichever thread read last, read by the control thread.
 static STATUS: std::sync::Mutex<Option<SourceStatus>> = std::sync::Mutex::new(None);
 
 /// A reading older than this means no panel shows Temperatures or Fans right now.
@@ -352,6 +409,7 @@ const STALE: Duration = Duration::from_secs(15);
 /// Longest wait for a one-off reading when nothing is being read.
 const ONE_OFF_WAIT: Duration = Duration::from_secs(5);
 
+/// The stored status if it is less than 15 s old.
 fn current_status() -> Option<SourceStatus> {
     STATUS.lock().unwrap_or_else(|e| e.into_inner()).clone().filter(|s| s.read_at.is_some_and(|t| t.elapsed() < STALE))
 }
@@ -360,6 +418,10 @@ fn current_status() -> Option<SourceStatus> {
 /// sensors' names and readings ("named"), which the editor's Temperatures app offers to pick from.
 /// When nothing is being read (or `reload` asks for the new settings), it reads once, so the editor
 /// still gets the names.
+///
+/// Called on the control thread. The one-off reading runs on a short-lived `sensors-once` thread
+/// (fresh sources, so COM/WMI are set up there) and is waited for at most 5 s; if it takes longer,
+/// whatever status was stored before is used. Temperatures are rounded to 0.1 °C.
 pub fn source_status(reload: bool) -> serde_json::Value {
     let fresh = current_status().filter(|s| !reload || s.choice == settings().0);
     let (status, reading) = match fresh {
@@ -371,6 +433,7 @@ pub fn source_status(reload: bool) -> serde_json::Value {
                 read();
                 let _ = send.send(());
             });
+            // Timing out or the thread failing to start both just mean: answer with what we have.
             let _ = receive.recv_timeout(ONE_OFF_WAIT);
             // Read once for the editor: not counted as "now reading" for the Panels tab
             (STATUS.lock().unwrap_or_else(|e| e.into_inner()).clone(), false)

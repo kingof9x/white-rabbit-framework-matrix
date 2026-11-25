@@ -1,5 +1,10 @@
 //! About White Rabbit: the version and the projects it comes from (`white_rabbit/info_tab.py`).
 //! Checking for updates moved to the Settings page (`updates.rs`).
+//!
+//! This page is static: `wire` fills the `AboutPage` global in `ui/pages/about.slint` once at start-up,
+//! on the UI thread, and never changes it again. There are no callbacks to connect here (clicking a
+//! credit's link is handled by the shared "open URL" callback in `app.rs`), no worker threads and
+//! nothing is saved.
 
 use std::rc::Rc;
 
@@ -9,6 +14,9 @@ use crate::app::Ctx;
 use crate::{AboutPage, AppWindow, Credit};
 
 /// The projects White Rabbit is based on or inspired by: (name, url, what came from it)
+/// Each entry becomes one `Credit` row on the page; the Slint side shows the name as a link to the url
+/// and the third text under it. The count (8) is part of the type, so adding a project means changing
+/// the array length too.
 pub const CREDITS: [(&str, &str, &str); 8] = [
     ("led-matrix by MidnightJava", "https://github.com/MidnightJava/led-matrix",
      "The system monitor: apps on the panels, plugins and the layout file."),
@@ -28,9 +36,14 @@ pub const CREDITS: [(&str, &str, &str); 8] = [
      "The icons in this window (MIT licence)."),
 ];
 
+/// Fills the About page: the program version (from `crate::version()`, the same string the title bar
+/// uses) and the credits list. Runs once on the UI thread; it ignores the context because nothing here
+/// talks to the panels or the monitor.
 pub fn wire(_ctx: &Rc<Ctx>, app: &AppWindow) {
     let page = app.global::<AboutPage>();
     page.set_version(crate::version().into());
+    // Slint list properties need a model; a `VecModel` built from plain `Credit` structs is the
+    // simplest one, and `ModelRc` is the shared handle the property stores.
     let credits: Vec<Credit> =
         CREDITS.iter().map(|(n, u, w)| Credit { name: (*n).into(), url: (*u).into(), what: (*w).into() }).collect();
     page.set_credits(ModelRc::new(VecModel::from(credits)));

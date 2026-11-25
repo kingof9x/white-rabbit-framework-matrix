@@ -1,9 +1,17 @@
 //! The audio show's Ctrl+Alt+Shift+M shortcut. It is watched (a low-level keyboard hook) rather than
 //! registered as a hotkey, so White Rabbit's own Ctrl+Alt+Shift+M for the LED panels still works too.
 //! Both the window and the background part watch it; whichever is driving the keyboard answers.
+//!
+//! How: [`watch`] starts a thread (`audio-shortcut`) that installs a Windows `WH_KEYBOARD_LL` hook
+//! and runs a message loop, which Windows needs to deliver hook calls. The hook sees every key
+//! press system-wide but never swallows one. On an M press with Ctrl, Alt and Shift held, it posts
+//! a private message to its own thread, which runs the callback on a fresh thread so the hook
+//! itself stays fast. [`set_enabled`] turns the whole thing on and off without removing the hook.
+//! On other systems [`watch`] does nothing.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
+/// Whether the shortcut is on. Read by the hook on every key press, set from the UI thread.
 static ENABLED: AtomicBool = AtomicBool::new(false);
 
 /// Turns the shortcut on or off (the "Ctrl+Alt+Shift+M" switch on the Audio show page).
@@ -11,6 +19,7 @@ pub fn set_enabled(on: bool) {
     ENABLED.store(on, Ordering::Release);
 }
 
+/// Whether the shortcut is on.
 pub fn enabled() -> bool {
     ENABLED.load(Ordering::Acquire)
 }
@@ -21,6 +30,7 @@ pub fn watch(on_press: impl Fn() + Send + Sync + 'static) {
     imp::watch(std::sync::Arc::new(on_press));
 }
 
+/// Stand-in away from Windows: there is no keyboard hook to install.
 #[cfg(not(windows))]
 mod imp {
     pub fn watch(_on_press: std::sync::Arc<dyn Fn() + Send + Sync>) {}
@@ -40,12 +50,16 @@ mod imp {
         HC_ACTION, KBDLLHOOKSTRUCT, MSG, WH_KEYBOARD_LL, WM_APP, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
     };
 
+    /// Windows virtual-key code of the M key.
     const VK_M: u32 = 0x4D;
+    /// The private message the hook posts to the watching thread (WM_APP+ is free for app use).
     const WM_PRESSED: u32 = WM_APP + 7;
     /// The watching thread, which the hook tells about a press.
     static THREAD: AtomicU32 = AtomicU32::new(0);
+    /// M is being held: key repeat sends more key-downs, and only the first should count.
     static M_DOWN: AtomicBool = AtomicBool::new(false);
 
+    /// Starts the hook thread. Called once per process; calling it again would add a second hook.
     pub fn watch(on_press: Arc<dyn Fn() + Send + Sync>) {
         let started = std::thread::Builder::new().name("audio-shortcut".into()).spawn(move || {
             // SAFETY: the hook is set on this thread, which runs a message loop for it until the app exits.
@@ -58,7 +72,11 @@ mod imp {
                     return;
                 }
                 let mut msg: MSG = std::mem::zeroed();
+                // GetMessageW blocks until a message arrives; Windows calls the hook from inside it.
+                // 0 means WM_QUIT and -1 an error; either ends the loop (and the thread).
                 while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
+                    // Our own thread message (no window): run the callback on a new thread so a slow
+                    // callback can't hold up this loop and with it every key press on the system.
                     if msg.hwnd.is_null() && msg.message == WM_PRESSED {
                         let on_press = on_press.clone();
                         std::thread::spawn(move || on_press());
@@ -74,6 +92,7 @@ mod imp {
         }
     }
 
+    /// Reports a failure on stderr; the shortcut then simply doesn't work.
     fn complain(message: &str) {
         eprintln!("{message}");
     }
@@ -87,6 +106,7 @@ mod imp {
                 let msg = wp as u32;
                 if msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN {
                     // SAFETY: plain calls.
+                    // GetAsyncKeyState's top bit (a negative value) means "held right now".
                     let held = |vk: u16| unsafe { GetAsyncKeyState(vk as i32) } < 0;
                     let first = !M_DOWN.swap(true, Ordering::AcqRel);
                     if first && held(VK_CONTROL) && held(VK_MENU) && held(VK_SHIFT) {
@@ -99,6 +119,7 @@ mod imp {
             }
         }
         // SAFETY: passes the key on unchanged.
+        // Always pass the key on: the shortcut is watched, never taken away from other programs.
         unsafe { CallNextHookEx(std::ptr::null_mut(), code, wp, lp) }
     }
 }

@@ -1,6 +1,13 @@
-//! The panels' 5x6 font, made from `inputmodule/font.py` (convert_font) by a script: each letter is 30
-//! pixels, row by row, five to a row.
+//! The panels' 5x6 font, made from `inputmodule/font.py` (convert_font) by a script: each letter is
+//! 30 pixels, row by row, five to a row (1 = LED on).
+//!
+//! It is used for the `show_string` command, which writes up to five letters one under the other
+//! on a panel (see `commands.rs`). The firmware's own font only covers digits, capital letters and a
+//! few signs; every other character (lower case, most punctuation) was given the same placeholder
+//! shape by the conversion script, and `commands::glyph` also falls back to the `?` shape for
+//! characters missing from the table, so such characters show as that placeholder.
 
+/// The font table: (character, 30 pixels). Looked up with a linear search; it is short.
 pub const FONT: &[(char, [u8; 30])] = &[
     (' ', [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
     ('!', [0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]),

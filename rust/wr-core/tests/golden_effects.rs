@@ -1,6 +1,13 @@
 //! Plays every effects scenario saved in `tests/golden/effects.json` (by `scripts/golden_effects.py`)
 //! with the Rust effects and compares what comes out with what Python drew: every pixel of every frame,
 //! every `interval()`, the settings normalized and the port names parsed.
+//!
+//! How the JSON is laid out: "inputs" are named pictures (the frames the apps would have drawn);
+//! "scenarios" are lists of steps (change settings, plug something in, say a message, start a slide,
+//! draw a frame at time t, ask for the interval); "frames" and "values" are what Python produced at
+//! the steps marked to keep, named "<scenario>-<step number>-<side>". Because every effect call takes
+//! the time as an argument, the same steps replay exactly, so any difference is a real behaviour
+//! change. The file is read from the repository, so run this with `cargo test` from the workspace.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -9,16 +16,19 @@ use serde_json::Value;
 use wr_core::effects::*;
 use wr_core::{Grid, HEIGHT, WIDTH};
 
+/// The saved scenarios and results. Panics (failing the test) if the file is missing or not JSON.
 fn golden() -> Value {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/golden/effects.json");
     serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap()
 }
 
+/// The grid as Python saved it: one string per row, two lower-case hex digits per LED (0-255).
 fn encode(grid: &Grid) -> Vec<String> {
     let bytes = grid.to_bytes();
     (0..HEIGHT).map(|y| (0..WIDTH).map(|x| format!("{:02x}", bytes[x][y])).collect()).collect()
 }
 
+/// The other way: a picture saved as hex rows back into a grid (for the input pictures).
 fn decode(rows: &Value) -> Grid {
     let mut g = Grid::new();
     for (y, row) in rows.as_array().unwrap().iter().enumerate() {
@@ -30,6 +40,7 @@ fn decode(rows: &Value) -> Grid {
     g
 }
 
+/// The step's "side" field ("left" or "right") as a `Side`; panics on anything else.
 fn side(step: &Value) -> Side {
     Side::from_name(step["side"].as_str().unwrap()).unwrap()
 }
@@ -37,6 +48,7 @@ fn side(step: &Value) -> Side {
 /// One scenario, step by step as `play()` in the Python script: the frames it keeps and what
 /// `interval()` said, named by step number and side.
 fn play(steps: &[Value], pictures: &BTreeMap<String, Grid>) -> (BTreeMap<String, Grid>, BTreeMap<String, Option<f64>>) {
+    // A fresh set of effects per scenario, and a clock that only moves when a step says so.
     let mut m = Effects::new();
     let mut now = 0.0;
     let (mut frames, mut values) = (BTreeMap::new(), BTreeMap::new());
@@ -46,6 +58,7 @@ fn play(steps: &[Value], pictures: &BTreeMap<String, Grid>) -> (BTreeMap<String,
             now = t.as_str().unwrap().parse().unwrap();
         }
         match step["op"].as_str().unwrap() {
+            // Each op calls the matching `Effects` method with the step's arguments.
             "configure" => m.configure(EffectsSettings::from_json(&step["settings"])),
             "present" => m.panel_present(side(step), step.get("present").and_then(Value::as_bool).unwrap_or(true)),
             "plug" => m.plug(step["position"].as_str(), step["in"].as_bool().unwrap(), now),
@@ -56,6 +69,9 @@ fn play(steps: &[Value], pictures: &BTreeMap<String, Grid>) -> (BTreeMap<String,
                 values.insert(format!("{i:03}-{}", side(step).name()), m.interval(side(step)));
             }
             "frame" => {
+                // Pass a saved input picture through the effects, as a drawing thread does just
+                // before sending a frame; `new` says whether it is a fresh frame from the monitor or
+                // a redraw of the last one.
                 let grid = &pictures[step["picture"].as_str().unwrap()];
                 let out = m.apply(side(step), grid, step["new"].as_bool().unwrap(), now);
                 if step["keep"].as_bool().unwrap() {
@@ -68,6 +84,8 @@ fn play(steps: &[Value], pictures: &BTreeMap<String, Grid>) -> (BTreeMap<String,
     (frames, values)
 }
 
+/// Every kept frame and every interval of every scenario matches Python, and Rust produced exactly
+/// as many frames and values as Python saved (so none are missing on either side).
 #[test]
 fn effects_play_the_golden_frames() {
     let data = golden();
@@ -101,6 +119,7 @@ fn effects_play_the_golden_frames() {
             let theirs = saved_values.get(&full).unwrap_or_else(|| panic!("no saved value {full}")).as_f64();
             let same = match (value, theirs) {
                 (None, None) => true,
+                // Intervals are plain numbers; allow only float noise.
                 (Some(a), Some(b)) => (a - b).abs() < 1e-12,
                 _ => false,
             };
@@ -114,6 +133,8 @@ fn effects_play_the_golden_frames() {
     assert!(problems.is_empty(), "{} of {drawn} frames differ:\n{}", problems.len(), problems.join("\n"));
 }
 
+/// Each settings object (including bad and missing values) is cleaned up into exactly the settings
+/// Python made from it.
 #[test]
 fn settings_are_normalized_like_python() {
     for case in golden()["settings"].as_array().unwrap() {
@@ -122,6 +143,8 @@ fn settings_are_normalized_like_python() {
     }
 }
 
+/// Port position names ("left-back", odd spellings, nonsense, none) give the same side, spot and
+/// label as in Python, and a known position survives being written back and read again.
 #[test]
 fn positions_are_read_like_python() {
     for case in golden()["positions"].as_array().unwrap() {

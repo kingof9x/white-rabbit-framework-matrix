@@ -11,6 +11,26 @@
 //!
 //! Everything but the WASAPI calls (in `capture/wasapi.rs`) is platform independent and tested on
 //! Linux with a fake [`Backend`].
+//!
+//! # Threads
+//!
+//! Each shared `Capture` has one supervisor thread ("audio-visualizer-capture", `supervise`) that
+//! wakes every `DEVICE_CHECK` (3 s) or when stopped. It works out which device should be recorded
+//! and, when that changes (new default speaker, microphone came back, recording broke or stalled),
+//! starts a new recorder thread ("audio-visualizer-record", `record`). Recorder threads can block
+//! inside the sound system while nothing plays, so an old one is never waited for: each recording
+//! has a `generation` number, and a recorder whose generation is no longer the current one drops
+//! its samples and ends the next time it checks.
+//!
+//! The recorder pushes chunks of samples into a `SampleBuffer` (a ring of the last 4096 stereo
+//! frames) under the `buffer` lock; the users (the monitor's `music-N` threads) copy it with
+//! `snapshot` under the same lock, about 33 times a second each. Both hold the lock only for a copy.
+//!
+//! # Locks
+//!
+//! `Registry::captures` (the shared recordings), then per `Capture`: `buffer` and `state` (never held
+//! together), and `stopped` (with the `wake` condition variable). None of them is held while calling
+//! into the sound system, except that `acquire` holds `captures` while starting the supervisor thread.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Condvar, LazyLock, Mutex, MutexGuard};
@@ -26,6 +46,7 @@ pub const SAMPLE_RATE: u32 = crate::analyzer::SAMPLE_RATE as u32;
 /// Stereo frames kept for the FFT (looks.py FFT_SIZE).
 pub const FFT_SIZE: usize = crate::analyzer::FFT_SIZE;
 /// Frames handed to the buffer at a time.
+/// (About 21 ms of sound at 48 kHz; the WASAPI reader collects packets until it has this many.)
 pub const CHUNK_SIZE: usize = 1024;
 /// How often to look for a new default output device (or a microphone plugged in).
 pub const DEVICE_CHECK: Duration = Duration::from_secs(3);
@@ -38,6 +59,7 @@ pub const MIC_STALL: Duration = Duration::from_secs(5);
 /// What the settings show for "no particular microphone".
 pub const DEFAULT_MICROPHONE: &str = "Default microphone";
 
+/// The error every call gives on Linux and macOS (used by the tests there).
 #[cfg(not(windows))]
 const UNSUPPORTED: &str = "sound capture is only available on Windows";
 
@@ -64,6 +86,7 @@ pub fn match_name<'a, S: AsRef<str>>(wanted: &str, names: &'a [S]) -> Option<&'a
 
 /// True when a microphone recording, open since `recording_since`, has given nothing for
 /// [`MIC_STALL`] (measured from the later of the last sound and the start of the recording).
+/// False when neither time is known (nothing has been opened yet).
 pub fn is_stalled(updated: Option<Instant>, recording_since: Option<Instant>, now: Instant) -> bool {
     match updated.max(recording_since) {
         Some(last) => now.saturating_duration_since(last) > MIC_STALL,
@@ -72,10 +95,14 @@ pub fn is_stalled(updated: Option<Instant>, recording_since: Option<Instant>, no
 }
 
 /// The last [`FFT_SIZE`] stereo frames, oldest first, in a ring.
+/// Written by the recorder thread and read by the drawing threads, always behind a `Mutex` in
+/// `Capture`. Fixed size, so it never allocates after it is made.
 pub struct SampleBuffer {
+    /// FFT_SIZE stereo frames.
     frames: Box<[Frame]>,
     /// Where the next frame goes, which is also the oldest frame.
     pos: usize,
+    /// When sound last arrived (None before the first), for the staleness and stall checks.
     updated: Option<Instant>,
 }
 
@@ -86,6 +113,7 @@ impl Default for SampleBuffer {
 }
 
 impl SampleBuffer {
+    /// An all-silent buffer that has never been updated.
     pub fn new() -> Self {
         SampleBuffer { frames: vec![[0.0; 2]; FFT_SIZE].into_boxed_slice(), pos: 0, updated: None }
     }
@@ -97,7 +125,9 @@ impl SampleBuffer {
             return;
         }
         let count = samples.len() / channels;
+        // More than FFT_SIZE frames at once: only the newest FFT_SIZE can be kept, so the rest is skipped.
         let skip = count.saturating_sub(FFT_SIZE);
+        // No whole frame (e.g. an empty chunk): nothing changes, not even `updated`.
         if count == skip {
             return;
         }
@@ -115,6 +145,8 @@ impl SampleBuffer {
         match self.updated {
             Some(updated) if now.saturating_duration_since(updated) <= STALE_AUDIO => {
                 let mut out = Vec::with_capacity(FFT_SIZE);
+                // `pos` is the oldest frame: copying from there to the end and then from the start gives the
+                // frames oldest first.
                 out.extend_from_slice(&self.frames[self.pos..]);
                 out.extend_from_slice(&self.frames[..self.pos]);
                 out
@@ -139,6 +171,7 @@ pub(crate) struct Device {
 }
 
 /// The platform's sound devices. WASAPI on Windows, an error elsewhere, a fake in tests.
+/// `Send + Sync + 'static` because one backend is shared (`Arc`) by every capture's threads.
 pub(crate) trait Backend: Send + Sync + 'static {
     /// Err when recording can't work at all on this computer.
     fn check_available(&self) -> Result<(), String>;
@@ -146,6 +179,7 @@ pub(crate) trait Backend: Send + Sync + 'static {
     fn default_speaker(&self) -> Result<Device, String>;
     /// The active recording inputs, without loopback ones.
     fn microphones(&self) -> Result<Vec<Device>, String>;
+    /// The default recording input.
     fn default_microphone(&self) -> Result<Device, String>;
     /// Records from `device` (its output when `loopback`) until `keep_going` returns false, handing
     /// chunks of interleaved samples and their channel count to `sink`. May block while no sound
@@ -159,6 +193,7 @@ pub(crate) trait Backend: Send + Sync + 'static {
     ) -> Result<(), String>;
 }
 
+/// The backend on anything but Windows: every call fails with `UNSUPPORTED`.
 #[cfg(not(windows))]
 struct Unsupported;
 
@@ -187,6 +222,7 @@ impl Backend for Unsupported {
     }
 }
 
+/// The one backend for this platform, made on first use and shared after that.
 fn platform_backend() -> Arc<dyn Backend> {
     static BACKEND: LazyLock<Arc<dyn Backend>> = LazyLock::new(|| {
         #[cfg(windows)]
@@ -206,6 +242,7 @@ pub fn list_microphones() -> Vec<String> {
     list_microphones_with(platform_backend().as_ref())
 }
 
+/// `list_microphones` with a given backend (for tests). An error is logged and gives an empty list.
 fn list_microphones_with(backend: &dyn Backend) -> Vec<String> {
     let devices = backend.microphones().unwrap_or_else(|e| {
         warn!("Could not list the microphones: {e}");
@@ -220,35 +257,53 @@ fn list_microphones_with(backend: &dyn Backend) -> Vec<String> {
     unique
 }
 
+/// Locks, ignoring poisoning: the guarded data (samples, device names) stays usable after a panic
+/// elsewhere, and sound capture should keep going.
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// What the supervisor knows about the recording; read by the users for the status display.
 #[derive(Default)]
 struct State {
+    /// Friendly name of the device being recorded (or last recorded).
     device_name: Option<String>,
+    /// A message for the user, or None when all is well.
     problem: Option<String>,
     /// Bumped for every new recording; an older recording thread ends when it sees a newer one.
     generation: u64,
     /// The device being recorded, None when a new recording should be opened.
     current_id: Option<String>,
+    /// When the current recording was started, for the microphone stall check.
     recording_since: Option<Instant>,
 }
 
 /// Records sound into a buffer holding the last FFT_SIZE stereo frames.
+/// One shared recording. Made by `Registry::acquire` and handed out as `Arc<Capture>`; its
+/// supervisor and recorder threads hold their own `Arc`s until they end.
 pub struct Capture {
+    /// Playback (loopback of the default output) or microphone.
     input_mode: InputMode,
+    /// The microphone asked for by name ("" for the default, and always "" for playback).
     input_device: String,
+    /// Told the new device's name when playback moves to another device.
     on_device_change: Option<DeviceChangeFn>,
+    /// WASAPI, or a fake in tests.
     backend: Arc<dyn Backend>,
+    /// How often the supervisor looks at the devices (`DEVICE_CHECK`; shorter in tests).
     check_interval: Duration,
+    /// The latest sound.
     buffer: Mutex<SampleBuffer>,
+    /// Which device is recorded, and any problem.
     state: Mutex<State>,
+    /// Set once by `stop`; never cleared.
     stopped: Mutex<bool>,
+    /// Wakes the supervisor at once when stopped, instead of after its next interval.
     wake: Condvar,
 }
 
 impl Capture {
+    /// Not started yet: `Registry::acquire` calls `start`.
     fn new(
         input_mode: InputMode,
         input_device: &str,
@@ -269,6 +324,7 @@ impl Capture {
         }
     }
 
+    /// Playback or microphone, as asked for.
     pub fn input_mode(&self) -> InputMode {
         self.input_mode
     }
@@ -298,6 +354,7 @@ impl Capture {
         self.snapshot_at(Instant::now())
     }
 
+    /// `snapshot` at a given time (lets a caller or test pick the time; `snapshot` uses now).
     pub fn snapshot_at(&self, now: Instant) -> Vec<Frame> {
         lock(&self.buffer).snapshot_at(now)
     }
@@ -308,7 +365,9 @@ impl Capture {
     }
 
     /// True when the microphone's recording has given nothing for [`MIC_STALL`].
+    /// Always false for playback, and false while no recording is open.
     pub fn stalled(&self, now: Instant) -> bool {
+        // The buffer's lock is let go at the end of this statement, before `state` is locked.
         let updated = lock(&self.buffer).updated();
         let state = lock(&self.state);
         self.input_mode == InputMode::Microphone
@@ -316,6 +375,7 @@ impl Capture {
             && is_stalled(updated, state.recording_since, now)
     }
 
+    /// True once `stop` has been called.
     pub fn is_stopped(&self) -> bool {
         *lock(&self.stopped)
     }
@@ -326,6 +386,8 @@ impl Capture {
         self.wake.notify_all();
     }
 
+    /// Starts the supervisor thread. Fails if recording can't work here (no Windows audio, or not
+    /// Windows) or the thread can't be made.
     fn start(self: &Arc<Self>) -> Result<(), String> {
         self.backend.check_available()?;
         let capture = Arc::clone(self);
@@ -336,11 +398,15 @@ impl Capture {
             .map_err(|e| e.to_string())
     }
 
+    /// The supervisor thread's body: a `check` now, then one every `check_interval`, until stopped.
+    /// `error_logged` keeps a device error from being logged again every 3 seconds.
     fn supervise(self: Arc<Self>) {
         let mut error_logged = false;
         loop {
             self.check(&mut error_logged);
             let stopped = lock(&self.stopped);
+            // Sleeps for the interval, but `stop` wakes it at once (the condition is re-checked, so a
+            // spurious wake-up just loops).
             let (stopped, _) =
                 self.wake.wait_timeout_while(stopped, self.check_interval, |s| !*s).unwrap_or_else(|e| e.into_inner());
             if *stopped {
@@ -366,12 +432,16 @@ impl Capture {
             Ok(device) => {
                 let mut state = lock(&self.state);
                 if state.current_id.as_deref() != Some(device.id.as_str()) {
+                    // The very first device opened is not a "change"; reopening after an error or a stall is
+                    // (as in Python), because `device_name` is still set then.
                     let first = state.current_id.is_none() && state.device_name.is_none();
                     state.current_id = Some(device.id.clone());
                     state.device_name = Some(device.name.clone());
                     state.generation += 1;
                     state.recording_since = Some(Instant::now());
                     let generation = state.generation;
+                    // Unlocked before logging, starting the thread and calling the user's callback, none of which
+                    // should run with `state` held (the callback could ask for the device name).
                     drop(state);
                     info!("Audio visualizer listening to {}", device.name);
                     let name = device.name.clone();
@@ -381,6 +451,8 @@ impl Capture {
                         .spawn(move || capture.record(device, generation));
                     if let Err(e) = spawned {
                         warn!("Audio visualizer could not start recording: {e}");
+                        // No recorder thread: try again on the next check (the generation was already bumped, so
+                        // the previous recording ends anyway).
                         lock(&self.state).current_id = None;
                     }
                     if !first && self.input_mode == InputMode::Playback {
@@ -398,12 +470,16 @@ impl Capture {
                 }
                 let mut state = lock(&self.state);
                 state.problem = Some(format!("Couldn't open the sound device: {e}"));
+                // The running recording (if any) is left alone; the next successful check starts a new one.
                 state.current_id = None;
             }
         }
     }
 
     /// The device to record, setting or clearing `problem` on the way.
+    /// Playback: the default output device. Microphone: the named one (matched with `match_name`), or the
+    /// default microphone with a problem message when the named one isn't there. Errors come from the
+    /// backend (no device, Windows audio not working).
     fn resolve_source(&self) -> Result<Device, String> {
         if self.input_mode == InputMode::Playback {
             let device = self.backend.default_speaker()?;
@@ -420,6 +496,7 @@ impl Capture {
                 return Ok(device);
             }
             let message = format!("{} wasn't found, so the default microphone is used", self.input_device);
+            // Logged only when the message is new, not on every 3-second check.
             if lock(&self.state).problem.as_deref() != Some(message.as_str()) {
                 warn!("Microphone '{}' was not found, using the default microphone", self.input_device);
             }
@@ -430,6 +507,7 @@ impl Capture {
         Ok(device)
     }
 
+    /// The current recording's generation number (locks `state` briefly).
     fn generation(&self) -> u64 {
         lock(&self.state).generation
     }
@@ -437,6 +515,8 @@ impl Capture {
     /// Runs on its own thread: recording can block while nothing plays, so a device change starts a
     /// new thread and an outdated one ends when it next wakes up.
     fn record(self: Arc<Self>, device: Device, generation: u64) {
+        // The backend asks this between packets: false once the capture is stopped or a newer
+        // recording has started.
         let current = || !self.is_stopped() && self.generation() == generation;
         let loopback = self.input_mode == InputMode::Playback;
         let result = self.backend.record(&device, loopback, &current, &mut |samples, channels| {
@@ -455,14 +535,17 @@ impl Capture {
     }
 }
 
+/// What a recording listens to: the mode and, for a microphone, the name asked for.
 type Key = (InputMode, String);
 
 /// The shared recordings, by what they listen to, with how many users each has.
 struct Registry {
+    /// Each recording and how many users hold it.
     captures: Mutex<HashMap<Key, (Arc<Capture>, usize)>>,
 }
 
 impl Registry {
+    /// An empty registry (the real one is `REGISTRY`; tests make their own).
     fn new() -> Self {
         Registry { captures: Mutex::new(HashMap::new()) }
     }
@@ -475,6 +558,7 @@ impl Registry {
         input_device: &str,
         on_device_change: Option<DeviceChangeFn>,
     ) -> Result<Arc<Capture>, String> {
+        // Playback has one recording whatever device name is passed.
         let device = if input_mode == InputMode::Microphone { input_device } else { "" };
         let key = (input_mode, device.to_string());
         let mut captures = lock(&self.captures);
@@ -483,11 +567,14 @@ impl Registry {
             return Ok(Arc::clone(capture));
         }
         let capture = Arc::new(Capture::new(input_mode, device, on_device_change, Arc::clone(backend), check_interval));
+        // On error the capture is not registered and simply dropped.
         capture.start()?;
         captures.insert(key, (Arc::clone(&capture), 1));
         Ok(capture)
     }
 
+    /// Drops one user of `capture`; at zero it is removed and stopped. A capture not in the registry is
+    /// just stopped.
     fn release(&self, capture: &Arc<Capture>) {
         let mut captures = lock(&self.captures);
         let key = captures.iter().find(|(_, (c, _))| Arc::ptr_eq(c, capture)).map(|(k, _)| k.clone());
@@ -499,6 +586,7 @@ impl Registry {
             }
             captures.remove(&key);
         }
+        // The registry is unlocked before stopping, which takes the capture's own `stopped` lock.
         drop(captures);
         capture.stop();
     }
@@ -509,6 +597,7 @@ impl Registry {
     }
 }
 
+/// The process-wide shared recordings.
 static REGISTRY: LazyLock<Registry> = LazyLock::new(Registry::new);
 
 /// Starts (or joins) the recording of this input. `input_device` only matters for a microphone ("" =
@@ -532,6 +621,7 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    /// Proves the name matching: exact first, then the first that contains it in any case; "" matches none.
     #[test]
     fn match_name_prefers_exact_then_contains_ignoring_case() {
         let names = ["Microphone Array (Realtek)", "USB Mic", "Mic"];
@@ -542,6 +632,7 @@ mod tests {
         assert_eq!(match_name("", &names), None);
     }
 
+    /// Proves that a mono chunk goes to both sides, the newest frames are last, and extra channels are cut.
     #[test]
     fn buffer_keeps_last_frames_and_spreads_mono() {
         let t0 = Instant::now();
@@ -558,6 +649,7 @@ mod tests {
         assert_eq!(snap[FFT_SIZE - 4..], [[1.0, 1.0], [2.0, 2.0], [3.0, 4.0], [5.0, 6.0]]);
     }
 
+    /// Proves that an oversized chunk keeps only its newest FFT_SIZE frames and that the ring wraps in order.
     #[test]
     fn buffer_keeps_only_the_last_fft_size_frames() {
         let t0 = Instant::now();
@@ -574,6 +666,7 @@ mod tests {
         assert_eq!(snap[FFT_SIZE - 1], [7.0, 8.0]);
     }
 
+    /// Proves that old sound reads as silence after `STALE_AUDIO`, and that empty pushes don't count as sound.
     #[test]
     fn buffer_goes_silent_when_stale() {
         let t0 = Instant::now();
@@ -586,6 +679,7 @@ mod tests {
         assert_eq!(buffer.updated(), Some(t0));
     }
 
+    /// Proves the stall rule with every combination of known and unknown times.
     #[test]
     fn stall_is_measured_from_the_later_of_sound_and_start() {
         let t0 = Instant::now();
@@ -603,11 +697,13 @@ mod tests {
         speaker: Mutex<Option<Device>>,
         mics: Mutex<Vec<Device>>,
         default_mic: Mutex<Option<Device>>,
+        /// How many recordings have been started.
         recordings: AtomicUsize,
         /// Recordings end (as stopped/outdated) when this many have been started.
         live: AtomicUsize,
     }
 
+    /// A device with this id and name.
     fn dev(id: &str, name: &str) -> Device {
         Device { id: id.into(), name: name.into() }
     }
@@ -643,8 +739,10 @@ mod tests {
         }
     }
 
+    /// Supervisor interval in the tests, so changes are noticed within milliseconds.
     const FAST: Duration = Duration::from_millis(5);
 
+    /// Waits up to 5 s for `cond`, failing the test with `what` if it never becomes true.
     fn wait_for(what: &str, cond: impl Fn() -> bool) {
         let end = Instant::now() + Duration::from_secs(5);
         while !cond() {
@@ -653,6 +751,9 @@ mod tests {
         }
     }
 
+    /// Proves that playback records the default speaker, follows a new default (ending the old recording
+    /// and calling the callback, but not for the first open), reports a missing device as a problem and
+    /// reopens it once it is back.
     #[test]
     fn playback_follows_the_default_device_and_reports_changes() {
         let fake = Arc::new(Fake::default());
@@ -688,6 +789,8 @@ mod tests {
         assert_eq!(lock(&changes).len(), 2, "reopening after an error counts as a change, as in Python");
     }
 
+    /// Proves that a named microphone is found by part of its name, and that an unknown one falls back to
+    /// the default with a problem message.
     #[test]
     fn missing_microphone_falls_back_to_the_default() {
         let fake = Arc::new(Fake::default());
@@ -708,6 +811,8 @@ mod tests {
         registry.release(&headset);
     }
 
+    /// Proves that a microphone that has given nothing for `MIC_STALL` is detected and reopened, and the
+    /// stalled recording ends.
     #[test]
     fn stalled_microphone_is_reopened() {
         let fake = Arc::new(Fake::default());
@@ -731,6 +836,8 @@ mod tests {
         wait_for("stop", || fake.live.load(Ordering::SeqCst) == 0);
     }
 
+    /// Proves that users of the same input share one recording (any name for playback), different
+    /// microphones get their own, and a recording stops only when its last user releases it.
     #[test]
     fn recordings_are_shared_and_stop_with_the_last_release() {
         let fake = Arc::new(Fake::default());
@@ -755,6 +862,7 @@ mod tests {
         assert_eq!(registry.len(), 0);
     }
 
+    /// Proves that off Windows, acquiring fails cleanly, nothing is registered, and no microphones are listed.
     #[cfg(not(windows))]
     #[test]
     fn capture_is_windows_only() {

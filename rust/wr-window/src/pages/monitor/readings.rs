@@ -2,6 +2,13 @@
 //! does. CPU, memory, battery, disk, network and the clock are this computer's own; temperatures, fans,
 //! GPU use, FPS, the weather and what is playing show made-up values, so the window doesn't have to
 //! read the sensors itself (the panels show the real ones). The audio visualizer plays made-up music.
+//!
+//! How it fits together: wr-core's `render_panel_on` is the monitor's own drawing code. It asks a
+//! `Readings` object for every value it draws; the monitor's version reads the real sensors, and
+//! `PreviewReadings` below is the editor's version. `Renderer` turns an editor `Page` into wr-core's
+//! `PanelApps` and draws it. The editor (`editor.rs`) calls `Renderer::render` from a UI timer several
+//! times a second, so every reading here must be quick: sysinfo's CPU, memory, disk and network counters
+//! are cheap, drive space is re-read at most every 10 seconds, and nothing here blocks on the network.
 
 use std::collections::HashMap;
 use std::time::Instant;
@@ -22,31 +29,51 @@ use wr_music::{to_leds, Visualizer};
 use super::catalog;
 use super::model::{Entry, Page};
 
+/// Brightness (0-255) of an app's lit pixels in the preview: the monitor's value at full brightness.
 pub const FOREGROUND: i32 = 160;
+/// Brightness (0-255) of an app's borders in the preview: the monitor's value at full brightness.
 pub const BACKGROUND: i32 = 35;
 
+/// Seconds since 1970, the clock wr-core's rate monitors expect. 0 if the clock is before 1970.
 fn unix_now() -> f64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0)
 }
 
+/// The values the preview draws, and what it needs to keep between frames to work them out.
 pub struct PreviewReadings {
+    /// CPU usage per core. sysinfo measures usage between two refreshes, so the per-core readings and the
+    /// once-a-second overall reading each keep their own `System`, or one would spoil the other's interval.
     cores: System,
+    /// Overall CPU usage, sampled once a second for the CPU graph.
     overall: System,
+    /// Memory use.
     memory: System,
+    /// Groups logical CPUs into physical cores and averages the last readings, as the cpu app does.
     smoother: CpuSmoother,
+    /// The CPU graph's last seconds of overall use.
     history: History,
+    /// The GPU graph's last seconds (made up).
     gpu_history: History,
+    /// When the preview started; made-up values are waves over the time since then.
     started: Instant,
+    /// Whether the page being drawn is on the right panel (some apps draw differently per side).
     right: bool,
+    /// The disks' read/write counters.
     disks: Disks,
+    /// The network cards' sent/received counters.
     networks: Networks,
+    /// Turns the disk counters into read and write rates (0..1 of the highest seen).
     disk_rates: RateMonitor,
+    /// Turns the network counters into upload and download rates (0..1 of the highest seen).
     net_rates: RateMonitor,
+    /// The drives' sizes and free space, for the drive space meter.
     drives: Disks,
+    /// When `drives` was last refreshed; None before the first time.
     drives_read: Option<Instant>,
 }
 
 impl PreviewReadings {
+    /// Sets up sysinfo with only what the preview needs (CPU usage, disk I/O), which keeps start-up quick.
     pub fn new() -> PreviewReadings {
         let cpu_only = RefreshKind::nothing().with_cpu(CpuRefreshKind::nothing().with_cpu_usage());
         let cores = System::new_with_specifics(cpu_only);
@@ -71,23 +98,30 @@ impl PreviewReadings {
         }
     }
 
+    /// Seconds since the preview started.
     fn t(&self) -> f64 {
         self.started.elapsed().as_secs_f64()
     }
 }
 
 /// A slow made-up wave between 0 and 1.
+/// `speed` is in radians per second; `phase` shifts it so different values don't move together. The
+/// result stays between 0.1 and 0.9.
 fn wave(t: f64, speed: f64, phase: f64) -> f64 {
     0.5 + 0.4 * (t * speed + phase).sin()
 }
 
+/// Each method answers one question wr-core's drawing code asks; units are those `Readings` documents
+/// (fractions 0..1 unless said otherwise).
 impl Readings for PreviewReadings {
+    /// Each core's load (0..1), smoothed, from sysinfo's percentages.
     fn cpu_cores(&mut self) -> Vec<f64> {
         self.cores.refresh_cpu_usage();
         let percent: Vec<f64> = self.cores.cpus().iter().map(|c| c.cpu_usage() as f64).collect();
         self.smoother.add(&percent)
     }
 
+    /// The overall CPU use per second, newest first; a new sample is taken only when a second has passed.
     fn cpu_history(&mut self) -> Vec<Option<f64>> {
         let now = self.t();
         let overall = &mut self.overall;
@@ -97,6 +131,7 @@ impl Readings for PreviewReadings {
         })
     }
 
+    /// The share of memory in use (0..1); 0 if the total can't be read.
     fn memory(&mut self) -> f64 {
         self.memory.refresh_memory();
         let total = self.memory.total_memory();
@@ -106,6 +141,7 @@ impl Readings for PreviewReadings {
         (total - self.memory.available_memory()) as f64 / total as f64
     }
 
+    /// (charge 0..1, on mains power), or None without a battery. Away from Windows: a made-up 72 % charging.
     fn battery(&mut self) -> Option<(f64, bool)> {
         #[cfg(windows)]
         {
@@ -130,6 +166,7 @@ impl Readings for PreviewReadings {
         }
     }
 
+    /// The four digits to show (hhmm) and whether to light the PM dot (12-hour clock only).
     fn clock(&mut self, app: &App) -> (String, bool) {
         use chrono::Timelike;
         // The preview shows local time; the panels follow the app's timezone setting
@@ -143,18 +180,22 @@ impl Readings for PreviewReadings {
         }
     }
 
+    /// The animation clock for apps that move: seconds since the preview started.
     fn now(&mut self) -> f64 {
         self.t()
     }
 
+    /// Called before drawing each panel.
     fn set_panel(&mut self, right: bool) {
         self.right = right;
     }
 
+    /// Whether the panel being drawn is the right one.
     fn panel_right(&mut self) -> bool {
         self.right
     }
 
+    /// Disk read and write rates (0..1 of the highest seen), from all disks' byte counters added up.
     fn disk(&mut self) -> (f64, f64) {
         self.disks.refresh_specifics(false, DiskRefreshKind::nothing().with_io_usage());
         let (read, written) = self.disks.list().iter().fold((0u64, 0u64), |(r, w), d| {
@@ -164,6 +205,7 @@ impl Readings for PreviewReadings {
         self.disk_rates.add(read, written, unix_now())
     }
 
+    /// Upload and download rates (0..1 of the highest seen), from all network cards' byte counters added up.
     fn net(&mut self) -> (f64, f64) {
         self.networks.refresh(true);
         let (sent, received) = self.networks.iter().fold((0u64, 0u64), |(s, r), (_, n)| {
@@ -172,15 +214,18 @@ impl Readings for PreviewReadings {
         self.net_rates.add(sent, received, unix_now())
     }
 
+    /// Made-up GPU use, one sample a second, the same for any GPU.
     fn gpu_history(&mut self, _gpu: &str) -> Vec<Option<f64>> {
         let now = self.t();
         self.gpu_history.get(now, || Some(wave(now, 0.7, 1.0)))
     }
 
+    /// Made-up GPU memory use, slowly moving.
     fn gpu_memory(&mut self, _gpu: &str) -> Option<f64> {
         Some(wave(self.t(), 0.15, 2.0))
     }
 
+    /// How full the drive is (0..1): "C:", "c" or "C:\" all find drive C. None for a drive that isn't there.
     fn drive_space(&mut self, drive: &str) -> Option<f64> {
         if self.drives_read.is_none_or(|t| t.elapsed().as_secs() > 10) {
             self.drives_read = Some(Instant::now());
@@ -200,6 +245,7 @@ impl Readings for PreviewReadings {
         }
     }
 
+    /// Made-up frames per second around 60, with a short history (newest first) that moves like a wave.
     fn fps(&mut self, _process: &str) -> Fps {
         let t = self.t();
         let history: Vec<f64> = (0..9).map(|i| 60.0 + 25.0 * (t * 0.5 - i as f64 * 0.4).sin()).collect();
@@ -208,6 +254,7 @@ impl Readings for PreviewReadings {
 
     fn now_playing(&mut self) -> NowPlaying {
         // A made-up song and cover, so the preview shows what the app looks like
+        // A made-up n x n album cover: a dark centre and rings around it, like a record.
         let n = wr_core::apps::now_playing::COVER;
         let cover: Vec<f64> = (0..n * n)
             .map(|i| {
@@ -223,6 +270,7 @@ impl Readings for PreviewReadings {
             })
             .collect();
         let t = self.t();
+        // Nine moving bar heights for the app's small level meter.
         let levels: Vec<f64> = (0..9).map(|i| 3.5 + 3.0 * (t * 3.0 + i as f64).sin()).collect();
         NowPlaying {
             media: Media {
@@ -236,6 +284,7 @@ impl Readings for PreviewReadings {
         }
     }
 
+    /// Made-up mild, cloudy weather, in the units the app is set to (metric unless "imperial").
     fn weather(&mut self, app: &App) -> Option<Weather> {
         let metric = app.arg_str("units").map(|u| u != "imperial").unwrap_or(true);
         Some(Weather {
@@ -249,12 +298,14 @@ impl Readings for PreviewReadings {
         })
     }
 
+    /// Three made-up temperatures around 48, 55 and 37 degrees Celsius, gently moving, in the app's unit.
     fn temperatures(&mut self, app: &App) -> [Option<f64>; 3] {
         let unit = app.arg_str("unit").unwrap_or_else(|| "C".into());
         let t = self.t();
         [48.0, 55.0, 37.0].map(|c: f64| Some(temp_fan::to_unit(c + 3.0 * (t * 0.3 + c).sin(), &unit)))
     }
 
+    /// Two made-up fan speeds in RPM.
     fn fans(&mut self) -> Vec<f64> {
         let t = self.t();
         vec![2400.0 + 600.0 * (t * 0.4).sin(), 3100.0 + 500.0 * (t * 0.3).cos()]
@@ -262,6 +313,8 @@ impl Readings for PreviewReadings {
 }
 
 /// A finalized entry as the monitor's App.
+/// `whole_panel` says whether it fills the panel. The duration doesn't matter for one picture, so it is
+/// a fixed 30. The args are turned from JSON into YAML values, which is what wr-core's `App` holds.
 pub fn to_app(entry: &Entry, whole_panel: bool) -> App {
     let args = entry
         .get("args")
@@ -280,6 +333,7 @@ pub fn to_app(entry: &Entry, whole_panel: bool) -> App {
     }
 }
 
+/// An empty half: an app that doesn't display.
 fn blank() -> App {
     App {
         name: "none".into(),
@@ -293,17 +347,24 @@ fn blank() -> App {
 }
 
 /// Draws pages for the preview, keeping the audio visualizers it plays between frames.
+/// One per editor, kept for as long as the window is open.
 pub struct Renderer {
+    /// The values the drawings use.
     pub readings: PreviewReadings,
+    /// One audio visualizer per side and set of settings, with when it last drew. Kept so the bars move
+    /// smoothly from frame to frame instead of starting again.
     visualizers: HashMap<String, (Visualizer, Instant)>,
 }
 
 impl Renderer {
+    /// A renderer with fresh readings and no visualizers yet.
     pub fn new() -> Renderer {
         Renderer { readings: PreviewReadings::new(), visualizers: HashMap::new() }
     }
 
     /// The 9 x 34 picture of one page.
+    /// No page gives a dark panel. Entries are run through `catalog::finalize` first, so they carry the same
+    /// fixed keys the saved file would.
     pub fn render(&mut self, page: Option<&Page>, side: &str) -> Grid {
         let mut grid = Grid::new();
         let Some(page) = page else { return grid };
@@ -322,6 +383,7 @@ impl Renderer {
             let apps = PanelApps::Halves(half(&page.top), half(&page.bottom));
             render_panel_on(&mut grid, &apps, &mut self.readings, FOREGROUND, BACKGROUND, side);
         }
+        // The grid holds whole numbers and some drawing can go past 0-255; keep every LED in range.
         for col in grid.v.iter_mut() {
             for v in col.iter_mut() {
                 *v = (*v).clamp(0, 255);
@@ -331,6 +393,8 @@ impl Renderer {
     }
 
     /// The audio visualizer draws on the panel itself, so the preview plays made-up music through the look.
+    /// The visualizer is keyed by side and its settings, so changing a setting starts a new one; the map is
+    /// emptied when it grows past 16 so old ones don't pile up.
     fn equalizer(&mut self, entry: &Entry, side: &str) -> Grid {
         let args = entry.get("args").cloned().unwrap_or(Value::Null);
         let settings = wr_music::from_json(&args);
@@ -342,6 +406,8 @@ impl Renderer {
         let (visualizer, last) = self.visualizers.entry(key).or_insert_with(|| {
             (Visualizer::new(&settings, side == "right", Some(0)), now - std::time::Duration::from_millis(30))
         });
+        // Time since this visualizer last drew, between 1 ms and half a second, so a pause doesn't
+        // make the bars jump. A new one starts as if it drew 30 ms ago.
         let dt = now.duration_since(*last).as_secs_f64().clamp(0.001, 0.5);
         *last = now;
         let t = self.readings.t();
@@ -355,6 +421,8 @@ mod tests {
     use super::super::model;
     use super::*;
 
+    /// Every app the editor offers draws something with its default settings, except those that are dark
+    /// on purpose (a missing drawing, empty text, the battery sand without a battery).
     #[test]
     fn draws_every_app() {
         let mut renderer = Renderer::new();

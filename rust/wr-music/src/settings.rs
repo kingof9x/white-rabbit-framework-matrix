@@ -1,10 +1,16 @@
 //! The music visualizer's settings ("music" in settings.json, and the audio visualizer app's args in
 //! config.yaml use the same keys), and the list of looks. Mirrors the top of
 //! `led_mon/equalizer_files/looks.py`.
+//!
+//! The settings arrive as loose JSON written by people or by older versions (strings for numbers,
+//! "yes"/"no" for booleans, unknown styles). `normalize` turns any such object into a `Settings` where
+//! every field is valid, following Python's rules for `str()`, `int()`, `float()` and truthiness so
+//! both programs read a file the same way. Nothing here fails: a bad value just gets its default.
 
 use serde_json::{Map, Value};
 
 /// (key, label, description) of every look, in the order the window lists them.
+/// The window shows `label` and `description`; `key` is what is saved in the settings.
 pub const STYLES: &[(&str, &str, &str)] = &[
     ("classic", "Classic", "Bars grow up and down from the middle row, like the original equalizer."),
     ("bars", "Spectrum analyzer", "Bars rise from the bottom of the panel: bass on the left, treble on the right."),
@@ -59,6 +65,7 @@ pub const STYLES: &[(&str, &str, &str)] = &[
 ];
 
 /// Every look's key.
+/// Used to check a saved style against the known ones.
 pub fn style_keys() -> impl Iterator<Item = &'static str> {
     STYLES.iter().map(|(key, _, _)| *key)
 }
@@ -66,13 +73,17 @@ pub fn style_keys() -> impl Iterator<Item = &'static str> {
 /// Looks that have no bars, so peak dots and shading don't change them (and both panels hear both channels).
 pub const NO_BAR_OPTIONS: &[&str] = &["water"];
 
+/// Where the sound comes from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum InputMode {
+    /// What the computer plays through its speakers or headphones (WASAPI loopback recording).
     Playback,
+    /// A microphone (the default one, or the one named in `input_device`).
     Microphone,
 }
 
 impl InputMode {
+    /// The name used in the settings and logs.
     pub fn as_str(self) -> &'static str {
         match self {
             InputMode::Playback => "playback",
@@ -81,6 +92,7 @@ impl InputMode {
     }
 }
 
+/// How quickly the bars drop after a loud moment (they always rise at once).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FallSpeed {
     Slow,
@@ -102,21 +114,31 @@ impl FallSpeed {
 /// The settings with every key filled in and every value valid (Python's `looks.normalize`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Settings {
+    /// Playback or microphone ("input-mode").
     pub input_mode: InputMode,
     /// Microphone name, blank for the default microphone.
     pub input_device: String,
+    /// One of the keys in `STYLES` ("style"); "classic" if unknown.
     pub style: String,
+    /// Treat both panels as one wide picture ("span-panels").
     pub span_panels: bool,
+    /// Show peak marks that fall slowly after the bars ("peak-dots").
     pub peak_dots: bool,
+    /// Draw the looks with shading instead of flat brightness ("shaded").
     pub shaded: bool,
+    /// Turn the picture upside down ("flip").
     pub flip: bool,
+    /// "fall-speed": slow, normal or fast.
     pub fall_speed: FallSpeed,
     /// 1-10.
     pub sensitivity: i64,
+    /// "auto-sensitivity": adjust the gain to the music (default on).
     pub auto_sensitivity: bool,
     /// Older settings from the equalizer app, kept as given when present.
     pub level_gain: Option<Value>,
+    /// Old: bars below this many levels are hidden (see `Analyzer::new`).
     pub noise_gate_level: Option<Value>,
+    /// Old: the sum of all bar heights at or below which a frame counts as silent.
     pub silence_level_sum_threshold: Option<Value>,
 }
 
@@ -144,6 +166,7 @@ impl Default for Settings {
 fn text(value: &Value) -> String {
     match value {
         Value::String(s) => s.clone(),
+        // Python writes booleans capitalised (`str(True)` is "True"); kept so both read values the same.
         Value::Bool(true) => "True".into(),
         Value::Bool(false) => "False".into(),
         other => other.to_string(),
@@ -162,6 +185,8 @@ fn truthy(value: &Value) -> bool {
     }
 }
 
+/// A setting as a boolean: missing or null gives `default`; strings like "yes", "off", "1" are read as
+/// such and any other string gives `default`; numbers, lists and objects follow Python truthiness.
 fn to_bool(value: Option<&Value>, default: bool) -> bool {
     match value {
         None | Some(Value::Null) => default,
@@ -184,7 +209,9 @@ pub(crate) fn to_float(value: &Value) -> Option<f64> {
             match t.as_str() {
                 "inf" | "+inf" | "infinity" | "+infinity" => Some(f64::INFINITY),
                 "-inf" | "-infinity" => Some(f64::NEG_INFINITY),
+                // The spellings Python's float() accepts for infinity and NaN, listed so they match it exactly.
                 "nan" | "+nan" | "-nan" => Some(f64::NAN),
+                // Python allows underscores between digits ("1_000"); they are removed before parsing.
                 _ => t.replace('_', "").parse::<f64>().ok(),
             }
         }
@@ -196,12 +223,15 @@ pub(crate) fn to_float(value: &Value) -> Option<f64> {
 pub(crate) fn to_int(value: &Value) -> Option<i64> {
     match value {
         Value::Bool(b) => Some(*b as i64),
+        // A float like 2.7 becomes 2, as Python's int(2.7). NaN and infinity give None (Python raises).
         Value::Number(n) => n.as_i64().or_else(|| n.as_f64().filter(|v| v.is_finite()).map(|v| v.trunc() as i64)),
         Value::String(s) => s.trim().replace('_', "").parse::<i64>().ok(),
         _ => None,
     }
 }
 
+/// Reads "input-mode": "microphone", "mic", "input" or "capture" (any case) mean the microphone;
+/// anything else, or nothing, means playback.
 pub fn normalize_input_mode(value: Option<&Value>) -> InputMode {
     let mode = match value {
         Some(v) if truthy(v) => text(v).trim().to_lowercase(),
@@ -215,6 +245,7 @@ pub fn normalize_input_mode(value: Option<&Value>) -> InputMode {
 
 /// Settings with every key filled in and every value made valid.
 pub fn normalize(raw: &Map<String, Value>) -> Settings {
+    // Start from the defaults and overwrite each field that has a usable value.
     let mut s = Settings { input_mode: normalize_input_mode(raw.get("input-mode")), ..Settings::default() };
     if let Some(device) = raw.get("input-device").filter(|v| truthy(v)) {
         s.input_device = text(device).trim().to_string();
@@ -223,6 +254,7 @@ pub fn normalize(raw: &Map<String, Value>) -> Settings {
         Some(v) if truthy(v) => text(v).trim().to_lowercase(),
         _ => "classic".into(),
     };
+    // An unknown style keeps the default ("classic").
     if style_keys().any(|k| k == style) {
         s.style = style;
     }
@@ -235,6 +267,7 @@ pub fn normalize(raw: &Map<String, Value>) -> Settings {
         Some(v) if truthy(v) => text(v).trim().to_lowercase(),
         _ => "normal".into(),
     };
+    // Anything but "slow" or "fast" (in any case) is normal.
     s.fall_speed = match fall.as_str() {
         "slow" => FallSpeed::Slow,
         "fast" => FallSpeed::Fast,
@@ -243,9 +276,12 @@ pub fn normalize(raw: &Map<String, Value>) -> Settings {
     s.sensitivity = match raw.get("sensitivity") {
         None => 5,
         Some(v) => {
+            // Rounded half to even like Python's round() (2.5 -> 2), then kept within 1..10; not a number -> 5.
             to_float(v).filter(|f| f.is_finite()).map(|f| (f.round_ties_even() as i64).clamp(1, 10)).unwrap_or(5)
         }
     };
+    // The old equalizer keys are kept as raw JSON; `Visualizer::new` reads them, falling back to its
+    // defaults when they aren't numbers.
     let keep = |key: &str| raw.get(key).filter(|v| !v.is_null()).cloned();
     s.level_gain = keep("level-gain");
     s.noise_gate_level = keep("noise-gate-level");
@@ -254,6 +290,8 @@ pub fn normalize(raw: &Map<String, Value>) -> Settings {
 }
 
 /// Settings from a JSON object (anything else gives the defaults).
+///
+/// Used by the monitor (the "music" settings and the visualizer app's args) and by the window.
 pub fn from_json(raw: &Value) -> Settings {
     match raw {
         Value::Object(map) => normalize(map),
@@ -266,6 +304,9 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    /// Proves that an empty object gives the defaults, that loose values (padded strings, "mic", "12",
+    /// "yes", "FAST", 0, "maybe") are cleaned up the way Python does, that an unknown style falls back to
+    /// classic, that 2.5 rounds to 2, and that there are 22 looks.
     #[test]
     fn fills_in_and_cleans_up() {
         let s = from_json(&json!({}));

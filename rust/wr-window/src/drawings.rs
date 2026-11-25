@@ -5,6 +5,16 @@
 //!
 //! File format (version 1): `{"version": 1, "delay_ms": 100, "frames": [[[0-255 x 9] x 34], ...]}`
 
+//!
+//! When a drawing is made for both panels the file also has a "right" list with the right panel's
+//! frames ("frames" is then the left panel's). Reading a file and the file-name rules are shared with
+//! the Picture app in wr-core, so what the Draw page saves is exactly what the monitor plays.
+//!
+//! Three parts, all called from the Draw page on the UI thread: saving / loading / listing files
+//! (plain file I/O on files of a few KB); the editor's picture operations, which work on `Wide`
+//! frames (both panels side by side, 18 x 34) and return a changed copy; and importing a picture
+//! file (decode, convert to grey, fit into the panel, stretch the brightness), a one-off that can
+//! take a moment for a big GIF.
 use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
@@ -13,20 +23,26 @@ use wr_core::grid::{HEIGHT, WIDTH};
 
 use crate::paths;
 
+/// File name ending of a saved drawing.
 pub const EXTENSION: &str = ".json";
 /// How a picture is fitted into 9 x 34 when it is imported
+/// (setting value, text shown in the window). "whole" fits the picture inside the panel (letterboxed),
+/// "fill" covers the panel and cuts off what sticks out, "stretch" ignores the picture's proportions.
 pub const FITS: [(&str, &str); 3] =
     [("whole", "Show the whole picture"), ("fill", "Fill the panel (cut the edges)"), ("stretch", "Stretch to fit")];
 
+/// One panel's frame with every LED off (34 rows of 9).
 pub fn blank() -> Frame {
     [[0; WIDTH]; HEIGHT]
 }
 
+/// An empty one-frame drawing at the default speed (for tests).
 #[cfg(test)]
 pub fn new_drawing() -> Drawing {
     Drawing { frames: vec![blank()], delay_ms: DEFAULT_DELAY_MS, right: Vec::new() }
 }
 
+/// The drawing in the file format described at the top of this file.
 pub fn to_json(d: &Drawing) -> Value {
     let list =
         |frames: &[Frame]| frames.iter().map(|f| f.iter().map(|r| r.to_vec()).collect::<Vec<_>>()).collect::<Vec<_>>();
@@ -37,22 +53,29 @@ pub fn to_json(d: &Drawing) -> Value {
     });
     // Made for both panels: the right panel's frames ("frames" is then the left panel's)
     if !d.right.is_empty() {
+        // (Older versions of the app read only "frames", so a one-panel drawing stays readable by them.)
         v["right"] = json!(list(&d.right));
     }
     v
 }
 
+/// The folder the drawings are saved in.
 pub fn folder() -> PathBuf {
     paths::drawings_dir()
 }
 
+/// The file for a drawing called `name`, after the same name cleaning as saving does.
 pub fn path_for(dir: &Path, name: &str) -> PathBuf {
     dir.join(format!("{}{EXTENSION}", safe_name(name)))
 }
 
+///
+/// Sorted ignoring upper/lower case. A missing or unreadable folder gives an empty list.
 /// The saved drawings' names, sorted.
 pub fn list_names(dir: &Path) -> Vec<String> {
     let mut names: Vec<String> = std::fs::read_dir(dir)
+        // read_dir's Result as an iterator (an error gives nothing), then each entry's Result (bad entries
+        // are skipped).
         .into_iter()
         .flatten()
         .flatten()
@@ -62,25 +85,32 @@ pub fn list_names(dir: &Path) -> Vec<String> {
     names
 }
 
+/// Saves a drawing under `name` (cleaned for Windows: see `safe_name`), replacing one of that name.
+/// Returns the name actually used, or Err(text) for the user (empty name, or a file error). Written
+/// to a temporary file and renamed, so the monitor playing it never reads half a file.
 pub fn save(dir: &Path, name: &str, d: &Drawing) -> Result<String, String> {
+    // Cleaned the same way the Picture app cleans it when it looks the file up.
     let name = safe_name(name);
     if name.is_empty() {
         return Err("Type a name for the drawing first".into());
     }
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let path = path_for(dir, &name);
+    // "name.json.tmp": doesn't end in ".json", so `list_names` never shows a half-saved file.
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, serde_json::to_string(&to_json(d)).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
     std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
     Ok(name)
 }
 
+/// Reads a saved drawing; Err(text) if the file is missing, isn't JSON or isn't a valid drawing.
 pub fn load(dir: &Path, name: &str) -> Result<Drawing, String> {
     let text = std::fs::read_to_string(path_for(dir, name)).map_err(|e| e.to_string())?;
     let value: Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
     Drawing::from_json(&value)
 }
 
+/// Deletes a saved drawing's file.
 pub fn delete(dir: &Path, name: &str) -> Result<(), String> {
     std::fs::remove_file(path_for(dir, name)).map_err(|e| e.to_string())
 }
@@ -96,14 +126,18 @@ pub type Wide = [[u8; BOTH]; HEIGHT];
 /// A drawing in the editor: frames of both panels, and how long each shows.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Pic {
+    /// The frames in order, each 34 rows of 18 brightness values (0..255); never empty in practice
     pub frames: Vec<Wide>,
+    /// How long each frame shows, in milliseconds
     pub delay_ms: i64,
 }
 
+/// A frame of both panels with every LED off.
 pub fn blank_wide() -> Wide {
     [[0; BOTH]; HEIGHT]
 }
 
+/// A new editor picture: one blank frame at the default speed (100 ms).
 pub fn new_pic() -> Pic {
     Pic { frames: vec![blank_wide()], delay_ms: DEFAULT_DELAY_MS }
 }
@@ -112,11 +146,13 @@ pub fn new_pic() -> Pic {
 pub fn half(w: &Wide, panel: usize) -> Frame {
     let mut f = blank();
     for (y, row) in w.iter().enumerate() {
+        // Panel 0 is columns 0..9 of the wide frame, panel 1 columns 9..18.
         f[y].copy_from_slice(&row[panel * WIDTH..(panel + 1) * WIDTH]);
     }
     f
 }
 
+/// Puts the left and right panel's frames side by side into one wide frame.
 fn join(left: &Frame, right: &Frame) -> Wide {
     let mut w = blank_wide();
     for y in 0..HEIGHT {
@@ -130,12 +166,14 @@ fn join(left: &Frame, right: &Frame) -> Wide {
 pub fn to_drawing(p: &Pic) -> Drawing {
     let frames = p.frames.iter().map(|w| half(w, 0)).collect();
     let right: Vec<Frame> = p.frames.iter().map(|w| half(w, 1)).collect();
+    // A drawing with nothing on the right half is saved as a one-panel drawing, as older versions did.
     let used = right.iter().flatten().flatten().any(|v| *v != 0);
     Drawing { frames, delay_ms: p.delay_ms, right: if used { right } else { Vec::new() } }
 }
 
 /// A saved drawing in the editor. One made for one panel goes on the left panel.
 pub fn from_drawing(d: &Drawing) -> Pic {
+    // A one-panel drawing has no right frames: its right half is blank.
     let frames = d.frames.iter().enumerate().map(|(i, f)| join(f, d.right.get(i).unwrap_or(&blank()))).collect();
     Pic { frames, delay_ms: d.delay_ms }
 }
@@ -143,13 +181,18 @@ pub fn from_drawing(d: &Drawing) -> Pic {
 /// Fills the area of the same brightness around (row, col), like a paint bucket, inside columns
 /// c0..c1.
 pub fn flood_fill(frame: &Wide, row: usize, col: usize, value: u8, c0: usize, c1: usize) -> Wide {
+    // `row` and `col` must be inside the frame (the page only passes a clicked LED). A depth-first fill
+    // with an explicit stack of cells to look at; each cell changes at most once (it then no longer has
+    // the target value), so it ends after at most 34 x 18 changes.
     let target = frame[row][col];
     let mut out = *frame;
+    // Filling with the colour already there would change nothing (and the loop below would never end).
     if target == value {
         return out;
     }
     let mut stack = vec![(row as i64, col as i64)];
     while let Some((r, c)) = stack.pop() {
+        // Off the frame, or outside the columns being edited: the fill doesn't spread there.
         if r < 0 || c < c0 as i64 || r >= HEIGHT as i64 || c >= c1 as i64 {
             continue;
         }
@@ -162,6 +205,7 @@ pub fn flood_fill(frame: &Wide, row: usize, col: usize, value: u8, c0: usize, c1
     out
 }
 
+/// Flips columns c0..c1 left to right.
 pub fn mirror(f: &Wide, c0: usize, c1: usize) -> Wide {
     let mut out = *f;
     for row in out.iter_mut() {
@@ -170,6 +214,7 @@ pub fn mirror(f: &Wide, c0: usize, c1: usize) -> Wide {
     out
 }
 
+/// Flips columns c0..c1 top to bottom.
 pub fn upside_down(f: &Wide, c0: usize, c1: usize) -> Wide {
     let mut out = *f;
     for (y, row) in out.iter_mut().enumerate() {
@@ -178,6 +223,7 @@ pub fn upside_down(f: &Wide, c0: usize, c1: usize) -> Wide {
     out
 }
 
+/// Swaps light and dark in columns c0..c1 (brightness v becomes 255 - v).
 pub fn invert(f: &Wide, c0: usize, c1: usize) -> Wide {
     let mut out = *f;
     for row in out.iter_mut() {
@@ -197,12 +243,16 @@ pub fn fill(f: &Wide, value: u8, c0: usize, c1: usize) -> Wide {
     out
 }
 
+///
+/// `dy` rows down and `dx` columns right (negative: up / left); what falls off one edge comes back on
+/// the other. `rem_euclid` keeps the wrapped index positive for negative moves.
 /// Moves the picture in columns c0..c1, wrapping around the edges.
 pub fn roll(f: &Wide, dy: i64, dx: i64, c0: usize, c1: usize) -> Wide {
     let mut out = *f;
     let w = (c1 - c0) as i64;
     for y in 0..HEIGHT {
         for x in c0..c1 {
+            // Where the LED at (x, y) moves to; wrapped within the rows and within columns c0..c1 only.
             let ny = (y as i64 + dy).rem_euclid(HEIGHT as i64) as usize;
             let nx = c0 + (x as i64 - c0 as i64 + dx).rem_euclid(w) as usize;
             out[ny][nx] = f[y][x];
@@ -214,6 +264,8 @@ pub fn roll(f: &Wide, dy: i64, dx: i64, c0: usize, c1: usize) -> Wide {
 // Import
 
 /// A greyscale picture, row by row.
+///
+/// Brightness 0..255 (as f64), `w` x `h`, index y * w + x.
 struct Grey {
     w: usize,
     h: usize,
@@ -222,8 +274,12 @@ struct Grey {
 
 /// Shrinks (or grows) by averaging the area each new pixel covers, so there are no halos and pixel
 /// art stays sharp.
+///
+/// Each new pixel covers a rectangle [x0, x1) x [y0, y1) of the old picture, in old pixels; every old
+/// pixel it touches counts in proportion to how much of it lies inside (`wx * hy`).
 fn resize_box(src: &Grey, nw: usize, nh: usize) -> Grey {
     let mut out = vec![0.0; nw * nh];
+    // How many old pixels one new pixel spans, across and down.
     let (sx, sy) = (src.w as f64 / nw as f64, src.h as f64 / nh as f64);
     for oy in 0..nh {
         let (y0, y1) = (oy as f64 * sy, (oy + 1) as f64 * sy);
@@ -232,6 +288,7 @@ fn resize_box(src: &Grey, nw: usize, nh: usize) -> Grey {
             let (mut sum, mut area) = (0.0, 0.0);
             let mut y = y0.floor() as usize;
             while (y as f64) < y1 && y < src.h {
+                // How much of old row y lies inside the new pixel's span (0..1); `wx` below is the same across.
                 let hy = (y1.min(y as f64 + 1.0) - y0.max(y as f64)).max(0.0);
                 let mut x = x0.floor() as usize;
                 while (x as f64) < x1 && x < src.w {
@@ -249,8 +306,12 @@ fn resize_box(src: &Grey, nw: usize, nh: usize) -> Grey {
 }
 
 /// Fits a picture into `width` x 34.
+///
+/// `how` is one of the `FITS` values ("whole" for anything unknown). The result is 34 rows of `width`
+/// values (0..255). An empty picture is "stretched", giving black.
 fn fit(src: &Grey, how: &str, width: usize) -> Vec<Vec<f64>> {
     let mut out = vec![vec![0.0; width]; HEIGHT];
+    // Stretch: straight to the panel's size, proportions ignored.
     if how == "stretch" || src.w == 0 || src.h == 0 {
         let r = resize_box(src, width, HEIGHT);
         for (y, row) in out.iter_mut().enumerate() {
@@ -261,10 +322,13 @@ fn fit(src: &Grey, how: &str, width: usize) -> Vec<Vec<f64>> {
         return out;
     }
     let (a, b) = (width as f64 / src.w as f64, HEIGHT as f64 / src.h as f64);
+    // "fill": the larger scale, so the picture covers the panel and overhangs; "whole": the smaller, so
+    // it fits inside with black bars. Then it is centred; parts outside the panel are dropped.
     let scale = if how == "fill" { a.max(b) } else { a.min(b) };
     let nw = ((src.w as f64 * scale).round() as usize).max(1);
     let nh = ((src.h as f64 * scale).round() as usize).max(1);
     let r = resize_box(src, nw, nh);
+    // Centre the resized picture; with "fill" these are negative and the overhang is cut off.
     let (left, top) = ((width as i64 - nw as i64).div_euclid(2), (HEIGHT as i64 - nh as i64).div_euclid(2));
     for y in 0..nh {
         for x in 0..nw {
@@ -284,6 +348,8 @@ fn to_grey(img: &image::RgbaImage) -> Grey {
         .map(|p| {
             let a = p[3] as f64 / 255.0;
             let (r, g, b) = (p[0] as f64 * a, p[1] as f64 * a, p[2] as f64 * a);
+            // ITU-R 601 luma weights, the formula PIL uses for "L". Transparency was applied first by
+            // multiplying by alpha (the same as putting the picture on black).
             (r * 299.0 + g * 587.0 + b * 114.0) / 1000.0
         })
         .collect();
@@ -291,6 +357,8 @@ fn to_grey(img: &image::RgbaImage) -> Grey {
 }
 
 /// An imported picture: frames of 34 rows of `width` values, and how long each shows.
+///
+/// Frames are 34 rows of `width` brightness values (0..255); `delay_ms` is already clamped.
 pub struct Imported {
     pub frames: Vec<Vec<Vec<u8>>>,
     pub delay_ms: i64,
@@ -298,15 +366,23 @@ pub struct Imported {
 
 /// A PNG, GIF (all its frames), JPEG or BMP turned into frames `width` LEDs wide (one panel, or both).
 /// The brightest part becomes full brightness.
+///
+/// `swap` turns it into a negative first. GIFs keep at most `MAX_FRAMES` frames, each with its own
+/// delay; the drawing gets one delay for all, the median of them. Errors (unreadable file, a format
+/// the decoder doesn't know) come back as text for the user.
 pub fn import(path: &Path, how: &str, swap: bool, width: usize) -> Result<Imported, String> {
     use image::AnimationDecoder;
     let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
     let mut pictures: Vec<(Grey, i64)> = Vec::new();
+    // GIFs are recognised by their first bytes and read frame by frame; anything else is one picture
+    // in whatever format the `image` crate can tell from its contents.
     let is_gif = bytes.starts_with(b"GIF8");
     if is_gif {
         let decoder = image::codecs::gif::GifDecoder::new(std::io::Cursor::new(&bytes)).map_err(|e| e.to_string())?;
         for frame in decoder.into_frames().take(MAX_FRAMES) {
             let frame = frame.map_err(|e| e.to_string())?;
+            // A GIF frame's delay as a fraction of milliseconds; 0 (often meaning "as fast as possible") or an
+            // unreadable delay uses the default 100 ms.
             let (num, den) = frame.delay().numer_denom_ms();
             let ms = num.checked_div(den).unwrap_or(0) as i64;
             pictures.push((to_grey(frame.buffer()), if ms > 0 { ms } else { DEFAULT_DELAY_MS }));
@@ -324,6 +400,8 @@ pub fn import(path: &Path, how: &str, swap: bool, width: usize) -> Result<Import
             *v = 255.0 - *v;
         }
     }
+    // The brightest value in all frames becomes 255 and the rest are scaled with it, so a dim picture
+    // still uses the panel's full range. An all-black picture is left as it is.
     let top = frames.iter().flatten().flatten().copied().fold(0.0, f64::max);
     let out: Vec<Vec<Vec<u8>>> = frames
         .iter()
@@ -333,6 +411,8 @@ pub fn import(path: &Path, how: &str, swap: bool, width: usize) -> Result<Import
                     row.iter()
                         .map(|v| {
                             let v = if top > 0.0 { v * 255.0 / top } else { *v };
+                            // Round halves to even, as Python's round() does, so the bytes match the Python
+                            // app's import.
                             v.round_ties_even().clamp(0.0, 255.0) as u8
                         })
                         .collect()
@@ -340,6 +420,8 @@ pub fn import(path: &Path, how: &str, swap: bool, width: usize) -> Result<Import
                 .collect()
         })
         .collect();
+    // One delay for the whole drawing: the median of the frames' delays (an even count averages the
+    // middle two), then kept between 20 ms and 10 s.
     let mut delays: Vec<i64> = pictures.iter().map(|p| p.1).collect();
     delays.sort();
     let n = delays.len();
@@ -347,10 +429,12 @@ pub fn import(path: &Path, how: &str, swap: bool, width: usize) -> Result<Import
     Ok(Imported { frames: out, delay_ms: clamp_delay(Some(&json!(median as i64))) })
 }
 
+/// Tests for saving, editing and importing drawings.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// A drawing saves under a cleaned name, lists, reads back the same, and deletes.
     #[test]
     fn saves_and_reads_back() {
         let dir = std::env::temp_dir().join(format!("wr-drawings-{}", std::process::id()));
@@ -366,6 +450,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    /// Paint bucket, mirror, flip, roll, invert and fill each change only the columns asked for.
     #[test]
     fn edits() {
         let mut f = blank_wide();
@@ -394,6 +479,8 @@ mod tests {
         assert_eq!(fill(&f, 7, WIDTH, BOTH)[5][12], 7);
     }
 
+    /// A drawing on both panels saves the right half separately and opens back the same; a left-only
+    /// drawing saves as a one-panel drawing.
     #[test]
     fn both_panels_save_and_open() {
         let mut p = new_pic();
@@ -412,6 +499,8 @@ mod tests {
         assert_eq!(back.frame_on(0.0, "left")[2][1], 10);
     }
 
+    /// A PNG imports fitted and brightened (and as a negative, and two panels wide), and a GIF keeps
+    /// its frames and their delay.
     #[test]
     fn imports_a_png_and_a_gif() {
         let dir = std::env::temp_dir().join(format!("wr-import-{}", std::process::id()));

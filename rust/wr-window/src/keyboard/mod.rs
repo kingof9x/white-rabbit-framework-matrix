@@ -1,6 +1,32 @@
 //! The Framework 16 RGB keyboard and RGB macropad pages (Lighting, Audio show, Key mapping,
 //! Macropad, Keyboard & macropad setup and the keyboard firmware), brought over from the Framework 16
 //! Keyboard Control app. The devices, effects and picture live in the wr-keyboard crate.
+//!
+//! How it fits together, all on the window's UI thread unless said otherwise:
+//!
+//! `wire` runs once when the window opens. It asks White Rabbit's background part (the monitor
+//! process, over `crate::link`) to let go of the keyboard while the window is open, starts the
+//! wr-keyboard "engine" (its own thread that owns the USB HID handles and talks to the devices),
+//! loads the keyboard settings file, builds one `State`, hooks every Slint callback of the `Kb`
+//! global to a closure that changes that state, and starts a 50 ms repeating timer that calls `tick`.
+//! `stop` runs when the window closes and undoes all that: it shuts the engine down, saves the
+//! settings and hands the keyboard back to the background part.
+//!
+//! The UI thread and the engine thread only meet in two places: commands go to the engine through a
+//! channel (`EngineHandle::send`), and the engine publishes a `Status` snapshot in a mutex that `tick`
+//! copies every frame. The engine wakes the window's event loop when something changes. Other
+//! background threads (firmware update, firmware check, microphone search) hand their answers back
+//! the same way: they put them in an `Arc<Mutex<…>>` "inbox" and wake the event loop, and `tick`
+//! empties the inbox. The UI thread never blocks on a device or the network.
+//!
+//! The state is kept in an `Rc<RefCell<State>>`: Slint callbacks and the timer all run on the UI
+//! thread, so a `RefCell` is enough; the timer uses `try_borrow_mut` and simply skips a frame if a
+//! callback is still holding the state (which can happen if a callback opens a modal dialog).
+//!
+//! Lighting choices (`Saved`, field `s`) are sent live to the devices without saving them on the
+//! device ("live"), at most every 80 ms while a slider moves, and written to the device's own memory
+//! only when the person presses "Save as default". The settings file is rewritten whenever `s` differs
+//! from the last saved copy, checked at the end of every `tick`.
 
 mod flash;
 mod keyedit;
@@ -28,6 +54,9 @@ use wr_keyboard::settings::{self, Saved};
 use wr_keyboard::{audio_src, render};
 
 /// Built-in effects grouped for the Show page.
+///
+/// Each row is (group heading, firmware effect ids). The ids are the f16custom firmware's built-in
+/// effect numbers 1 to 44; their names come from `EFFECT_NAMES`. Every id appears once.
 const GROUPS: &[(&str, &[u8])] = &[
     ("Solid", &[1, 2, 5]),
     ("Gradients and bands", &[3, 4, 6, 7, 8, 9, 10, 11]),
@@ -37,9 +66,13 @@ const GROUPS: &[(&str, &[u8])] = &[
     ("React to typing", &[31, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44]),
 ];
 
+/// Everything the keyboard pages know, owned by the UI thread (see the file header).
 pub struct State {
+    /// The connection to the engine thread: send commands, read its published status.
     engine: EngineHandle,
+    /// Stand-in for the old background hotkey part; mostly no-ops (see `winsys.rs`).
     bg: winsys::Background,
+    /// The Keys page's own state (selected key, cached lists).
     ke: keyedit::KeyEdit,
     /// Firmware update in progress (which device), and what its thread reports.
     flashing: Option<DeviceKind>,
@@ -52,17 +85,29 @@ pub struct State {
     /// The last Check for updates' answer for (keyboard, macropad), and where its thread puts it.
     fw_newest: [Option<Result<update::Newest, String>>; 2],
     fw_inbox: Arc<Mutex<Option<[Result<update::Newest, String>; 2]>>>,
+    /// A Check for updates thread is running (the button is disabled meanwhile).
     fw_checking: bool,
+    /// `--demo` mode: fake devices, no network, no hand-over with the background part.
     demo: bool,
+    /// The settings being edited: setup, looks, painted keys, audio choices, app paths.
     s: Saved,
+    /// The settings as last written to disk, to notice changes cheaply.
     last_saved: Saved,
+    /// The animated preview of the effects for the keyboard picture (runs the effects on the PC).
     preview: Preview,
+    /// The keys of the last drawn picture, with positions, for turning a click into a key.
     keys: Vec<PlacedKey>,
+    /// The picture's width in key units; clicks arrive as 0..1 fractions of the width and are scaled.
     deck_width_units: f32,
+    /// The macropad layer last chosen here, used until the macropad reports its own.
     local_layer: u8,
+    /// The key selected on the Macropad page (0..23, row by row, 4 per row).
     pad_key: usize,
+    /// An effect drawn by the PC ("linked" effect) is being sent to the devices by this window.
     pc_live: bool,
+    /// A message for the bottom bar after sending ("No device connected", "Saved on the devices…").
     notice: String,
+    /// Devices whose running effect has been read into the Lighting page already (done once each).
     adopted: Vec<DeviceKind>,
     /// A lighting change waiting to go to the devices (sent live, a few times a second).
     dirty: bool,
@@ -84,11 +129,20 @@ pub struct State {
     audio_on: bool,
     /// What the app found plugged in last time (to follow module swaps).
     last_detected: Option<SideModule>,
+    /// The engine's latest status, copied each frame; also patched locally right after a change.
     status: Status,
+    /// The key labels drawn over the picture; one model kept for the window's lifetime.
     legends: Rc<VecModel<Legend>>,
 }
 
 impl State {
+    /// Starts a firmware update of the keyboard (`which` 0) or macropad (any other value) on a new
+    /// thread, unless one is already running (a second press is ignored).
+    ///
+    /// Before starting, the device's changed keys are copied, because new firmware starts with the
+    /// default keymap; `flash_answers` writes them back once the updated device is back. The thread
+    /// runs `flash::run`, whose restart request goes to the engine as `Command::Bootloader` (the engine
+    /// owns the USB handles) and whose progress goes into `flash_inbox`, with a wake-up of the event loop.
     fn start_flash(&mut self, app: &AppWindow, which: i32, source: flash::Source, target: flash::Target) {
         if self.flashing.is_some() {
             return;
@@ -117,9 +171,13 @@ impl State {
                 target,
                 demo,
                 || {
+                    // `true`: started by the app, so the engine words its message as "Updating…".
+                    // A send error means the engine has stopped (window closing); nothing to do.
                     let _ = tx.send(Command::Bootloader(kind, true));
                 },
                 |p| {
+                    // The lock is held only for the push; `unwrap` would only fail if the UI thread
+                    // had panicked while holding it, in which case the window is gone anyway.
                     inbox.lock().unwrap().push(p);
                     let _ = wake.upgrade_in_event_loop(|_| {});
                 },
@@ -148,6 +206,7 @@ impl State {
             g.set_flash_failed(failed);
             g.set_flash_busy(false);
             self.flashing = None;
+            // Pretend the last drive scan was long ago, so the next tick looks for drives at once.
             self.last_drive_scan = Instant::now() - Duration::from_secs(60);
             // Pick the device up again (and its new features) straight away.
             self.engine.send(Command::Rescan);
@@ -166,9 +225,12 @@ impl State {
                 );
                 g.set_flash_status(msg.into());
             } else if done.elapsed() > Duration::from_secs(90) {
+                // The device hasn't come back with a readable keymap in 90 s: give up on restoring.
                 self.restore_keys = None;
             }
         }
+        // While the Firmware page is open, look every 2 s for a device waiting in flashing mode, so
+        // the page can offer "Install on drive E:". Only on that page, as it checks every drive letter.
         if g.get_page() == "firmware"
             && self.flashing.is_none()
             && self.last_drive_scan.elapsed() > Duration::from_secs(2)
@@ -182,6 +244,11 @@ impl State {
     }
 }
 
+/// A typed color code ("#FF8800" or "ff8800") as QMK hue and saturation (each 0..255).
+///
+/// Brightness is dropped because the pickers only choose hue and saturation (brightness is its own
+/// slider). Anything that is not exactly six hex digits gives None, which the window shows as "-1:
+/// ignore".
 fn parse_hex(t: &str) -> Option<(u8, u8)> {
     let t = t.trim().trim_start_matches('#');
     if t.len() != 6 || !t.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -193,15 +260,21 @@ fn parse_hex(t: &str) -> Option<(u8, u8)> {
     Some((h, s))
 }
 
+/// An RGB triple as a Slint color for the window.
 fn color(c: [u8; 3]) -> Color {
     Color::from_rgb_u8(c[0], c[1], c[2])
 }
 
+/// An RGB triple as "#RRGGBB" text for the color pickers' code box.
 fn hex(c: [u8; 3]) -> SharedString {
     format!("#{:02X}{:02X}{:02X}", c[0], c[1], c[2]).into()
 }
 
 /// The firmware on each device, and what the last Check for updates says about it.
+///
+/// Runs every tick. First it takes a finished check from `fw_inbox`. Then, per device, it builds
+/// three texts (installed firmware, the check's verdict, the update button's label) and only writes
+/// them to the window when they changed, so Slint doesn't re-lay out the page 20 times a second.
 fn show_firmware_builds(app: &AppWindow, st: &mut State, status: &Status) {
     let g = app.global::<App>();
     if let Some(found) = st.fw_inbox.lock().unwrap().take() {
@@ -253,6 +326,8 @@ fn show_firmware_builds(app: &AppWindow, st: &mut State, status: &Status) {
     }
 }
 
+/// The device's status if it is connected with this app's firmware; None if missing or "stock"
+/// (Framework's firmware, which can't do most of what these pages offer).
 fn ready(status: &Status, kind: DeviceKind) -> Option<&engine::DeviceStatus> {
     match status.slot(kind) {
         Slot::Ready(d) => Some(d),
@@ -261,10 +336,13 @@ fn ready(status: &Status, kind: DeviceKind) -> Option<&engine::DeviceStatus> {
 }
 
 impl State {
+    /// The macropad's active layer (0 = layer A, the MIDI layer; 1 = layer B, F-keys): what the
+    /// macropad reports if it can, otherwise the last one chosen here.
     fn layer(&self) -> u8 {
         ready(&self.status, DeviceKind::Macropad).and_then(|d| d.info.layer).unwrap_or(self.local_layer)
     }
 
+    /// "Numpad" or "Macropad" for sentences, from the setup (no side module also says "Macropad").
     fn module_name(&self) -> &'static str {
         if self.s.setup.side == SideModule::Numpad {
             "Numpad"
@@ -277,6 +355,8 @@ impl State {
     // Sending to the devices
     // ---------------------------------------------------------------------
 
+    /// The firmware lighting state for a look: its built-in effect, or for "painted keys only" and
+    /// PC-drawn looks the device's own "off, painted keys only" effect id (it differs by firmware).
     fn state_for(look: &Look, d: &engine::DeviceStatus) -> LightState {
         let mode = match look.choice {
             Choice::Builtin(id) => id,
@@ -286,6 +366,9 @@ impl State {
     }
 
     /// Painted keys for one device, one entry per LED.
+    ///
+    /// The device reports its LEDs' positions; `map_leds_to_keys` matches each LED to the nearest key
+    /// in the app's key list, and the painted color of that key (or None) goes in the LED's slot.
     fn paint_for(&self, dev: Dev, d: &engine::DeviceStatus) -> Vec<Paint> {
         let (defs, size) = match dev {
             Dev::Keyboard => (keys::keyboard_keys(), KEYBOARD_SIZE),
@@ -294,6 +377,8 @@ impl State {
         keys::map_leds_to_keys(&d.leds, &defs, size).into_iter().map(|k| self.s.paint.get(&(dev, k)).copied()).collect()
     }
 
+    /// Both devices with whether they have RGB lights in the current setup (a white-backlit keyboard
+    /// or a numpad get no colors).
     fn targets(&self) -> Vec<(DeviceKind, Dev, bool)> {
         vec![
             (DeviceKind::Keyboard, Dev::Keyboard, self.s.setup.kb.rgb()),
@@ -307,6 +392,9 @@ impl State {
     }
 
     /// The look the Lighting page edits.
+    ///
+    /// Joined: the keyboard's look (which both share). Otherwise whichever device the "target"
+    /// buttons picked.
     fn edit_look(&self) -> Look {
         if self.joined() || !self.s.edit_module {
             self.s.kb
@@ -315,6 +403,7 @@ impl State {
         }
     }
 
+    /// Stores an edited look on the device(s) it belongs to (both when joined).
     fn set_edit_look(&mut self, l: Look) {
         if self.joined() {
             self.s.kb = l;
@@ -327,6 +416,12 @@ impl State {
     }
 
     /// Sends the looks, the joined surface and painted keys to the devices.
+    ///
+    /// Two cases. A PC-drawn effect (`Choice::Pc`) is computed by the engine on the PC and streamed
+    /// frame by frame to both devices, so only its parameters and the macropad's side are sent. A
+    /// firmware effect is sent as a lighting state per ready device, plus the "span": when joined,
+    /// each device is told its slice of one shared surface so an effect flows across both.
+    /// Painted keys are then sent to each RGB device. With `save` the devices also store it all.
     fn send_looks(&mut self, kb: Look, module: Look, join: bool, save: bool) {
         let status = self.status.clone();
         if let Choice::Pc(e) = kb.choice {
@@ -340,6 +435,7 @@ impl State {
             self.pc_live = true;
         } else {
             if self.pc_live {
+                // Stop streaming the PC-drawn effect before handing the lights back to the firmware.
                 self.engine.send(Command::SetLinked(None));
                 self.pc_live = false;
             }
@@ -350,6 +446,7 @@ impl State {
             }
             let both = ready(&status, DeviceKind::Keyboard).is_some() && ready(&status, DeviceKind::Macropad).is_some();
             let (ks, ms) = deck::span_slices(&self.s.setup);
+            // Join only when both devices are ready and the side module really is the macropad.
             let on = join && both && self.s.setup.side == SideModule::Macropad;
             self.engine.send(Command::SetSpan { keyboard: on.then_some(ks), macropad: on.then_some(ms) });
         }
@@ -369,6 +466,7 @@ impl State {
         };
     }
 
+    /// The audio show's choices from the settings, in the form the engine wants.
     fn audio_settings(&self) -> engine::AudioSettings {
         engine::AudioSettings {
             look: self.s.audio_look,
@@ -381,6 +479,9 @@ impl State {
     }
 
     /// Looks for the PC's microphones in the background; `tick` picks up the answer.
+    ///
+    /// Listing audio devices can take a moment on Windows, hence the thread. The answer goes into
+    /// `mics_inbox`; there is no wake-up, the next 50 ms tick finds it.
     fn find_microphones(&self) {
         let inbox = self.mics_inbox.clone();
         std::thread::spawn(move || {
@@ -406,6 +507,9 @@ impl State {
     }
 
     /// Per-key colors of audio mode's last frame, for the picture.
+    ///
+    /// None when the engine isn't drawing audio. Otherwise one color per placed key (black for keys
+    /// with no LED), mapping each device's LED colors to keys the same way `paint_for` does.
     fn audio_key_colors(&self, placed: &[PlacedKey]) -> Option<Vec<wr_keyboard::effects::Rgb>> {
         if !self.status.audio {
             return None;
@@ -434,6 +538,8 @@ impl State {
     }
 
     /// Sends what the Lighting page shows (live, or saved with `save`).
+    ///
+    /// Does nothing during the white test or the audio show, which own the lights meanwhile.
     fn send_current(&mut self, save: bool) {
         if self.white_test || self.audio_on {
             return;
@@ -450,6 +556,7 @@ impl State {
             self.engine.send(Command::SetLinked(None));
             self.pc_live = false;
         }
+        // At least half brightness, so the two devices can be compared by eye.
         let val = self.s.kb.val.max(128);
         for kind in [DeviceKind::Keyboard, DeviceKind::Macropad] {
             if ready(&status, kind).is_some() {
@@ -465,11 +572,14 @@ impl State {
                     },
                     save: false,
                 });
+                // No painted keys during the test: every key plain white.
                 self.engine.send(Command::SetPaint { kind, leds: vec![], mode: self.s.paint_mode, save: false });
             }
         }
     }
 
+    /// What the keyboard picture should show for `page`: the setup, the looks, painted keys, the
+    /// macropad layer, and which key to outline as selected (Macropad and Keys pages only).
     fn scene(&self, page: &str) -> Scene<'_> {
         let joined = self.joined();
         let (kb, module) = if joined { (self.s.kb, self.s.kb) } else { (self.s.kb, self.s.module) };
@@ -496,14 +606,19 @@ impl State {
 // -------------------------------------------------------------------------
 
 /// Puts the saved choices into the window.
+///
+/// Writes every setting the pages show into the `Kb` global (the drop-downs and sliders use small
+/// integer codes; the matches below are the code tables), then the derived texts via `push_derived`.
 fn push_all(app: &AppWindow, st: &State) {
     let g = app.global::<App>();
     let s = &st.s;
+    // Keyboard type codes: 0 clear RGB, 1 black RGB, 2 white backlight.
     g.set_kb_type(match s.setup.kb {
         KbType::ClearRgb => 0,
         KbType::BlackRgb => 1,
         KbType::White => 2,
     });
+    // Side module codes: 0 none, 1 RGB macropad, 2 numpad.
     g.set_side(match s.setup.side {
         SideModule::None => 0,
         SideModule::Macropad => 1,
@@ -524,6 +639,7 @@ fn push_all(app: &AppWindow, st: &State) {
     g.set_brush_hue(s.brush.0 as i32);
     g.set_brush_sat(s.brush.1 as i32);
     g.set_join(s.join);
+    // Lighting target codes: 0 both (joined), 1 keyboard, 2 side module.
     g.set_target(if st.joined() {
         0
     } else if s.edit_module && s.setup.side != SideModule::None {
@@ -538,9 +654,12 @@ fn push_all(app: &AppWindow, st: &State) {
 }
 
 /// Values worked out from the choices: colors, names, notes.
+///
+/// Called after almost every change. Colors use QMK's HSV (all three 0..255) converted to RGB.
 fn push_derived(app: &AppWindow, st: &State) {
     let g = app.global::<App>();
     let s = &st.s;
+    // For a color picker: the hue at full color (the hue strip), the picked color, and its code.
     let picker = |h: u8, sat: u8| {
         (
             color(qmk_hsv(h as i32, 255, 255)),
@@ -575,6 +694,7 @@ fn push_derived(app: &AppWindow, st: &State) {
     g.set_mod_about(
         if s.setup.side == SideModule::Macropad { "Clear RGB keys, 24 LEDs." } else { "White backlight." }.into(),
     );
+    // One line for the menu: what each device shows now.
     let summary = |l: &Look| l.choice.name();
     g.set_effects_summary(
         if s.join && has {
@@ -597,6 +717,7 @@ fn push_derived(app: &AppWindow, st: &State) {
         SideModule::Numpad => format!("numpad on the {}", if s.setup.module_left { "left" } else { "right" }),
     };
     g.set_setup_summary(format!("{kb}, {side}.").into());
+    // Devices with a single white backlight can only dim; say so once on the Setup page.
     let mut notes = vec![];
     if s.setup.kb == KbType::White {
         notes.push("This keyboard has one white light for all keys: it can only change brightness, so it shows plain white and sits out of effects.");
@@ -608,12 +729,14 @@ fn push_derived(app: &AppWindow, st: &State) {
     let n = s.paint.len();
     g.set_paint_count(format!("{n} {} painted", if n == 1 { "key" } else { "keys" }).into());
     // macropad key info
+    // What the key sends on layer A and on layer B; the macropad is 4 keys wide (row/column 1-based).
     let (a, b) = keys::macropad_sends(st.pad_key);
     g.set_pad_key(format!("Row {}, column {}", st.pad_key / 4 + 1, st.pad_key % 4 + 1).into());
     g.set_pad_a(a.into());
     g.set_pad_b(b.into());
     g.set_pad_note(
         match st.pad_key {
+            // Keys 0 and 3 are the top corners, 20 and 23 the bottom corners of the 4 x 6 grid.
             0 | 3 => "Top corner: press both top corners together to switch layers. Pressed alone it still works, about 40 ms later.",
             20 | 23 => "Bottom corner: press both bottom corners together for the lighting controls.",
             _ => "An ordinary key.",
@@ -623,6 +746,9 @@ fn push_derived(app: &AppWindow, st: &State) {
 }
 
 /// Reads the window's choices back into the state.
+///
+/// The opposite of `push_all` for the setup and the edited look. Slider values are clamped to 0..255
+/// and unknown codes fall back to the first choice, so odd values from the window can't break the state.
 fn pull_all(app: &AppWindow, st: &mut State) {
     let g = app.global::<App>();
     let b = |v: i32| v.clamp(0, 255) as u8;
@@ -652,6 +778,8 @@ fn pull_all(app: &AppWindow, st: &mut State) {
     st.set_edit_look(look);
 }
 
+/// Fills the effect pickers once at start: the grouped list (keys "paint", "b<id>" for built-in
+/// effects, and the PC-drawn effects' keys) and the plain numbered name list 1..44.
 fn effect_models(app: &AppWindow) {
     let g = app.global::<App>();
     let item = |key: String, number: String, label: &str| EffectItem {
@@ -659,6 +787,7 @@ fn effect_models(app: &AppWindow) {
         number: number.into(),
         label: label.into(),
     };
+    // "Off" first, then the firmware's effects in `GROUPS`, then the PC-drawn effects.
     let mut groups = vec![EffectGroup {
         name: "Off".into(),
         items: ModelRc::new(VecModel::from(vec![item("paint".into(), String::new(), "Off (painted keys only)")])),
@@ -684,17 +813,31 @@ fn effect_models(app: &AppWindow) {
 // Every frame
 // -------------------------------------------------------------------------
 
+/// One frame of the keyboard part, every 50 ms from the timer started in `wire`.
+///
+/// In order: show firmware-update progress; act on the audio show shortcut; copy the engine's
+/// status; the first time each device appears, read its running effect into the Lighting page; follow
+/// a side module being swapped and the keyboard's remembered type; notice effect changes made on the
+/// keyboard itself (Fn+F12 shortcuts); send pending live lighting changes (at most every 80 ms) and
+/// save calibration once its sliders rest; update the device list, status texts, audio meter and
+/// firmware texts; redraw the keyboard picture when due; and save the settings file if they changed.
+/// Window setters are mostly guarded by "only if different", because each set can make Slint redo
+/// layout work.
 fn tick(app: &AppWindow, st: &mut State) {
     let g = app.global::<App>();
     st.flash_answers(app);
+    // Take and clear the flag in one step, so a press is acted on exactly once.
     if AUDIO_SHORTCUT.swap(false, std::sync::atomic::Ordering::AcqRel) {
         let on = !st.audio_on;
         st.set_audio(on);
     }
+    // Copy the snapshot and release the engine's lock at once, so the engine is never kept waiting
+    // while the window works through the frame.
     st.status = st.engine.status.lock().unwrap().clone();
     let status = st.status.clone();
 
     // Start the Lighting page from what each device is running.
+    // `adopted_any` collects "a setting changed behind the page's back", to refresh it once at the end.
     let mut adopted_any = false;
     for kind in [DeviceKind::Keyboard, DeviceKind::Macropad] {
         if st.adopted.contains(&kind) {
@@ -704,6 +847,8 @@ fn tick(app: &AppWindow, st: &mut State) {
             st.adopted.push(kind);
             let look = if kind == DeviceKind::Keyboard { &mut st.s.kb } else { &mut st.s.module };
             let ds = d.state;
+            // A firmware effect (ids 1..44) becomes the page's look; the device's "painted keys
+            // only" id becomes that choice; any other mode (e.g. a PC stream) is left as saved.
             if (1..=44).contains(&ds.mode) {
                 *look =
                     Look { choice: Choice::Builtin(ds.mode), hue: ds.hue, sat: ds.sat, val: ds.val, speed: ds.speed };
@@ -718,6 +863,7 @@ fn tick(app: &AppWindow, st: &mut State) {
         }
     }
     // Follow what is plugged in: macropad (our firmware or not) or Framework's numpad.
+    // A macropad counts even with other firmware (`Stock`): it is plugged in, just not usable yet.
     let detected = if !matches!(status.macropad, Slot::Missing) {
         Some(SideModule::Macropad)
     } else if status.numpad {
@@ -735,6 +881,8 @@ fn tick(app: &AppWindow, st: &mut State) {
         }
     }
     // Remember clear / black / white per keyboard (by its serial number).
+    // The firmware can't tell clear, black and white keyboards apart, so the person says once in
+    // Setup and the answer is remembered by the keyboard's USB serial number.
     if let Some(serial) = ready(&status, DeviceKind::Keyboard).and_then(|d| d.serial.clone()) {
         match st.s.kb_types.iter().find(|(s, _)| *s == serial) {
             Some((_, t)) if *t != st.s.setup.kb => {
@@ -755,6 +903,10 @@ fn tick(app: &AppWindow, st: &mut State) {
         let now = d.state;
         let ours = State::state_for(&st.s.kb, d);
         if let Some(prev) = st.last_kb_state {
+            // Count it as a change made on the keyboard only if: it changed since last frame; it
+            // is not what this window last asked for; the PC isn't streaming to it; the audio show
+            // is off; this window sent nothing for 1.5 s (its own sends take a moment to show up
+            // in the status); and it is a firmware effect.
             if now != prev
                 && now != ours
                 && !d.streaming
@@ -780,6 +932,8 @@ fn tick(app: &AppWindow, st: &mut State) {
     }
 
     // Live: send lighting changes a few times a second while they happen
+    // Sliders can fire dozens of times a second; sending at most every 80 ms (about 12 a second)
+    // keeps the USB traffic down while still looking live. `dirty` keeps the last change pending.
     if st.dirty && st.last_live.elapsed() >= Duration::from_millis(80) {
         st.dirty = false;
         st.last_live = Instant::now();
@@ -787,6 +941,8 @@ fn tick(app: &AppWindow, st: &mut State) {
     }
     // Save LED calibration on the device once the sliders have been still for a moment
     for (i, kind) in [DeviceKind::Keyboard, DeviceKind::Macropad].into_iter().enumerate() {
+        // Calibration is already sent live (unsaved) as the slider moves; it is written to the
+        // device's memory only after 800 ms without changes, to spare the flash/EEPROM writes.
         if st.cal_dirty[i].is_some_and(|t| t.elapsed() >= Duration::from_millis(800)) {
             st.cal_dirty[i] = None;
             if let Some(cal) = cal_from_window(app, i) {
@@ -798,6 +954,8 @@ fn tick(app: &AppWindow, st: &mut State) {
     // Devices at the bottom of the menu
     let mut rows: Vec<DeviceRow> = [DeviceKind::Keyboard, DeviceKind::Macropad]
         .iter()
+        // List the macropad row unless a numpad is plugged in and no macropad is (then the numpad
+        // row below replaces it).
         .filter(|&&kind| kind == DeviceKind::Keyboard || !status.numpad || !matches!(status.macropad, Slot::Missing))
         .map(|&kind| {
             let (text, ok) = match status.slot(kind) {
@@ -818,10 +976,12 @@ fn tick(app: &AppWindow, st: &mut State) {
             checked: false,
         });
     }
+    // Replace the model only when a row changed, so the list doesn't flicker or lose hover state.
     let same = g.get_devices().iter().eq(rows.iter().cloned());
     if !same {
         g.set_devices(ModelRc::new(VecModel::from(rows)));
     }
+    // "Live" in the bottom bar: the PC is streaming frames to the devices (this window or the engine).
     let live = st.pc_live || status.linked;
     g.set_live(live);
     g.set_pc_live(st.pc_live);
@@ -839,9 +999,11 @@ fn tick(app: &AppWindow, st: &mut State) {
             .any(|k| ready(&status, *k).is_some_and(|d| d.info.hotkey_lock)),
     );
     g.set_layer(st.layer() as i32);
+    // On the keyboard the reported "layer" is Fn lock (0 off, 1 on); -1 tells the page it's unknown.
     g.set_fn_lock(ready(&status, DeviceKind::Keyboard).and_then(|d| d.info.layer).map_or(-1, |l| l as i32));
     // Audio mode
     if st.audio_on && !status.audio && status.audio_problem.is_some() {
+        // The engine tried and reported a problem (no sound device, for example): show it as off.
         st.audio_on = false; // it couldn't start
     }
     g.set_audio_on(st.audio_on);
@@ -869,6 +1031,7 @@ fn tick(app: &AppWindow, st: &mut State) {
 
     // The keyboard picture, on the pages that show it
     let page = g.get_page().to_string();
+    // These pages show device-dependent key details, which can change as devices come and go.
     if matches!(page.as_str(), "keys" | "home" | "macropad") {
         keyedit::push(app, st);
     }
@@ -880,11 +1043,17 @@ fn tick(app: &AppWindow, st: &mut State) {
     if due && visible && matches!(page.as_str(), "lighting" | "audio" | "macropad" | "setup" | "keys" | "home") {
         let started = Instant::now();
         let scale = app.window().scale_factor();
+        // Draw at the screen's real pixel size (logical width times the scale factor), within
+        // 300..1400 pixels so a tiny or huge window can't make drawing silly or slow.
         let width = ((g.get_deck_width() * scale).round() as u32).clamp(300, 1400);
+        // Take the preview out of the state for the duration of the frame, because computing its
+        // colors needs `&mut preview` while `st.scene` borrows the rest of the state. Put back below.
         let mut preview = std::mem::take(&mut st.preview);
         let scene = st.scene(&page);
         let mut placed = deck::place_keys(&scene.setup, scene.macropad_layer);
         let shell = deck::shell(&scene.setup);
+        // Key colors: the Keys page's changed/default coloring, else the audio show's last frame
+        // when it runs, else the simulated effect.
         let colors = if page == "keys" {
             keyedit::decorate(st, &mut placed)
         } else if let Some(c) = st.audio_key_colors(&placed) {
@@ -901,7 +1070,11 @@ fn tick(app: &AppWindow, st: &mut State) {
         st.keys = placed;
         let buffer =
             slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(&pic.pixels, pic.width, pic.height);
+        // `render::draw` produces premultiplied RGBA (color already multiplied by alpha), which is
+        // what Slint's fastest image path expects.
         g.set_deck_image(slint::Image::from_rgba8_premultiplied(buffer));
+        // Key labels are drawn by Slint as text on top of the picture (crisper than drawing text
+        // into the pixels); their positions are fractions of the picture's size.
         g.set_deck_aspect(pic.height as f32 / pic.width as f32);
         let legends: Vec<Legend> = pic
             .legends
@@ -930,6 +1103,7 @@ fn tick(app: &AppWindow, st: &mut State) {
         } else {
             st.legends.set_vec(legends);
         }
+        // The small caption under the picture, joined with " · ".
         let mut caption = vec!["Preview".to_string()];
         if page == "keys" {
             caption = vec!["Orange keys are changed from the Framework default".to_string()];
@@ -941,10 +1115,14 @@ fn tick(app: &AppWindow, st: &mut State) {
             caption.push("pretend typing on".into());
         }
         g.set_deck_caption(caption.join("  ·  ").into());
+        // Remember how long this took, for the "redraw only as often as the PC keeps up" rule.
         st.draw_cost = started.elapsed();
         st.last_draw = Instant::now();
     }
 
+    // Save the settings file (keyboard.txt, a small text file) whenever anything in them changed this
+    // frame; comparing to the last saved copy avoids needless writes. Write errors are ignored inside
+    // `settings::save`: the settings simply stay unsaved until the next change.
     if st.s != st.last_saved {
         settings::save(&crate::paths::keyboard_file(), &st.s);
         st.last_saved = st.s.clone();
@@ -952,6 +1130,10 @@ fn tick(app: &AppWindow, st: &mut State) {
 }
 
 /// Audio mode's colors into the Audio page.
+///
+/// The color scheme becomes an index 0..5 for the radio buttons. A single color is stored as hue and
+/// saturation fractions 0..1 and shown on the 0..255 sliders; for the other schemes the sliders keep
+/// what they had, so switching back to "one color" remembers it.
 fn push_audio_colors(app: &AppWindow, st: &State) {
     let g = app.global::<App>();
     let (i, h, s) = match st.s.audio_colors {
@@ -974,6 +1156,9 @@ fn push_audio_colors(app: &AppWindow, st: &State) {
 }
 
 /// The microphone list and the chosen one, into the Audio page.
+///
+/// Row 0 is always "Default microphone" (an empty `audio_device` in the settings). The music page's
+/// source list gets the same names, after its own "what the PC plays" entry.
 fn push_mics(app: &AppWindow, st: &State) {
     let g = app.global::<App>();
     let mut names: Vec<SharedString> = vec!["Default microphone".into()];
@@ -996,6 +1181,9 @@ fn push_mics(app: &AppWindow, st: &State) {
 }
 
 /// Puts one device's LED calibration into the window's sliders.
+///
+/// When the device can't report calibration (older firmware), neutral values are shown (current 104,
+/// all gains 255) and the sliders are marked unknown so the page greys them out.
 fn push_cal(app: &AppWindow, status: &Status, kind: DeviceKind) {
     let g = app.global::<App>();
     let cal = ready(status, kind).and_then(|d| d.led_cal);
@@ -1016,6 +1204,10 @@ fn push_cal(app: &AppWindow, status: &Status, kind: DeviceKind) {
 }
 
 /// One device's LED calibration as the window's sliders show it (0 keyboard, 1 macropad).
+///
+/// None when the device's calibration is unknown (so nothing is sent). Values are clamped to 1..255:
+/// a current or gain of 0 would turn a color, or the whole device, off. `default_current` is not
+/// sent to the device, so 0 is a placeholder.
 fn cal_from_window(app: &AppWindow, which: usize) -> Option<wr_keyboard::protocol::LedCal> {
     let g = app.global::<App>();
     let b = |v: i32| v.clamp(1, 255) as u8;
@@ -1027,6 +1219,7 @@ fn cal_from_window(app: &AppWindow, which: usize) -> Option<wr_keyboard::protoco
     known.then_some(wr_keyboard::protocol::LedCal { current: b(cur), gains: [b(r), b(gr), b(bl)], default_current: 0 })
 }
 
+/// The app theme's accent color as RGB, for the selected-key outline in the picture.
 fn g_accent(app: &AppWindow) -> [u8; 3] {
     let c = app.global::<Theme>().get_accent();
     [c.red(), c.green(), c.blue()]
@@ -1034,10 +1227,16 @@ fn g_accent(app: &AppWindow) -> [u8; 3] {
 
 thread_local! {
     /// The keyboard part's state and its frame timer, while the window is open.
+    ///
+    /// Thread-local because Slint objects (the timer) and the `Rc` state belong to the UI thread.
+    /// Keeping the timer here keeps it alive; dropping it (in `stop`) stops the ticks.
     static RUNNING: RefCell<Option<(Rc<RefCell<State>>, slint::Timer)>> = const { RefCell::new(None) };
 }
 
 /// Pretend keyboard and macropad (no hardware needed): `--demo`, or WHITE_RABBIT_FAKE_KEYBOARD=1.
+///
+/// In demo mode the engine invents devices, firmware checks and updates are simulated, and the
+/// background part is not asked to hand over the keyboard. Used for screenshots and trying the pages.
 pub fn demo() -> bool {
     std::env::args().any(|a| a == "--demo") || std::env::var_os("WHITE_RABBIT_FAKE_KEYBOARD").is_some()
 }
@@ -1047,15 +1246,21 @@ pub fn demo() -> bool {
 /// audio show.
 pub fn stop() {
     if let Some((st, timer)) = RUNNING.with(|r| r.borrow_mut().take()) {
+        // Stop the ticks first so nothing touches the state while it is being shut down.
         drop(timer);
+        // If a callback still holds the state (closing from inside one), skip the clean-up rather
+        // than panic; the process is about to end anyway.
         let Ok(mut st) = st.try_borrow_mut() else { return };
         st.bg.close();
+        // Stops the engine thread; per the doc above, the devices go back to their saved effects.
         st.engine.shutdown();
         if st.s != st.last_saved {
             settings::save(&crate::paths::keyboard_file(), &st.s);
             st.last_saved = st.s.clone();
         }
         if !st.demo {
+            // Tell the background part it may drive the keyboard again, and whether the audio show
+            // was on so it can carry it on. Waits up to 2 s; no answer (monitor not running) is fine.
             crate::link::request(
                 serde_json::json!({"cmd": "keyboard", "hold": false, "audio": st.audio_on}),
                 Duration::from_secs(2),
@@ -1066,6 +1271,10 @@ pub fn stop() {
 
 /// Asks White Rabbit's background part to stop driving the keyboard while the window is open.
 /// True when its audio show was on, so the window carries on with it.
+///
+/// Sends `{"cmd":"keyboard","hold":true,"pid":…}` to the monitor over the local link and waits up to
+/// 2 s. Our process id lets the monitor take the keyboard back if this window dies without saying so.
+/// No reply (monitor not running) counts as "audio show was off".
 fn take_keyboard() -> bool {
     let reply = crate::link::request(
         serde_json::json!({"cmd": "keyboard", "hold": true, "pid": std::process::id()}),
@@ -1075,20 +1284,32 @@ fn take_keyboard() -> bool {
 }
 
 /// Ctrl+Alt+Shift+M was pressed (set by the shortcut watcher, picked up by `tick`).
+///
+/// An atomic flag because the shortcut is seen on the keyboard hook's thread, not the UI thread.
 static AUDIO_SHORTCUT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Starts the keyboard part: finds the devices, fills the keyboard pages and answers them.
+///
+/// Called once from `main` after the window is built. See the file header for the overall design.
+/// Side effects: talks to the monitor, starts the engine thread and the shortcut hook, reads the
+/// keyboard settings file, and starts a background microphone search.
 pub fn wire(app: &AppWindow) {
     let demo = demo();
+    // Take the keyboard from the background part first, so two programs never drive it at once.
     let audio_was_on = !demo && take_keyboard();
+    // The shortcut callback runs on another thread, so it only sets a flag; `tick` acts on it.
     wr_keyboard::shortcut::watch(|| AUDIO_SHORTCUT.store(true, std::sync::atomic::Ordering::Release));
     let weak = app.as_weak();
     let engine = engine::start(
         move || {
+            // The engine calls this from its thread when its status changes: an empty job queued on
+            // the UI thread just wakes the event loop. Fails harmlessly if the window is gone.
             let _ = weak.upgrade_in_event_loop(|_| {});
         },
         demo,
     );
+    // keyboard.txt in White Rabbit's settings folder. If it doesn't exist yet, `settings::load` copies
+    // in the stand-alone keyboard app's settings, or starts from the defaults.
     let s = settings::load(&crate::paths::keyboard_file());
     let bg = winsys::Background::start();
     let st = Rc::new(RefCell::new(State {
@@ -1098,6 +1319,7 @@ pub fn wire(app: &AppWindow) {
         flashing: None,
         flash_inbox: Arc::new(Mutex::new(vec![])),
         restore_keys: None,
+        // "Long ago", so the first tick on the Firmware page scans for drives at once.
         last_drive_scan: Instant::now() - Duration::from_secs(60),
         fw_newest: [None, None],
         fw_inbox: Arc::new(Mutex::new(None)),
@@ -1127,6 +1349,7 @@ pub fn wire(app: &AppWindow) {
         status: Status::default(),
         legends: Rc::new(VecModel::default()),
     }));
+    // Fill the lists that never change, then the current settings, before the first tick.
     effect_models(app);
     {
         let looks: Vec<AudioLookItem> = wr_keyboard::audio::AudioLook::ALL
@@ -1145,6 +1368,7 @@ pub fn wire(app: &AppWindow) {
         app.global::<App>()
             .set_audio_keys(KeyReact::ALL.iter().position(|k| *k == st.s.audio_keys).unwrap_or(0) as i32);
         st.find_microphones();
+        // The background part had the audio show running: carry it on in the window seamlessly.
         if audio_was_on {
             st.set_audio(true);
         }
@@ -1157,6 +1381,9 @@ pub fn wire(app: &AppWindow) {
     }
 
     // A callback that reads the window, changes the state and refreshes what depends on it.
+    // Every callback has the same shape: upgrade the weak window handle (the window may be closing),
+    // borrow the state mutably for the duration of the body, run it. Holding only weak handles avoids
+    // a reference cycle between the window and the closures it stores.
     macro_rules! on {
         ($setter:ident, |$app:ident, $st:ident $(, $arg:ident : $ty:ty)*| $body:block) => {{
             let weak = app.as_weak();
@@ -1170,6 +1397,7 @@ pub fn wire(app: &AppWindow) {
         }};
     }
 
+    // Setup page: keyboard type and side module changed.
     on!(on_setup_changed, |app, st| {
         pull_all(&app, st);
         // Remember the keyboard type for the keyboard that is plugged in
@@ -1181,11 +1409,13 @@ pub fn wire(app: &AppWindow) {
         push_derived(&app, st);
         st.dirty = true;
     });
+    // Lighting page: effect, color, brightness or speed changed. Sent on the next tick (`dirty`).
     on!(on_show_changed, |app, st| {
         pull_all(&app, st);
         push_derived(&app, st);
         st.dirty = true;
     });
+    // "One effect across both" switched; joining copies the keyboard's look to the macropad.
     on!(on_join_toggled, |app, st, on: bool| {
         pull_all(&app, st);
         st.s.join = on;
@@ -1195,6 +1425,7 @@ pub fn wire(app: &AppWindow) {
         push_all(&app, st);
         st.dirty = true;
     });
+    // Which device the Lighting page edits: 0 both (joined), 1 keyboard, 2 side module.
     on!(on_target_chosen, |app, st, target: i32| {
         pull_all(&app, st);
         st.s.join = target == 0;
@@ -1205,6 +1436,8 @@ pub fn wire(app: &AppWindow) {
         push_all(&app, st);
         st.dirty = true;
     });
+    // How painted keys behave while an effect runs: 0 steady color, 1 follow the effect's
+    // brightness, 2 tint the effect's color (see `PaintMode`).
     on!(on_paint_mode_chosen, |app, st, mode: i32| {
         st.s.paint_mode = match mode {
             0 => PaintMode::Steady,
@@ -1214,14 +1447,17 @@ pub fn wire(app: &AppWindow) {
         push_all(&app, st);
         st.dirty = true;
     });
+    // "Save as default" (save true) or a direct send: sent at once rather than on the next tick.
     on!(on_send_show, |app, st, save: bool| {
         pull_all(&app, st);
         st.send_current(save);
     });
+    // Stop the PC-drawn effect; the devices go back to what their firmware runs.
     on!(on_stop_pc, |_app, st| {
         st.engine.send(Command::SetLinked(None));
         st.pc_live = false;
     });
+    // "Paint an example": colors W, A, S, D and the four arrow keys with the brush.
     on!(on_paint_example, |app, st| {
         pull_all(&app, st);
         for (i, k) in keys::keyboard_keys().iter().enumerate() {
@@ -1232,11 +1468,15 @@ pub fn wire(app: &AppWindow) {
         push_derived(&app, st);
         st.dirty = true;
     });
+    // "Clear painting": forget every painted key on both devices.
     on!(on_paint_clear, |app, st| {
         st.s.paint.clear();
         push_derived(&app, st);
         st.dirty = true;
     });
+    // A click or drag on the picture. `xf`, `yf` are fractions of the picture's width (both, so the
+    // scale is the same on both axes); `kind` 0 is a left-button press, 1 a move while pressed
+    // (only painting follows drags).
     on!(on_deck_pointer, |app, st, xf: f32, yf: f32, kind: i32| {
         let g = app.global::<App>();
         let (x, y) = (xf * st.deck_width_units, yf * st.deck_width_units);
@@ -1266,28 +1506,37 @@ pub fn wire(app: &AppWindow) {
             _ => {}
         }
     });
+    // Macropad layer A/B buttons; remembered locally too, for when the macropad can't report it.
     on!(on_layer_chosen, |_app, st, layer: i32| {
         st.local_layer = layer as u8;
         st.engine.send(Command::SetLayer(layer as u8));
     });
+    // Fn lock on: the keyboard's top row sends F1..F12 without Fn; off: media and brightness keys.
     on!(on_fn_lock_chosen, |_app, st, on: bool| {
         st.engine.send(Command::SetFnLock(on));
     });
+    // Turns the Fn lighting keys off/on so they can't change the lights by accident.
     on!(on_lock_toggled, |_app, st, on: bool| {
         st.engine.send(Command::SetHotkeyLock(on));
     });
+    // "Restart into flashing mode" for installing firmware by hand; `false` means not part of an
+    // app update, so the engine tells the person to drag the .uf2 onto the drive.
     on!(on_bootloader, |_app, st, which: i32| {
         st.engine
             .send(Command::Bootloader(if which == 0 { DeviceKind::Keyboard } else { DeviceKind::Macropad }, false));
     });
+    // Firmware page, "Update firmware": the newest GitHub build onto the running device.
     on!(on_flash_latest, |app, st, which: i32| {
         st.start_flash(&app, which, flash::Source::Latest, flash::Target::Running);
     });
+    // Firmware page, "Install a file…": a .uf2 picked on this computer onto the running device.
     on!(on_flash_file, |app, st, which: i32| {
         if let Some(p) = winsys::browse_for_firmware() {
             st.start_flash(&app, which, flash::Source::File(p.into()), flash::Target::Running);
         }
     });
+    // "Install on drive E:": the newest GitHub firmware onto a device already in flashing mode. If
+    // the drive has gone in the meantime, just clear the offer.
     on!(on_flash_waiting, |app, st, which: i32| {
         let Some(drive) = flash::waiting_drives().into_iter().next() else {
             app.global::<App>().set_waiting_drive("".into());
@@ -1295,6 +1544,8 @@ pub fn wire(app: &AppWindow) {
         };
         st.start_flash(&app, which, flash::Source::Latest, flash::Target::Drive(drive));
     });
+    // "Check for updates": both devices' newest builds are looked up on a background thread (two
+    // downloads); the answer goes into `fw_inbox` and `show_firmware_builds` shows it.
     on!(on_check_firmware, |app, st| {
         if st.fw_checking {
             return;
@@ -1318,10 +1569,12 @@ pub fn wire(app: &AppWindow) {
             let _ = wake.upgrade_in_event_loop(|_| {});
         });
     });
+    // "Search again": the engine closes and reopens the USB devices.
     on!(on_rescan, |_app, st| {
         st.engine.send(Command::Rescan);
     });
     // Matching the two devices' brightness
+    // A calibration slider moved: sent live (unsaved) now, saved by `tick` once it rests 800 ms.
     on!(on_cal_changed, |app, st, which: i32| {
         let i = which.clamp(0, 1) as usize;
         let kind = if i == 0 { DeviceKind::Keyboard } else { DeviceKind::Macropad };
@@ -1330,6 +1583,7 @@ pub fn wire(app: &AppWindow) {
             st.cal_dirty[i] = Some(Instant::now());
         }
     });
+    // Calibration back to the firmware's own current and full gains, saved at once.
     on!(on_cal_reset, |app, st, which: i32| {
         let i = which.clamp(0, 1) as usize;
         let kind = if i == 0 { DeviceKind::Keyboard } else { DeviceKind::Macropad };
@@ -1345,6 +1599,7 @@ pub fn wire(app: &AppWindow) {
             }
         }
     });
+    // Plain white on both devices while matching their brightness; off resumes the chosen look.
     on!(on_white_test_toggled, |app, st, on: bool| {
         st.white_test = on;
         app.global::<App>().set_white_test(on);
@@ -1357,10 +1612,13 @@ pub fn wire(app: &AppWindow) {
     // Color codes typed or pasted into a color picker
     {
         let g = app.global::<App>();
+        // Plain functions of the text, no state needed; -1 means "not a color code".
         g.on_hex_hue(|t| parse_hex(&t).map_or(-1, |(h, _)| h as i32));
         g.on_hex_sat(|t| parse_hex(&t).map_or(-1, |(_, s)| s as i32));
     }
     // Keys page
+    // The Keys page's callbacks below each forward to `keyedit` and then refresh the page with
+    // `keyedit::push`. The two "edited" text boxes skip the refresh so typing isn't disturbed.
     on!(on_keys_view_chosen, |app, st, which: i32, view: i32| {
         keyedit::view_chosen(st, which, view);
         keyedit::push(&app, st);
@@ -1416,15 +1674,18 @@ pub fn wire(app: &AppWindow) {
         keyedit::push(&app, st);
     });
     // Audio mode
+    // The audio show's on/off switch: the engine starts or stops listening and drawing.
     on!(on_audio_toggled, |app, st, on: bool| {
         st.set_audio(on);
         app.global::<App>().set_audio_on(on);
     });
+    // The page's own shortcut handler (used while the window has focus): toggles the show.
     on!(on_audio_shortcut, |app, st| {
         let on = !st.audio_on;
         st.set_audio(on);
         app.global::<App>().set_audio_on(on);
     });
+    // Look and sensitivity (1..10, 5 normal); a running show restarts with them.
     on!(on_audio_changed, |app, st| {
         let g = app.global::<App>();
         if let Some(l) = wr_keyboard::audio::AudioLook::from_key(&g.get_audio_look()) {
@@ -1433,11 +1694,13 @@ pub fn wire(app: &AppWindow) {
         st.s.audio_sensitivity = g.get_audio_sensitivity().clamp(1, 10) as u8;
         st.audio_settings_changed();
     });
+    // What to listen to: 0 the sound the PC plays, 1 a microphone.
     on!(on_audio_input_chosen, |app, st, i: i32| {
         st.s.audio_mic = i == 1;
         push_mics(&app, st);
         st.audio_settings_changed();
     });
+    // Row 0 is the default microphone, stored as an empty name.
     on!(on_audio_device_chosen, |app, st, i: i32| {
         let names = app.global::<App>().get_audio_devices();
         st.s.audio_device = match names.row_data(i.max(0) as usize) {
@@ -1446,9 +1709,11 @@ pub fn wire(app: &AppWindow) {
         };
         st.audio_settings_changed();
     });
+    // "Refresh" next to the microphone list: search again in the background.
     on!(on_audio_devices_refresh, |_app, st| {
         st.find_microphones();
     });
+    // Radio button index 0..5 to a color scheme; "one color" takes the sliders as 0..1 fractions.
     on!(on_audio_colors_changed, |app, st| {
         let g = app.global::<App>();
         let (h, s) = (g.get_audio_hue().clamp(0, 255), g.get_audio_sat().clamp(0, 255));
@@ -1463,11 +1728,13 @@ pub fn wire(app: &AppWindow) {
         push_audio_colors(&app, st);
         st.audio_settings_changed();
     });
+    // How keys react to typing during the show; an out-of-range index gives the default.
     on!(on_audio_keys_chosen, |app, st, i: i32| {
         st.s.audio_keys = KeyReact::ALL.get(i.max(0) as usize).copied().unwrap_or_default();
         app.global::<App>().set_audio_keys(i);
         st.audio_settings_changed();
     });
+    // The Ctrl+Alt+Shift+M switch: saved in the settings and flipped in the shortcut hook at once.
     on!(on_audio_hotkey_toggled, |app, st, on: bool| {
         st.s.audio_hotkey = on;
         app.global::<App>().set_audio_hotkey(on);
@@ -1479,6 +1746,8 @@ pub fn wire(app: &AppWindow) {
     {
         let weak = app.as_weak();
         let st = st.clone();
+        // 50 ms = 20 ticks a second. `try_borrow_mut` skips a tick if a callback is still running
+        // (for example one waiting on a modal file dialog) instead of panicking.
         timer.start(slint::TimerMode::Repeated, Duration::from_millis(50), move || {
             if let Some(app) = weak.upgrade() {
                 if let Ok(mut st) = st.try_borrow_mut() {

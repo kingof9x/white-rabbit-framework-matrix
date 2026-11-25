@@ -7,6 +7,22 @@
 //! traffic model, the Hardy-Pomeau-Pazzis lattice gas, one-dimensional automata, and seeding the
 //! simulations from a graph) come from mariobx's Framework-LED-Matrix project. Like the Python
 //! version, this is written from the textbook definitions; no code was copied.
+//!
+//! How it is used: `pages/math.rs` picks an animation (a `Step`, made by one of the public functions
+//! here, or one of `EFFECTS`), wraps it in an `Anim` and moves it to a worker thread. That thread
+//! calls `Anim::next_frame` on a fixed schedule (the page's speed setting, in steps per second),
+//! rearranges the picture for the panel layout and sends it to the LED panels, and also hands it to
+//! the window's preview. Nothing in this file does any input/output; it only computes pictures, so
+//! the tests below can run it anywhere.
+//!
+//! The shape shared by every animation: a `Step` is a closure that owns its own simulation state
+//! (captured variables) and, each time it is called, returns one or more new pictures. Simulations
+//! that end (Life dies out, traffic jams, a maze is solved) hold their last picture for a moment and
+//! then start over by themselves, so an animation never stops.
+//!
+//! Coordinates are as on the panels: x (column) from the left, y (row) from the top. Smooth curves
+//! (the Lorenz dot, the pendulum, the Fourier circles) use fractional positions and are drawn with
+//! `splat`, which shares a dot between the four nearest LEDs so motion looks smooth on a coarse grid.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::f64::consts::PI;
@@ -14,33 +30,51 @@ use std::f64::consts::PI;
 use crate::formula::Formula;
 use crate::games::{Pic, Rng, HEIGHT};
 
+/// Brightness for background detail such as graph axes (45 of 255).
 pub const DIM: f64 = 45.0 / 255.0;
+/// Brightness for a second kind of thing next to a bright one (120 of 255), e.g. downward cars.
 pub const MID: f64 = 120.0 / 255.0;
+/// Full brightness: the main subject (the graph's curve, a live Life cell).
 pub const FULL: f64 = 1.0;
 
 /// What a step function gets: the random numbers, the picture width, and a place to leave a message
 /// for the window ("Started from the sine graph").
 pub struct Gen {
+    /// Random numbers for the animation (seeded from the OS when the page starts one).
     pub rng: Rng,
+    /// The picture width in LEDs; the height is always `HEIGHT` (34).
     pub width: usize,
+    /// A message for the window, taken (and cleared) by `Anim::take_note`.
     pub note: Option<String>,
 }
 
 /// Makes the next picture(s) each time it is called.
+///
+/// `FnMut` because it keeps and changes its own state between calls; `Send` because it is built on
+/// the UI thread and run on the animation thread. Returning several pictures at once lets an
+/// animation work out a whole sequence in one go (a sort, a maze); `Anim` hands them out one by one.
 pub type Step = Box<dyn FnMut(&mut Gen) -> Vec<Pic> + Send>;
 
 /// An animation: pictures one after the other, forever.
 pub struct Anim {
+    /// The recipe that makes new pictures.
     step: Step,
+    /// What the recipe is given each call (random numbers, width, note).
     gen: Gen,
+    /// Pictures made but not shown yet, oldest first.
     buf: VecDeque<Pic>,
 }
 
 impl Anim {
+    /// An animation `width` LEDs wide running `step`.
     pub fn new(width: usize, rng: Rng, step: Step) -> Anim {
         Anim { step, gen: Gen { rng, width, note: None }, buf: VecDeque::new() }
     }
 
+    /// The next picture: from the buffer, or by calling the step again when it is empty.
+    ///
+    /// A step that returns nothing (a maze too narrow to build, for example) gives one dark picture,
+    /// so this always returns and never loops forever.
     pub fn next_frame(&mut self) -> Pic {
         while self.buf.is_empty() {
             let frames = (self.step)(&mut self.gen);
@@ -52,20 +86,30 @@ impl Anim {
         self.buf.pop_front().unwrap_or_else(|| Pic::new(self.gen.width))
     }
 
+    /// A new message from the animation for the window, if there is one (each message is given once).
     pub fn take_note(&mut self) -> Option<String> {
         self.gen.note.take()
     }
 }
 
+/// A picture from a true/false grid (row by row): true cells at brightness `on`, the rest dark.
 fn bools(grid: &[bool], w: usize, on: f64) -> Pic {
     Pic { w, v: grid.iter().map(|b| if *b { on } else { 0.0 }).collect() }
 }
 
 /// Adds a soft dot at a point between LEDs, shared by the 4 LEDs around it.
+///
+/// This is "bilinear" splatting: with (x0, y0) the LED up and to the left of the point and (fx, fy)
+/// how far the point is past it (0..1), the four LEDs around it get shares (1-fx)(1-fy), fx(1-fy),
+/// (1-fx)fy and fx·fy of `v`, which add up to `v`. So a dot moving smoothly fades from one LED into the
+/// next instead of jumping. The shares are boosted by 1.6 (a dot split four ways would look too dim)
+/// and added to what is there, capped at full brightness. LEDs off the picture and points that are
+/// not finite (NaN, infinity) are ignored.
 fn splat(img: &mut Pic, x: f64, y: f64, v: f64) {
     if !x.is_finite() || !y.is_finite() {
         return;
     }
+    // (x0, y0) is the LED up and to the left of the point; (fx, fy) the point's position within it.
     let (x0, y0) = (x.floor(), y.floor());
     let (fx, fy) = (x - x0, y - y0);
     for (dx, dy, share) in [
@@ -83,7 +127,10 @@ fn splat(img: &mut Pic, x: f64, y: f64, v: f64) {
     }
 }
 
+/// A soft straight line from (x0, y0) to (x1, y1): splats every half LED along it (counted along the
+/// longer of the two directions), each at half brightness because neighbouring splats overlap.
 fn line(img: &mut Pic, x0: f64, y0: f64, x1: f64, y1: f64, v: f64) {
+    // Number of steps: two per LED of the line's longer side, at least one.
     let n = ((x1 - x0).abs().max((y1 - y0).abs()) * 2.0) as usize + 1;
     for i in 0..=n {
         let t = i as f64 / n as f64;
@@ -94,8 +141,13 @@ fn line(img: &mut Pic, x0: f64, y0: f64, x1: f64, y1: f64, v: f64) {
 // Graphs ------------------------------------------------------------------------------------------
 
 /// (name, formula, x from, x to, y range or None to fit the graph)
+///
+/// The formula is in `formula.rs`'s syntax; `t` in it is time and makes the graph move.
 pub type GraphDef = (&'static str, &'static str, f64, f64, Option<(f64, f64)>);
 
+/// The built-in graphs offered on the page, in its order. Each x range shows the interesting part
+/// (two waves of a sine, the bend of a cubic); fixed y ranges are given where fitting would look wrong
+/// (tan's infinite jumps, waves that should keep their size as they move).
 pub const GRAPHS: [GraphDef; 20] = [
     ("Sine", "sin(x)", -2.0 * PI, 2.0 * PI, Some((-1.2, 1.2))),
     ("Cosine", "cos(x)", -2.0 * PI, 2.0 * PI, Some((-1.2, 1.2))),
@@ -119,6 +171,8 @@ pub const GRAPHS: [GraphDef; 20] = [
     ("Breathing wave", "sin(t) * sin(x)", -2.0 * PI, 2.0 * PI, Some((-1.2, 1.2))),
 ];
 
+/// Parses one of the built-in formulas above. They are fixed text checked by the tests, so a parse
+/// failure is a programming mistake and panics.
 fn formula(text: &str) -> Formula {
     Formula::parse(text).expect("the built-in graphs are valid")
 }
@@ -129,6 +183,9 @@ fn still_graphs() -> Vec<GraphDef> {
 }
 
 /// numpy's percentile (linear).
+///
+/// The value `p` percent of the way through the sorted list, interpolating between the two nearest
+/// entries (so the 50th percentile of [1, 2, 3, 4] is 2.5). `sorted` must not be empty.
 fn percentile(sorted: &[f64], p: f64) -> f64 {
     let idx = p / 100.0 * (sorted.len() - 1) as f64;
     let (lo, hi) = (idx.floor() as usize, idx.ceil() as usize);
@@ -136,6 +193,11 @@ fn percentile(sorted: &[f64], p: f64) -> f64 {
 }
 
 /// A y range that shows most of the graph, ignoring the odd point that shoots off.
+///
+/// Works out a robust range from the 2nd to the 98th percentile of the finite values. If the full
+/// range is at most 3 times that, the full range is used (nothing is cut off); otherwise the robust
+/// one (so 1/x near 0 doesn't squash everything else flat). A flat graph gets ±1 around its value,
+/// and 8% of margin is added on each side. With no finite values at all it gives -1..1.
 pub fn fit_range(ys: &[f64]) -> (f64, f64) {
     let mut finite: Vec<f64> = ys.iter().copied().filter(|y| y.is_finite()).collect();
     if finite.is_empty() {
@@ -158,6 +220,14 @@ pub fn fit_range(ys: &[f64]) -> (f64, f64) {
 }
 
 /// A picture of y = f(x). x runs down the panel (one row per step), y runs across it.
+///
+/// The panel is tall and thin, so the graph is turned on its side: x goes down the 34 rows, y across
+/// the columns (`low` in column 0, `high` in the last). The formula is sampled 16 times per row
+/// (545 points in all). In each row the samples are split into unbroken runs, and each run lights the
+/// columns from its smallest to its largest y, so a steep part of the curve shows as a solid bar
+/// instead of scattered dots. A run breaks at a value that isn't a number, is outside the y range, or
+/// jumps by more than half the range (like tan at its asymptotes), so no false wall is drawn.
+/// With `axes`, the line y = 0 is a dim column and x = 0 a dim row, where they are in range.
 pub fn draw_graph(
     f: &Formula,
     x_from: f64,
@@ -167,14 +237,18 @@ pub fn draw_graph(
     t: f64,
     axes: bool,
 ) -> Pic {
+    // Samples per row: enough to catch fast wiggles (like "Beats") between rows.
     const SAMPLES: usize = 16;
     let mut frame = Pic::new(width);
     let n = HEIGHT * SAMPLES + 1;
     let ys: Vec<f64> = (0..n).map(|i| f.at(x_from + (x_to - x_from) * i as f64 / (n - 1) as f64, t)).collect();
     let (low, high) = y_range.unwrap_or_else(|| fit_range(&ys));
     let span = high - low;
+    // y value to column: a straight scale of low..high onto 0..width-1, rounded to the nearest
+    // column (ties to even, like numpy's rounding in the Python version) and kept on the picture.
     let column = |y: f64| (((y - low) / span * (width - 1) as f64).round_ties_even().max(0.0) as usize).min(width - 1);
     if axes {
+        // The y = 0 axis is a column (y runs across); x = 0 below is a row.
         if low <= 0.0 && 0.0 <= high {
             let c = column(0.0);
             for y in 0..HEIGHT {
@@ -189,6 +263,8 @@ pub fn draw_graph(
         }
     }
     for row in 0..HEIGHT {
+        // This row's 17 samples: its own 16 and the first of the next row, so neighbouring rows
+        // join without a gap.
         let part = &ys[row * SAMPLES..((row + 1) * SAMPLES + 1).min(n)];
         let mut segment: Vec<f64> = Vec::new();
         let flush = |segment: &Vec<f64>, frame: &mut Pic| {
@@ -200,9 +276,11 @@ pub fn draw_graph(
                 }
             }
         };
+        // A `None` is added at the end so the last run is always drawn.
         for y in part.iter().map(|y| Some(*y)).chain([None]) {
             let usable = y.is_some_and(|y| y.is_finite() && low <= y && y <= high);
             // A jump of more than half the height is a break (like tan), not a steep line
+            // (`y.unwrap()` is safe here: `usable` is only true when y is Some.)
             let jump = usable && segment.last().is_some_and(|last| (y.unwrap() - last).abs() > span / 2.0);
             if !usable || jump {
                 flush(&segment, &mut frame);
@@ -216,6 +294,9 @@ pub fn draw_graph(
 }
 
 /// One graph. If the formula uses t, it moves.
+///
+/// `t` starts at 0 and goes up 0.15 per frame, so at 20 frames a second a sin(x - t) wave moves about
+/// 3 units of x a second. A formula without t gives the same picture every frame.
 pub fn graph(f: Formula, x_from: f64, x_to: f64, y_range: Option<(f64, f64)>, axes: bool) -> Step {
     let mut t = 0.0;
     Box::new(move |g| {
@@ -227,6 +308,7 @@ pub fn graph(f: Formula, x_from: f64, x_to: f64, y_range: Option<(f64, f64)>, ax
     })
 }
 
+/// A random still graph (no axes) and its name, used as a starting picture for the simulations.
 fn random_graph_picture(rng: &mut Rng, width: usize) -> (&'static str, Pic) {
     let still = still_graphs();
     let (name, text, x_from, x_to, y_range) = still[rng.below(still.len())];
@@ -234,6 +316,10 @@ fn random_graph_picture(rng: &mut Rng, width: usize) -> (&'static str, Pic) {
 }
 
 /// A different graph every few seconds. frames_each is read when each graph starts.
+///
+/// Never the same graph twice in a row. `frames_each` is shared with the page so its speed control
+/// can change how long each graph stays; it is read once per graph. Each graph's frames are made
+/// all at once (moving ones with t stepping 0.15 per frame), and its name and formula go to the note.
 pub fn random_graphs(frames_each: std::sync::Arc<std::sync::atomic::AtomicUsize>, axes: bool) -> Step {
     let mut last = "";
     Box::new(move |g| {
@@ -252,6 +338,11 @@ pub fn random_graphs(frames_each: std::sync::Arc<std::sync::atomic::AtomicUsize>
 // Starting pictures for the simulations -----------------------------------------------------------
 
 /// Well-known Game of Life patterns as (row, column) cells
+///
+/// Glider: the smallest pattern that travels. R-pentomino, Acorn: tiny starts that grow for a long
+/// time. Diehard: vanishes after 130 generations. Lightweight spaceship: travels sideways.
+/// Pentadecathlon: repeats every 15 generations. Pulsar quarter: one quarter of the period-3 pulsar.
+/// Any other name gives None (the caller then fills the grid at random).
 pub fn life_pattern(name: &str) -> Option<Vec<(usize, usize)>> {
     Some(match name {
         "Glider" => vec![(0, 1), (1, 2), (2, 0), (2, 1), (2, 2)],
@@ -271,6 +362,7 @@ pub fn life_pattern(name: &str) -> Option<Vec<(usize, usize)>> {
     })
 }
 
+/// The starting pictures offered for Life, in the page's order: random, a graph, or a named pattern.
 pub const STARTS: [&str; 9] = [
     "Random",
     "Math graph",
@@ -283,6 +375,8 @@ pub const STARTS: [&str; 9] = [
     "Pulsar quarter",
 ];
 
+/// A grid with the pattern centred. Cells that would fall off the right edge (a picture narrower than
+/// the pattern) are left out.
 fn place_pattern(cells: &[(usize, usize)], width: usize) -> Vec<bool> {
     let mut grid = vec![false; HEIGHT * width];
     let rows = cells.iter().map(|c| c.0).max().unwrap_or(0) + 1;
@@ -297,6 +391,9 @@ fn place_pattern(cells: &[(usize, usize)], width: usize) -> Vec<bool> {
 }
 
 /// A true/false picture to start a simulation from.
+///
+/// "Math graph" uses the lit LEDs of a random still graph (and says which in the note); a pattern name
+/// places that pattern; anything else ("Random") makes each cell alive with probability `density`.
 fn starting_grid(start: &str, g: &mut Gen, density: f64) -> Vec<bool> {
     let w = g.width;
     match start {
@@ -315,6 +412,10 @@ fn starting_grid(start: &str, g: &mut Gen, density: f64) -> Vec<bool> {
 // Game of Life and other Life-like rules ----------------------------------------------------------
 
 /// (name, birth counts, survive counts)
+///
+/// A Life-like rule says how many of a cell's 8 neighbours must be alive for a dead cell to be born
+/// ("B") and for a live cell to survive ("S"); Conway's rule is B3/S23. The page also accepts a custom
+/// rule typed as two lists of digits.
 pub const LIFE_RULES: [(&str, &str, &str); 9] = [
     ("Conway's Game of Life (B3/S23)", "3", "23"),
     ("HighLife (B36/S23)", "36", "23"),
@@ -328,6 +429,9 @@ pub const LIFE_RULES: [(&str, &str, &str); 9] = [
 ];
 
 /// '3,6' or '36' -> the neighbour counts. Refuses anything that isn't 0 to 8.
+///
+/// The result has `true` at each listed count. Commas and spaces are ignored; an empty text means no
+/// counts (as in Seeds' "S" part). The error is a sentence for the page.
 pub fn parse_counts(text: &str) -> Result<[bool; 9], String> {
     let mut counts = [false; 9];
     for ch in text.chars().filter(|c| *c != ',' && *c != ' ') {
@@ -339,11 +443,17 @@ pub fn parse_counts(text: &str) -> Result<[bool; 9], String> {
     Ok(counts)
 }
 
+/// The opposite of `parse_counts`: the listed counts as digits, e.g. "23".
 pub fn counts_text(counts: &[bool; 9]) -> String {
     (0..9).filter(|i| counts[*i]).map(|i| i.to_string()).collect()
 }
 
 /// One generation; the edges wrap around.
+///
+/// The picture is a torus: the left edge's neighbours are on the right edge, the top's on the bottom,
+/// so patterns that leave one side come back on the other. Counting uses `+ (size - 1)` modulo size
+/// for "one back", which avoids negative numbers with unsigned indexes. Every cell is computed from the
+/// old grid, so the order cells are visited in doesn't matter.
 pub fn life_step(grid: &[bool], w: usize, birth: &[bool; 9], survive: &[bool; 9]) -> Vec<bool> {
     let mut out = vec![false; grid.len()];
     for r in 0..HEIGHT {
@@ -364,6 +474,10 @@ pub fn life_step(grid: &[bool], w: usize, birth: &[bool; 9], survive: &[bool; 9]
 }
 
 /// Runs a Life-like rule. When it dies out, settles or loops, it pauses a moment and starts again.
+///
+/// It restarts when every cell is dead, when the grid repeats a generation seen before (it settled
+/// or entered a loop; every generation is remembered in a set), or after 600 generations. The last
+/// picture is held for 12 frames first. One generation per frame.
 pub fn life(birth: [bool; 9], survive: [bool; 9], start: String, density: f64) -> Step {
     const PAUSE: usize = 12;
     const MAX_GENERATIONS: usize = 600;
@@ -390,6 +504,7 @@ pub fn life(birth: [bool; 9], survive: [bool; 9], start: String, density: f64) -
         if !grid.iter().any(|c| *c) || seen.contains(&grid) {
             pause = PAUSE;
         } else {
+            // Remember this generation (to spot a repeat later), then compute the next one.
             seen.insert(grid.clone());
             grid = life_step(&grid, w, &birth, &survive);
             generation += 1;
@@ -403,11 +518,18 @@ pub fn life(birth: [bool; 9], survive: [bool; 9], start: String, density: f64) -
 
 // Biham-Middleton-Levine traffic ------------------------------------------------------------------
 
+/// Traffic cell contents: empty road.
 const BML_EMPTY: u8 = 0;
+/// A car that drives left to right.
 const BML_ACROSS: u8 = 1;
+/// A car that drives top to bottom.
 const BML_DOWN: u8 = 2;
 
 /// Every car of one kind moves one cell (across or down, wrapping) if that cell is free.
+///
+/// All cars of that kind move at the same moment: each looks at the old grid, so a car moves into a
+/// cell only if that cell was free before anyone moved (no chain-following within a step). The edges
+/// wrap round. Returns the new grid and how many cars moved.
 fn bml_half_step(grid: &[u8], w: usize, kind: u8) -> (Vec<u8>, usize) {
     let mut new = grid.to_vec();
     let mut moved = 0;
@@ -427,11 +549,17 @@ fn bml_half_step(grid: &[u8], w: usize, kind: u8) -> (Vec<u8>, usize) {
     (new, moved)
 }
 
+/// Empty road dark, across cars bright, down cars mid-grey.
 fn bml_pic(grid: &[u8], w: usize) -> Pic {
     Pic { w, v: grid.iter().map(|c| [0.0, FULL, MID][*c as usize]).collect() }
 }
 
 /// Cars going across (bright) and cars going down (dim) take turns. A full jam starts it over.
+///
+/// The Biham-Middleton-Levine model: the road is filled at random with `density` cars (half each
+/// kind). Each frame one kind moves (across on even steps, down on odd ones). Low densities flow
+/// freely, high ones lock into a jam; near the threshold it does both. When a full round moves no car
+/// the jam is total: it is held for 15 frames and restarted. It also restarts after 2000 steps.
 pub fn traffic(density: f64) -> Step {
     const JAM_PAUSE: usize = 15;
     const MAX_STEPS: usize = 2000;
@@ -453,6 +581,8 @@ pub fn traffic(density: f64) -> Step {
             grid = (0..HEIGHT * w)
                 .map(|_| {
                     let r = g.rng.random();
+                    // One random number decides each cell: below density/2 an across car, below
+                    // density a down car, otherwise empty road.
                     if r < density / 2.0 {
                         BML_ACROSS
                     } else if r < density {
@@ -470,6 +600,7 @@ pub fn traffic(density: f64) -> Step {
         if step % 2 == 0 {
             first_moved = moved;
         } else if first_moved == 0 && moved == 0 {
+            // A full round (across then down) in which no car moved: total jam.
             pause = JAM_PAUSE;
         }
         step += 1;
@@ -482,18 +613,31 @@ pub fn traffic(density: f64) -> Step {
 
 // Hardy-Pomeau-Pazzis lattice gas -----------------------------------------------------------------
 
+/// Lattice-gas cell bits: a particle moving north (towards row 0).
 const N: u8 = 1;
+/// A particle moving east (to the right).
 const EAST: u8 = 2;
+/// A particle moving south (down).
 const S: u8 = 4;
+/// A particle moving west (to the left). A cell holds 0 to 4 particles, at most one per direction.
 const W: u8 = 8;
+/// The gas's starting pictures, in the page's order.
 pub const GAS_STARTS: [&str; 3] = ["Random", "Gas in a corner", "Math graph"];
+/// Brightness of a cell by its number of particles (0 to 4).
 const HPP_BRIGHTNESS: [f64; 5] = [0.0, 90.0 / 255.0, 160.0 / 255.0, 215.0 / 255.0, 1.0];
 
 /// Particles moving N/E/S/W. Two meeting head on leave at right angles. Walls bounce them back.
+///
+/// Two halves. Collision: a cell holding exactly a north and a south particle (and nothing else)
+/// turns them into east and west, and the other way round; every other cell is unchanged. This keeps
+/// the number of particles and the momentum. Streaming: every particle moves one cell its way; one
+/// that would leave the picture instead stays and reverses (the walls are mirrors). Because no two
+/// particles share a direction in a cell, the bits never collide and particles are never lost.
 pub fn hpp_step(grid: &[u8], w: usize) -> Vec<u8> {
     let g: Vec<u8> = grid
         .iter()
         .map(|c| match *c {
+            // Collision rule (only exact head-on pairs; a third particle in the cell blocks it).
             c if c == N | S => EAST | W,
             c if c == EAST | W => N | S,
             c => c,
@@ -537,6 +681,11 @@ pub fn hpp_step(grid: &[u8], w: usize) -> Vec<u8> {
     new
 }
 
+///
+/// Each of the four directions is filled independently with probability `density / 2` in the allowed
+/// area. "Gas in a corner": the top third of the rows, the left half of the columns (at least 3),
+/// at least 0.7 dense, so you can watch it spread out. "Math graph": the lit LEDs of a random graph,
+/// each given at least one particle. "Random": the whole picture.
 fn hpp_grid(g: &mut Gen, start: &str, density: f64) -> Vec<u8> {
     let w = g.width;
     let (where_, density) = match start {
@@ -566,6 +715,7 @@ fn hpp_grid(g: &mut Gen, start: &str, density: f64) -> Vec<u8> {
     grid
 }
 
+/// Runs the lattice gas one step per frame, starting over with a new random fill every 300 steps.
 pub fn gas(start: String, density: f64) -> Step {
     const STEPS_EACH: usize = 300;
     let mut grid: Vec<u8> = Vec::new();
@@ -576,6 +726,7 @@ pub fn gas(start: String, density: f64) -> Step {
             grid = hpp_grid(g, &start, density);
             steps = 0;
         }
+        // `count_ones` counts the set direction bits, i.e. the particles in the cell.
         let frame = Pic { w, v: grid.iter().map(|c| HPP_BRIGHTNESS[c.count_ones() as usize]).collect() };
         grid = hpp_step(&grid, w);
         steps += 1;
@@ -585,27 +736,44 @@ pub fn gas(start: String, density: f64) -> Step {
 
 // One-dimensional automata, one generation per row ------------------------------------------------
 
+/// The one-dimensional automaton kinds, in the page's order, with the number range each takes.
 pub const AUTOMATA_KINDS: [&str; 2] = ["Elementary (rule 0-255)", "Totalistic, 3 colours (code 0-2186)"];
+/// The automata's first rows: one live cell in the middle, or random cells.
 pub const AUTOMATA_STARTS: [&str; 2] = ["Single cell", "Random"];
 
+/// One generation of an "elementary" cellular automaton (Wolfram's numbering), cells 0 or 1.
+///
+/// Each new cell depends on itself and its two neighbours (the row wraps round). Those three cells,
+/// read as a 3-bit number left-centre-right (0..7), pick a bit of `rule`: the new cell is bit
+/// number `index` of the rule. So rule 30 = 0b00011110 turns pattern 1 (001) into 1 and 0 into 0.
 pub fn elementary_step(row: &[u8], rule: u32) -> Vec<u8> {
     let w = row.len();
     (0..w)
         .map(|i| {
+            // left·4 + centre·2 + right, with the row wrapping round at both ends.
             let index = (row[(i + w - 1) % w] << 2) | (row[i] << 1) | row[(i + 1) % w];
             ((rule >> index) & 1) as u8
         })
         .collect()
 }
 
+/// One generation of a 3-colour totalistic automaton, cells 0, 1 or 2.
+///
+/// "Totalistic" means the new cell depends only on the sum of itself and its two neighbours (0..6).
+/// The code, written in base 3, has 7 digits (so codes go up to 3^7 - 1 = 2186); digit number `sum`
+/// (counting from the least significant) is the new cell.
 pub fn totalistic_step(row: &[u8], code: u32) -> Vec<u8> {
     let w = row.len();
+    // The code's base-3 digits, least significant first: digit s is the new cell for sum s.
     let digits: Vec<u8> = (0..7).map(|i| ((code / 3u32.pow(i)) % 3) as u8).collect();
     (0..w).map(|i| digits[(row[(i + w - 1) % w] + row[i] + row[(i + 1) % w]) as usize]).collect()
 }
 
 /// Each new generation appears at the bottom and the older ones scroll up. Once the rows start
 /// repeating, it runs one more screenful and starts again.
+///
+/// The picture keeps the last 34 rows. A set remembers every row seen; once a row repeats the pattern
+/// is periodic, so only one more screenful is shown. In any case it restarts after 400 rows.
 pub fn automaton(totalistic: bool, number: u32, random_start: bool) -> Step {
     const ROWS_BEFORE_RESTART: usize = 400;
     let shades: Vec<f64> = if totalistic { vec![0.0, MID, FULL] } else { vec![0.0, FULL] };
@@ -621,6 +789,7 @@ pub fn automaton(totalistic: bool, number: u32, random_start: bool) -> Step {
                 (0..w).map(|_| g.rng.below(colours) as u8).collect()
             } else {
                 let mut r = vec![0u8; w];
+                // Single live cell in the middle: rules then grow their famous triangles.
                 r[w / 2] = 1;
                 r
             };
@@ -628,9 +797,11 @@ pub fn automaton(totalistic: bool, number: u32, random_start: bool) -> Step {
             seen.clear();
             left = ROWS_BEFORE_RESTART;
         }
+        // Scroll: drop the oldest row at the top and add the current one at the bottom.
         history.pop_front();
         history.push_back(row.clone());
         let frame = Pic { w, v: history.iter().flat_map(|r| r.iter().map(|c| shades[*c as usize])).collect() };
+        // A repeated row means it cycles from here: show at most one more screenful.
         if seen.contains(&row) {
             left = left.min(HEIGHT);
         }
@@ -642,11 +813,16 @@ pub fn automaton(totalistic: bool, number: u32, random_start: bool) -> Step {
 }
 
 /// Random grey.
+/// Every LED gets a new random brightness (256 levels) every frame: a check that all LEDs work.
 pub fn noise() -> Step {
     Box::new(|g| vec![Pic { w: g.width, v: (0..HEIGHT * g.width).map(|_| g.rng.below(256) as f64 / 255.0).collect() }])
 }
 
 /// A dot going back and forth across the whole picture, on a dim line, to set the keyboard gap.
+///
+/// A 3 x 4 bright dot on rows 15 to 18 slides one column per frame and bounces at the ends, over a dim
+/// line on rows 16 and 17. Watching it cross from one panel to the other shows whether the gap set for
+/// the keyboard looks right.
 pub fn gap_test() -> Step {
     let mut x: i64 = 0;
     let mut step: i64 = 1;
@@ -662,6 +838,7 @@ pub fn gap_test() -> Step {
                 frame.set(c as usize, y, 1.0);
             }
         }
+        // Reverse at the ends (the 3-wide dot's centre stays between column 1 and width-2 when it can).
         if !(0 < x + step && x + step < w - 1) {
             step = -step;
         }
@@ -673,6 +850,10 @@ pub fn gap_test() -> Step {
 // More maths ------------------------------------------------------------------------------------
 
 /// An ant turns right on a dark square and left on a lit one, flipping it as it leaves.
+///
+/// The ant starts in the middle facing a random way; the edges wrap. It does 1 move a frame for the
+/// first 60 frames, then 3 a frame, then 12, so you can see the rule and then the pattern it builds.
+/// Starts over every 330 frames. The ant itself is the full-brightness LED; flipped cells are dimmer.
 fn langton() -> Step {
     const STEPS_EACH: usize = 330;
     const TURNS: [(i64, i64); 4] = [(-1, 0), (0, 1), (1, 0), (0, -1)];
@@ -687,6 +868,7 @@ fn langton() -> Step {
             d = g.rng.below(4);
             f = 0;
         }
+        // Speed up after a while: 1 move a frame, then 3, then 12.
         let moves = if f < 60 {
             1
         } else if f < 140 {
@@ -696,6 +878,7 @@ fn langton() -> Step {
         };
         for _ in 0..moves {
             let i = y as usize * w + x as usize;
+            // TURNS lists up, right, down, left as (dy, dx), so +1 is a right turn and +3 a left turn.
             d = if !grid[i] { (d + 1) % 4 } else { (d + 3) % 4 };
             grid[i] = !grid[i];
             y = (y + TURNS[d].0).rem_euclid(HEIGHT as i64);
@@ -708,6 +891,8 @@ fn langton() -> Step {
     })
 }
 
+/// The Collatz ("3n + 1") sequence from `n` down to 1, both ends included. `n` must be at least 1
+/// (0 would loop forever). Every start ever tried reaches 1, though nobody has proved it always does.
 pub fn collatz_sequence(mut n: u64) -> Vec<u64> {
     let mut seq = vec![n];
     while n != 1 {
@@ -718,11 +903,18 @@ pub fn collatz_sequence(mut n: u64) -> Vec<u64> {
 }
 
 /// Halve even numbers, triple odd ones and add 1, until reaching 1. Each number is a bar.
+///
+/// Each call makes a whole sequence's frames: the newest number is a bright bar on the right and the
+/// older ones scroll left. Bar height is 34·(n/largest)^0.35: the 0.35 power squashes the huge peaks
+/// so small values stay visible, and the bar's top LED shows the fractional part dimly. After the
+/// sequence, bars of 1 push it off the picture. Starts with five famous long sequences (27 takes 111
+/// steps), then random starts from 30 to 2999.
 fn collatz() -> Step {
     const STARTS: [u64; 5] = [27, 97, 871, 703, 6171];
     let mut i = 0;
     Box::new(move |g| {
         let w = g.width;
+        // 27, 97, 871, 703 and 6171 are known for very long sequences for their size.
         let start = if i < STARTS.len() { STARTS[i] } else { g.rng.range(30, 3000) as u64 };
         i += 1;
         let seq = collatz_sequence(start);
@@ -734,12 +926,14 @@ fn collatz() -> Step {
             let shown = &bars[bars.len().saturating_sub(w)..];
             let mut img = Pic::new(w);
             for (c, h) in shown.iter().enumerate() {
+                // Bars are right-aligned: the newest at the right edge.
                 let col = w - shown.len() + c;
                 let full = *h as usize;
                 for y in HEIGHT - full.min(HEIGHT)..HEIGHT {
                     img.set(col, y, 0.55);
                 }
                 if full < HEIGHT {
+                    // The LED above a bar shows its fractional part, for smoother heights.
                     img.set(col, HEIGHT - full - 1, (h - full as f64) * 0.55);
                 }
             }
@@ -754,6 +948,10 @@ fn collatz() -> Step {
 }
 
 /// Where each number 1..count lands on a square spiral from the middle of the picture.
+///
+/// Index k of the result is the (x, y) of number k (index 0 is a placeholder). 1 is in the middle;
+/// the spiral then goes right 1, up 1, left 2, down 2, right 3, up 3... Positions may be off the
+/// picture (the spiral is square, the picture is not); the caller skips those.
 fn ulam_positions(width: usize, count: usize) -> Vec<(i64, i64)> {
     let (mut x, mut y) = (width as i64 / 2 - if width.is_multiple_of(2) { 1 } else { 0 }, HEIGHT as i64 / 2);
     let mut pos = vec![(0, 0), (x, y)];
@@ -774,6 +972,8 @@ fn ulam_positions(width: usize, count: usize) -> Vec<(i64, i64)> {
     pos
 }
 
+/// `table[k]` is true when k is prime, for k up to n: the sieve of Eratosthenes (cross out every
+/// multiple of each prime, starting at its square, since smaller multiples were crossed out already).
 fn is_prime_table(n: usize) -> Vec<bool> {
     let mut t = vec![true; n + 1];
     t[0] = false;
@@ -794,6 +994,11 @@ fn is_prime_table(n: usize) -> Vec<bool> {
 
 /// The sieve of Eratosthenes on every LED (numbered left to right, top to bottom), then the primes
 /// again on a spiral from the middle (the Ulam spiral).
+///
+/// Numbers 1 to 34·width each have an LED. Each prime p in turn is bright while its multiples are
+/// crossed out in about 10 batches (crossed ones flash dim, then go dark). The sieve can stop at the
+/// square root of the largest number. Then the primes alone are shown, then the Ulam spiral is drawn 25
+/// numbers per frame: primes on a spiral line up on diagonals, which nobody fully understands.
 fn primes() -> Step {
     Box::new(|g| {
         let w = g.width;
@@ -819,6 +1024,8 @@ fn primes() -> Step {
         while p * p <= n {
             if state[p] != 0.0 {
                 let multiples: Vec<usize> = (p * p..=n).step_by(p).collect();
+                // Cross out in about 10 batches so big primes don't take long and small ones are
+                // still visible.
                 let chunk = (multiples.len() / 10).max(1);
                 for part in multiples.chunks(chunk) {
                     out.push(frame(&state, Some(p), part));
@@ -833,6 +1040,7 @@ fn primes() -> Step {
         for _ in 0..20 {
             out.push(Pic { w, v: state[1..].to_vec() });
         }
+        // Enough numbers for the square spiral to cover the whole picture, wide or tall.
         let count = (HEIGHT.max(w) + 2).pow(2);
         let prime = is_prime_table(count);
         let mut img = Pic::new(w);
@@ -862,6 +1070,12 @@ fn primes() -> Step {
 }
 
 /// A dot following the Lorenz weather equations, leaving a fading trail (the butterfly).
+///
+/// The Lorenz system: dx/dt = σ(y - x), dy/dt = x(ρ - z) - y, dz/dt = xy - βz, with the classic values
+/// σ = 10, ρ = 28, β = 8/3 that make it chaotic. It is stepped by Euler's method (new = old + rate·dt)
+/// with dt = 0.004, 8 small steps a frame. x (about -21..21) maps across the picture and z (about
+/// 2..52) up it, the classic butterfly view. The trail fades to 96.5% each frame and is drawn at 75%,
+/// with the current point at full brightness. The start is nudged at random so every run differs.
 fn lorenz() -> Step {
     let (sigma, rho, beta) = (10.0, 28.0, 8.0 / 3.0);
     let mut started = false;
@@ -879,11 +1093,13 @@ fn lorenz() -> Step {
         let (mut px, mut py) = (0.0, 0.0);
         for _ in 0..4 {
             for _ in 0..2 {
+                // The three Lorenz equations, then one Euler step.
                 let (dx, dy, dz) = (sigma * (y - x), x * (rho - z) - y, x * y - beta * z);
                 x += dx * dt;
                 y += dy * dt;
                 z += dz * dt;
             }
+            // Map x from about -21..21 across the picture and z from about 2..52 up it (row 0 at the top).
             px = (x + 21.0) / 42.0 * (w - 1) as f64;
             py = (HEIGHT - 1) as f64 - (z - 2.0) / 50.0 * (HEIGHT - 1) as f64;
             splat(trail, px, py, 0.3);
@@ -895,10 +1111,18 @@ fn lorenz() -> Step {
 }
 
 /// One small step of a double pendulum with equal arms and weights.
+///
+/// `a1`, `a2` are the arms' angles from straight down (radians), `w1`, `w2` their angular speeds
+/// (radians per second); arm lengths and masses are 1 and gravity 9.8. The two acceleration formulas
+/// are the standard equations of motion for this case (from Lagrange's method) with m = l = 1. It
+/// uses the "semi-implicit" Euler step: speeds are updated first and the new speeds move the angles,
+/// which keeps the energy from drifting up the way plain Euler would.
 pub fn pendulum_step(a1: f64, a2: f64, w1: f64, w2: f64, dt: f64) -> (f64, f64, f64, f64) {
     let g = 9.8;
     let d = a1 - a2;
     let den = 3.0 - (2.0 * d).cos();
+    // Angular accelerations of the two arms (the standard double pendulum equations with equal
+    // lengths and masses of 1, simplified; `den` is their shared denominator).
     let acc1 = (-3.0 * g * a1.sin() - g * (a1 - 2.0 * a2).sin() - 2.0 * d.sin() * (w2 * w2 + w1 * w1 * d.cos())) / den;
     let acc2 = 2.0 * d.sin() * (2.0 * w1 * w1 + 2.0 * g * a1.cos() + w2 * w2 * d.cos()) / den;
     let (w1, w2) = (w1 + acc1 * dt, w2 + acc2 * dt);
@@ -906,6 +1130,11 @@ pub fn pendulum_step(a1: f64, a2: f64, w1: f64, w2: f64, dt: f64) -> (f64, f64, 
 }
 
 /// A pendulum hanging from another pendulum. The end leaves a trail and never repeats.
+///
+/// Starts with the first arm almost upside down (about 2.6 to 2.8 radians) and the second at 2.2, which
+/// is chaotic. 10 steps of 0.006 s a frame. The pivot is the picture's centre and both arms are 4.2 LEDs
+/// (less on a narrow picture so it fits). The arms are drawn as soft lines, the joints as dots, and
+/// the tip leaves a trail that fades to 92% each frame.
 fn pendulum() -> Step {
     let mut s: Option<(f64, f64, f64, f64)> = None;
     let mut trail: Option<Pic> = None;
@@ -919,6 +1148,7 @@ fn pendulum() -> Step {
         let (mut x1, mut y1, mut x2, mut y2) = (cx, cy, cx, cy);
         for _ in 0..10 {
             (a1, a2, w1, w2) = pendulum_step(a1, a2, w1, w2, 0.006);
+            // Angle 0 hangs straight down; y grows downwards, so the first joint is at (sin, cos).
             x1 = cx + arm * a1.sin();
             y1 = cy + arm * a1.cos();
             x2 = x1 + arm * a2.sin();
@@ -938,8 +1168,12 @@ fn pendulum() -> Step {
 
 // Sorting: each sort records (the bars, the bars that are bright) for every step.
 
+/// One frame of a sort: the bar heights in their current order, and the indexes of the bars to light
+/// brightly (the ones being compared or moved).
 type Scene = (Vec<usize>, Vec<usize>);
 
+/// Bubble sort: walk the list comparing neighbours and swapping any pair in the wrong order; after
+/// pass i the largest i+1 bars are in place at the end. Records a frame per comparison and per swap.
 fn bubble_sort(a: &mut [usize], out: &mut Vec<Scene>) {
     let n = a.len();
     for i in 0..n {
@@ -953,6 +1187,9 @@ fn bubble_sort(a: &mut [usize], out: &mut Vec<Scene>) {
     }
 }
 
+/// Quick sort of `a[lo..=hi]` (Lomuto's partition): the last bar is the pivot; smaller bars are
+/// swapped to the front, the pivot goes between the two groups, and each group is sorted the same
+/// way. Records a frame per comparison and per swap.
 fn quick_sort(a: &mut [usize], lo: usize, hi: usize, out: &mut Vec<Scene>) {
     if lo >= hi {
         return;
@@ -968,12 +1205,15 @@ fn quick_sort(a: &mut [usize], lo: usize, hi: usize, out: &mut Vec<Scene>) {
     }
     a.swap(i, hi);
     out.push((a.to_vec(), vec![i, hi]));
+    // Guard against `i - 1` going below zero (usize can't be negative); nothing is left of i then.
     if i > 0 {
         quick_sort(a, lo, i - 1, out);
     }
     quick_sort(a, i + 1, hi, out);
 }
 
+/// Merge sort of `a[lo..hi]`: sort each half, then merge them by repeatedly taking the smaller front
+/// bar from the two halves (copies of them, so `a` can be overwritten). Records a frame per bar placed.
 fn merge_sort(a: &mut [usize], lo: usize, hi: usize, out: &mut Vec<Scene>) {
     if hi - lo < 2 {
         return;
@@ -995,10 +1235,16 @@ fn merge_sort(a: &mut [usize], lo: usize, hi: usize, out: &mut Vec<Scene>) {
     }
 }
 
+/// The sorts shown, in turn.
 const SORTS: [&str; 3] = ["Bubble sort", "Quick sort", "Merge sort"];
 
 /// Bars of different heights put in order by bubble sort, then quick sort, then merge sort. The
 /// bars being compared or moved are bright.
+///
+/// One bar per column, heights spread evenly from 2 to 34 and shuffled. Each sort is recorded in full
+/// first (6 frames of the shuffled bars, every step, then a sweep lighting the sorted bars left to
+/// right and a short hold), and the frames are then handed out one per call. The sort's name goes to
+/// the note.
 fn sorting() -> Step {
     let mut which = 0;
     let mut scenes: VecDeque<Scene> = VecDeque::new();
@@ -1046,6 +1292,19 @@ fn sorting() -> Step {
 
 /// Carves a maze by wandering and backing up from dead ends, then floods it from the top-left corner
 /// until the flood reaches the bottom-right, and lights the shortest path.
+///
+/// The maze lives on a grid of "rooms" at odd (row, column) positions, with wall LEDs between them:
+/// `cw` x `ch` rooms on the picture (on an even width the last column stays wall). Building is the
+/// "recursive backtracker": from the current room, knock through the wall to a random unvisited
+/// neighbour and go there; at a dead end, back up (pop the stack) until a room has an unvisited
+/// neighbour. Every room ends up reachable by exactly one route. A frame is recorded every 2 moves,
+/// with the digger lit.
+///
+/// Solving is a breadth-first flood from the top-left room: each frame adds every open cell next to
+/// the flood (the front shown brighter), so the flood reaches each cell by a shortest route.
+/// Remembering where each cell was reached from (`came_from`) gives the path back from the
+/// bottom-right goal, which is then drawn two cells a frame and held for 25 frames.
+/// A picture under 3 columns has no room for a maze and gives nothing (a dark frame).
 fn maze() -> Step {
     const STEPS: [(i64, i64); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
     Box::new(|g| {
@@ -1079,6 +1338,8 @@ fn maze() -> Step {
             } else {
                 let (ny, nx) = options[g.rng.below(options.len())];
                 seen[ny * cw + nx] = true;
+                // Room (cy, cx) is the LED (2cy+1, 2cx+1); the wall between it and its neighbour is
+                // halfway between them, at (cy+ny+1, cx+nx+1). Open that and the new room.
                 wall[(cy + ny + 1) * w + cx + nx + 1] = 0.0;
                 wall[(2 * ny + 1) * w + 2 * nx + 1] = 0.0;
                 stack.push((ny, nx));
@@ -1102,6 +1363,7 @@ fn maze() -> Step {
             let mut new_edge = Vec::new();
             for &(y, x) in &edge {
                 for (dy, dx) in STEPS {
+                    // Open cells are never on the outer edge, so y + dy and x + dx can't be negative.
                     let p = ((y as i64 + dy) as usize, (x as i64 + dx) as usize);
                     if p.0 < HEIGHT && p.1 < w && wall[p.0 * w + p.1] == 0.0 && !dist.contains_key(&p) {
                         dist.insert(p, dist[&(y, x)] + 1);
@@ -1148,6 +1410,9 @@ fn maze() -> Step {
 }
 
 /// The outline of a sitting rabbit, drawn for a picture 18 wide and 34 tall.
+///
+/// (x, y) corners of a closed outline, going round once: ears at the top, the head, the back, the
+/// feet at the bottom. It is stretched sideways to the picture's width for other widths.
 const RABBIT: [(f64, f64); 31] = [
     (7.5, 11.0),
     (6.2, 5.0),
@@ -1182,25 +1447,35 @@ const RABBIT: [(f64, f64); 31] = [
     (4.8, 13.6),
 ];
 
+/// A complex number (real, imaginary), here also a point (x, y). Just the few operations the Fourier
+/// circles need, so no maths crate is needed.
 #[derive(Clone, Copy, Debug)]
 struct C(f64, f64);
 
 impl C {
+    /// Sum.
     fn add(self, o: C) -> C {
         C(self.0 + o.0, self.1 + o.1)
     }
+    /// Product: (a + bi)(c + di) = (ac - bd) + (ad + bc)i. Multiplying by `turn(angle)` rotates.
     fn mul(self, o: C) -> C {
         C(self.0 * o.0 - self.1 * o.1, self.0 * o.1 + self.1 * o.0)
     }
+    /// Length (distance from 0).
     fn abs(self) -> f64 {
         self.0.hypot(self.1)
     }
+    /// The unit complex number at `angle` radians, cos + i·sin (e^(i·angle)).
     fn turn(angle: f64) -> C {
         C(angle.cos(), angle.sin())
     }
 }
 
 /// n points evenly spaced along a closed outline.
+///
+/// The outline is closed by joining the last corner back to the first. Points are spaced by distance
+/// along it (not one per corner): `lengths` holds the running length at each corner, and each sample's
+/// distance is found on its segment and interpolated between that segment's two ends.
 fn outline(points: &[(f64, f64)], n: usize) -> Vec<C> {
     let mut pts = points.to_vec();
     pts.push(points[0]);
@@ -1222,6 +1497,14 @@ fn outline(points: &[(f64, f64)], n: usize) -> Vec<C> {
 }
 
 /// Spinning circles on spinning circles, whose tip draws the White Rabbit.
+///
+/// The maths: the outline, sampled as 256 complex numbers p_j, is written as a sum of circles,
+/// p_j = Σ c_k · e^(2πi·k·j/256), with c_k from the discrete Fourier transform. Each term is a
+/// circle of radius |c_k| turning k times per trip round the outline (negative k turns the other
+/// way); c_0 is the centre. Keeping only the 24 biggest circles still traces a recognisable rabbit.
+/// Each frame advances t one 220th of the way round: the circles are chained end to end at angle
+/// 2π·k·t, and the end of the chain is the pen. Circles larger than 0.6 LED and arms over 0.3 LED are
+/// drawn faintly; the drawn path stays. When done, the drawing is held 40 frames and starts again.
 fn epicycles() -> Step {
     const SAMPLES: usize = 256;
     const CIRCLES: usize = 24;
@@ -1232,6 +1515,7 @@ fn epicycles() -> Step {
     Box::new(move |g| {
         let w = g.width;
         let (order, centre) = setup.get_or_insert_with(|| {
+            // Worked out once per effect run: stretch the outline to the width, resample, transform.
             let scaled: Vec<(f64, f64)> = RABBIT.iter().map(|(x, y)| (x * w as f64 / 18.0, *y)).collect();
             let path = outline(&scaled, SAMPLES);
             // The discrete Fourier transform, done the slow way (256 points is quick enough)
@@ -1241,10 +1525,13 @@ fn epicycles() -> Step {
                     for (j, p) in path.iter().enumerate() {
                         sum = sum.add(p.mul(C::turn(-2.0 * PI * (k * j) as f64 / SAMPLES as f64)));
                     }
+                    // Coefficients past the halfway point stand for negative frequencies (k - 256),
+                    // which turn the other way; using the small signed frequency gives smooth circles.
                     let freq = if k < SAMPLES / 2 { k as i64 } else { k as i64 - SAMPLES as i64 };
                     (C(sum.0 / SAMPLES as f64, sum.1 / SAMPLES as f64), freq)
                 })
                 .collect();
+            // c_0 (frequency 0) is the outline's average point: the fixed centre of the first circle.
             let centre = coeffs[0].0;
             let mut order: Vec<(C, i64)> = coeffs.into_iter().filter(|(_, f)| *f != 0).collect();
             order.sort_by(|a, b| b.0.abs().total_cmp(&a.0.abs()));
@@ -1262,12 +1549,14 @@ fn epicycles() -> Step {
             for (c, freq) in order.iter() {
                 let r = c.abs();
                 if r > 0.6 {
+                    // Enough dots round the circle for its size (bigger circles get more).
                     let n = (r * 8.0) as usize + 6;
                     for i in 0..n {
                         let a = 2.0 * PI * i as f64 / n as f64;
                         splat(&mut img, pos.0 + r * a.cos(), pos.1 + r * a.sin(), 0.06);
                     }
                 }
+                // The next circle's centre: this circle's arm rotated to angle 2π·freq·t.
                 let next = pos.add(c.mul(C::turn(2.0 * PI * *freq as f64 * t)));
                 if r > 0.3 {
                     line(&mut img, pos.0, pos.1, next.0, next.1, 0.25);
@@ -1287,6 +1576,13 @@ fn epicycles() -> Step {
 
 /// Specks wander at random, drifting down, and freeze when they touch the frost, which grows up from
 /// the bottom edge in branches. Starts over when it nearly reaches the top.
+///
+/// This is diffusion-limited aggregation (DLA), the process behind frost and mineral branches. 14
+/// specks start in the top 6 rows; each moves one step at random (left/right wraps round, up/down stops
+/// at the edges) 3 times a frame, with a 15% chance per move of an extra step down. A speck next to
+/// (or diagonal to) a frozen cell freezes there, glows briefly (fading by 10% a frame to 0.5), and a
+/// new speck starts at the top. The frost starts as 2 cells in the middle of the bottom row. It starts
+/// over (after a 30-frame hold) once frost reaches row 3, or after 900 frames.
 fn frost() -> Step {
     const WALKERS: usize = 14;
     let mut stuck: Vec<bool> = Vec::new();
@@ -1314,6 +1610,7 @@ fn frost() -> Step {
         }
         for _ in 0..3 {
             for s in specks.iter_mut() {
+                // Random step of -1, 0 or +1 sideways (wrapping) and up/down (plus the drift).
                 s.0 = (s.0 as i64 + g.rng.range(-1, 2)).rem_euclid(w as i64) as usize;
                 let drift = if g.rng.random() < 0.15 { 1 } else { 0 };
                 s.1 = (s.1 as i64 + g.rng.range(-1, 2) + drift).clamp(0, HEIGHT as i64 - 1) as usize;
@@ -1328,6 +1625,7 @@ fn frost() -> Step {
             }
         }
         for (i, v) in glow.iter_mut().enumerate() {
+            // Fresh frost glows and fades to the steady 0.5 of old frost.
             *v = (*v * 0.9).max(if stuck[i] { 0.5 } else { 0.0 });
         }
         let mut img = Pic { w, v: glow.clone() };
@@ -1346,6 +1644,12 @@ fn frost() -> Step {
 
 /// The first digits of pi (3, 1, 4, 1, 5...), from Machin's formula worked out in fixed point, so no
 /// big-number library is needed.
+///
+/// Machin's formula: π = 16·arctan(1/5) - 4·arctan(1/239), with arctan(1/x) = 1/x - 1/(3x³) +
+/// 1/(5x⁵) - … Numbers are kept as fixed-point arrays of base-10⁹ "limbs" (9 decimal digits each,
+/// most significant first; limb 0 is the whole-number part), and only need division by a small
+/// number, addition and subtraction, each done limb by limb with carries like long division on paper.
+/// 10 extra digits are worked out and dropped, so rounding errors in the last limbs never show.
 pub fn pi_digits(count: usize) -> Vec<u8> {
     let digits = count + 10;
     let limbs = digits / 9 + 2;
@@ -1355,6 +1659,8 @@ pub fn pi_digits(count: usize) -> Vec<u8> {
         let mut sum = vec![0u64; limbs];
         let mut term = vec![0u64; limbs];
         term[0] = 1;
+        // Long division by a small number, from the most significant limb down. `rem * base + limb`
+        // can't overflow: rem < d, d is at most 239² = 57121, so the value stays under about 6·10¹³.
         let div = |v: &mut Vec<u64>, d: u64| {
             let mut rem = 0u64;
             for limb in v.iter_mut() {
@@ -1366,11 +1672,14 @@ pub fn pi_digits(count: usize) -> Vec<u8> {
         div(&mut term, x);
         let mut k = 0u64;
         loop {
+            // term = 1/x^(2k+1); part = term / (2k+1) is the k-th series term. Stop once it is zero
+            // at this precision.
             let mut part = term.clone();
             div(&mut part, 2 * k + 1);
             if part.iter().all(|l| *l == 0) {
                 break;
             }
+            // Even k adds, odd k subtracts (the series alternates).
             if k.is_multiple_of(2) {
                 let mut carry = 0;
                 for i in (0..limbs).rev() {
@@ -1401,6 +1710,7 @@ pub fn pi_digits(count: usize) -> Vec<u8> {
     for i in 0..limbs {
         pi[i] = 16 * a[i] as i64 - 4 * b[i] as i64;
     }
+    // Normalise: move each limb's overflow (or a negative value's borrow) into the limb above.
     for i in (1..limbs).rev() {
         let carry = pi[i].div_euclid(base as i64);
         pi[i] = pi[i].rem_euclid(base as i64);
@@ -1408,6 +1718,7 @@ pub fn pi_digits(count: usize) -> Vec<u8> {
     }
     let mut out = vec![pi[0] as u8];
     for limb in &pi[1..] {
+        // Each limb is exactly 9 digits, with leading zeros.
         let s = format!("{:09}", limb);
         out.extend(s.bytes().map(|b| b - b'0'));
     }
@@ -1416,6 +1727,11 @@ pub fn pi_digits(count: usize) -> Vec<u8> {
 }
 
 /// The first digits of e (2, 7, 1, 8, 2, 8...), by the spigot method.
+///
+/// e = 2 + 1/2!·(1 + 1/3·(1 + 1/4·(1 + …))): written in a "mixed radix" where position i counts in
+/// units of 1/(i+2), all its fractional digits are 1. Multiplying the fraction by 10 and carrying from
+/// the right end leftwards (each position keeps `value mod (i+2)` and passes on `value / (i+2)`) pushes
+/// the next decimal digit out on the left. 10 more positions than digits keep the carries exact.
 pub fn e_digits(count: usize) -> Vec<u8> {
     let mut a = vec![1u32; count + 10];
     let mut out = vec![2u8];
@@ -1433,6 +1749,11 @@ pub fn e_digits(count: usize) -> Vec<u8> {
 
 /// Digits stream down as bars, one digit per row. With both panels, pi is on the left (growing out
 /// from the keyboard) and e is on the right; with one panel it's just pi.
+///
+/// Each frame a new row appears at the top and the rows move down. Its bars are 0.6 bright and the
+/// newest row is shown at full brightness. With a picture 18 or more wide, π's bar grows leftwards from
+/// the middle and e's rightwards; narrower, only π from the left edge. Both digit lists (1000 digits
+/// each) are worked out once when the effect starts and then repeat.
 fn digits() -> Step {
     const COUNT: usize = 1000;
     let (pi, e) = (pi_digits(COUNT), e_digits(COUNT));
@@ -1445,6 +1766,7 @@ fn digits() -> Step {
             rows = (0..HEIGHT).map(|_| vec![0.0; w]).collect();
         }
         let mut row = vec![0.0; w];
+        // This frame's digits: bar lengths of 0 to 9 LEDs.
         let (p, d) = (pi[i % COUNT] as usize, e[i % COUNT] as usize);
         if half > 0 {
             for v in &mut row[half.saturating_sub(p)..half] {
@@ -1471,10 +1793,15 @@ fn digits() -> Step {
     })
 }
 
+/// The (across, up-down) frequency pairs, one figure each; the figure's shape depends on their ratio.
 const LISSAJOUS_RATIOS: [(f64, f64); 5] = [(1.0, 2.0), (3.0, 2.0), (3.0, 4.0), (5.0, 4.0), (1.0, 3.0)];
 
 /// A dot swinging side to side and up and down at different speeds, drawing a looping figure that
 /// slowly turns.
+///
+/// x = centre + rx·sin(a·t + shift), y = centre + ry·sin(b·t), with t going up 0.012 ten times a frame.
+/// `shift` grows slowly within each figure, which makes the figure appear to turn in 3D. Each ratio in
+/// `LISSAJOUS_RATIOS` is shown for 140 frames. The trail fades to 93% each frame.
 fn lissajous() -> Step {
     const FRAMES_EACH: usize = 140;
     let mut trail: Option<Pic> = None;
@@ -1485,6 +1812,7 @@ fn lissajous() -> Step {
         let trail = trail.get_or_insert_with(|| Pic::new(w));
         let (cx, cy) = ((w - 1) as f64 / 2.0, (HEIGHT - 1) as f64 / 2.0);
         let (rx, ry) = (cx - 0.3, cy - 0.3);
+        // Change figure every 140 frames; `shift` restarts at 0 for each.
         let (a, b) = LISSAJOUS_RATIOS[(n / FRAMES_EACH) % LISSAJOUS_RATIOS.len()];
         let shift = (n % FRAMES_EACH) as f64 * 0.012;
         *trail = trail.scaled(0.93);
@@ -1503,6 +1831,9 @@ fn lissajous() -> Step {
 }
 
 /// (name, maker, suggested steps per second, what it is)
+///
+/// The "More maths" list on the page, in its order. The speed is what the page's speed control is set
+/// to when the effect is chosen (frames a second); the text is shown under the list.
 pub const EFFECTS: [(&str, fn() -> Step, u32, &str); 11] = [
     (
         "Langton's Ant",
@@ -1542,15 +1873,18 @@ pub const EFFECTS: [(&str, fn() -> Step, u32, &str); 11] = [
     ("Lissajous curves", lissajous, 20, "A dot swinging two ways at once, drawing a looping figure that slowly turns."),
 ];
 
+/// Tests of the maths (known digits, rules on tiny grids) and that every animation runs at every width.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// The first `frames` pictures of an animation `width` wide, with a fixed seed.
     fn run(step: Step, width: usize, frames: usize) -> Vec<Pic> {
         let mut a = Anim::new(width, Rng::new(1), step);
         (0..frames).map(|_| a.next_frame()).collect()
     }
 
+    /// π and e digits match the known values, including the Feynman point six 9s.
     #[test]
     fn digits_are_right() {
         assert_eq!(pi_digits(12), vec![3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5, 8]);
@@ -1561,6 +1895,7 @@ mod tests {
         assert_eq!(e_digits(10), vec![2, 7, 1, 8, 2, 8, 1, 8, 2, 8]);
     }
 
+    /// The sine graph lights at least one LED in every row, and starts in the middle column at x = -2π.
     #[test]
     fn sine_graph_crosses_the_middle() {
         let f = Formula::parse("sin(x)").unwrap();
@@ -1572,6 +1907,7 @@ mod tests {
         assert_eq!(p.get(4, 0), FULL);
     }
 
+    /// tan's jumps are breaks: no row is lit all the way across.
     #[test]
     fn tangent_breaks_instead_of_drawing_a_wall() {
         let f = Formula::parse("tan(x)").unwrap();
@@ -1579,6 +1915,7 @@ mod tests {
         assert!((0..HEIGHT).all(|y| (0..18).filter(|x| p.get(*x, y) == FULL).count() < 18));
     }
 
+    /// A blinker (three in a row) flips upright and back; a 9 is refused as a count; traffic runs.
     #[test]
     fn life_blinker_and_traffic() {
         let w = 9;
@@ -1595,6 +1932,7 @@ mod tests {
         assert!(frames.iter().all(|f| f.w == 18));
     }
 
+    /// Rules 30 and 90 and totalistic code 3 give their textbook rows from a single cell.
     #[test]
     fn automata_rules() {
         let row = vec![0, 0, 0, 1, 0, 0, 0];
@@ -1603,6 +1941,7 @@ mod tests {
         assert_eq!(totalistic_step(&[0, 1, 0], 3), vec![1, 1, 1]);
     }
 
+    /// 50 lattice-gas steps, collisions and wall bounces included, keep every particle.
     #[test]
     fn gas_keeps_its_particles() {
         let mut g = Gen { rng: Rng::new(3), width: 18, note: None };
@@ -1615,6 +1954,8 @@ mod tests {
         assert_eq!(count(&grid), count(&next));
     }
 
+    /// Every effect, plus noise and the gap test, makes pictures of the right size at 9, 18 and 48
+    /// columns and isn't all dark; every Life and gas start and the other recipes run.
     #[test]
     fn every_animation_runs_at_every_width() {
         let mut steps: Vec<(String, fn() -> Step)> = EFFECTS.iter().map(|e| (e.0.to_string(), e.1)).collect();
