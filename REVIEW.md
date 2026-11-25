@@ -86,6 +86,54 @@ to find them again.
 8. **Each log line opens and closes the file.** Cheap at the monitor's rate of a few lines an hour,
    and it lets the user open or delete the log at any time.
 
+## Comment pass (second review step)
+
+After the first pass, comments were still thin inside the files (about 8% of lines; the first pass
+had added overviews to the crate roots only). A second pass added a header to every Rust file and a
+doc comment to every function, type, field and test, with notes inside function bodies on the maths,
+protocol bytes, threads, locks and Windows calls. It changed comments only: a script strips whole-line
+comments from each file and checks the rest is identical to before, and the full test suite and
+`clippy -D warnings` (Linux, and Windows for the Windows-only files) pass. Comment lines went from
+3,699 to about 13,000 (7.8% to 22.9% of all lines); the per-file table is in the pull request.
+
+### Found while commenting (not changed)
+
+These were noticed while reading every line. None is known to have caused a problem; they are listed
+so they can be fixed one at a time with a test each.
+
+1. **Possible crash in the layout editor** (`wr-window/src/pages/monitor/editor.rs`): a confirm or
+   info dialog is opened while the editor's state is borrowed (`on_revert`, and `save()` from Apply,
+   Start monitor and Swap). If the 0.2 s preview timer fires while that dialog is open, it borrows the
+   state again and panics, which ends the window.
+2. **Firmware flashing with a drive already present** (`wr-window/src/pages/firmware.rs`): if any
+   RPI-RP2 drive is already mounted, the file is copied to every such drive without restarting the
+   chosen panel, so with two panels ticked the copy may land on the other one.
+3. **Stopping a game or Math picture** (`pages/games.rs`, `pages/math.rs`) gives back only the panels
+   ticked now; one unticked after it started stays borrowed from the monitor until the window closes.
+4. **Keyboard paint mode read back** (`wr-keyboard/src/protocol.rs` `parse_paint_ctrl`): byte 0 is the
+   mode (0 steady, 1 follow, 2 tint) but is read as a yes/no, so "tint" reads back as "follow".
+5. **Tray window failure ends the monitor** (`wr-monitor/src/ui.rs`): if the hidden tray window can't
+   be created, `app::run` treats that as Quit, rather than carrying on without a tray.
+6. **Keyboard hold without a process id** (`wr-monitor/src/keyboard.rs`): stored as pid 0, which is
+   never "alive", so the monitor takes the keyboard back within about a second.
+7. **Byte slicing that could panic on non-ASCII text** in two Framework Control XML readers
+   (`wr-core/src/apps/temp_fan.rs` `framework_control_port`, `wr-window/src/external.rs`
+   `read_fc_port`). The file is written by Framework Control and is ASCII in practice.
+8. **No time limit on `framework_tool --pd-info`** (`wr-monitor/src/plugwin.rs`); `thermal.rs` kills
+   the same tool after 10 s.
+9. **Repeated log lines**: the PresentMon permission warning (`fps.rs`) and a failing OpenWeather call
+   (`weather.rs`) are logged on every 30 s retry. Whether an OpenWeather error message can contain the
+   request URL (and with it the API key) has not been checked.
+10. Smaller ones: a counter going down (adapter removed) gives a negative rate in `apps/rates.rs`; the
+    layout editor lists serial ports on the UI thread on each redraw of the panel cards; a capture
+    `release` without a matching `acquire` stops a shared recording (`wr-music/src/capture.rs`); the
+    Rabbit run game checks hits on whole rows, so on a slow frame at top speed a rock can pass through;
+    the flasher reports Done without checking the drive went away; `now_playing`'s "skip" setting acts
+    like the default (Python skips the app); two constants named `KEYBOARD_SIZE` hold different sizes.
+
+Comments that were wrong were corrected in the same pass (for example the Math formula header said
+1/0 gives NaN; it gives infinity).
+
 ## Stress testing
 
 What was run on Linux (the code is the same; only the Windows device layer is swapped for test
