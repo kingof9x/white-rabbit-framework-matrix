@@ -247,3 +247,108 @@ print("python client ok")
         );
     }
 }
+
+/// Fuzzing the control channel: whatever a client sends, the monitor answers or drops the connection,
+/// and never panics (a panic in the control thread would leave the window unable to reach it).
+#[cfg(test)]
+mod fuzz {
+    use super::*;
+    use std::collections::VecDeque;
+
+    struct Rng(u64);
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            self.0
+        }
+        fn bytes(&mut self, n: usize) -> Vec<u8> {
+            (0..n).map(|_| self.next() as u8).collect()
+        }
+    }
+
+    /// A client that sends `script` as its messages and records the monitor's replies.
+    struct Scripted {
+        script: VecDeque<Vec<u8>>,
+        sent: Vec<Vec<u8>>,
+    }
+
+    impl wire::MessageStream for Scripted {
+        fn send_message(&mut self, data: &[u8]) -> io::Result<()> {
+            self.sent.push(data.to_vec());
+            Ok(())
+        }
+        fn recv_message(&mut self, max: usize) -> io::Result<Vec<u8>> {
+            let m = self.script.pop_front().ok_or(io::ErrorKind::UnexpectedEof)?;
+            if m.len() > max {
+                return Err(io::ErrorKind::InvalidData.into());
+            }
+            Ok(m)
+        }
+    }
+
+    struct Echo;
+    impl Handler for Echo {
+        fn handle(&self, m: &Map<String, Value>) -> Result<Map<String, Value>, String> {
+            Ok(m.clone())
+        }
+    }
+
+    #[test]
+    fn garbage_handshakes_are_refused_without_panicking() {
+        let key = b"the key".to_vec();
+        let mut rng = Rng(0xA5A5_1234_5678_9ABC);
+        for _ in 0..5000 {
+            let mut messages = VecDeque::new();
+            for _ in 0..rng.next() % 4 {
+                let len = (rng.next() % 300) as usize;
+                let mut m = rng.bytes(len);
+                // Sometimes start like a real answer, so the parser goes further in
+                if rng.next().is_multiple_of(3) {
+                    m.splice(0..0, b"{sha256}".iter().copied());
+                }
+                messages.push_back(m);
+            }
+            let mut client = Scripted { script: messages, sent: vec![] };
+            let result = serve_connection(&mut client, &key, &Echo);
+            assert!(result.is_err(), "random bytes passed the handshake");
+            // Only the challenge (and maybe #FAILURE#) went out: no reply to an unproven client
+            assert!(client.sent.len() <= 2);
+        }
+    }
+
+    #[test]
+    fn random_requests_get_a_json_reply() {
+        let mut rng = Rng(0x0123_4567_89AB_CDEF);
+        let samples = [
+            r#"{"cmd": "serial", "port": "COM4", "writes": ["32ac"], "read": 32}"#,
+            r#"{"cmd": "preview", "frames": {"left": [[0, 255]]}, "seconds": 5}"#,
+            r#"{"cmd": "hold", "ports": ["COM4"], "pid": 1}"#,
+        ];
+        for i in 0..20_000 {
+            let request = if i % 2 == 0 {
+                let len = (rng.next() % 200) as usize;
+                rng.bytes(len)
+            } else {
+                let mut s = samples[i % 3].as_bytes().to_vec();
+                for _ in 0..1 + rng.next() % 5 {
+                    let at = (rng.next() as usize) % s.len();
+                    s[at] = rng.next() as u8;
+                }
+                s
+            };
+            let reply = reply_to(&Echo, &request);
+            assert!(reply.get("ok").is_some_and(Value::is_boolean), "{reply}");
+        }
+    }
+
+    #[test]
+    fn oversized_and_broken_frames_are_refused() {
+        // A 4-byte length saying 2 GB, a negative length, a short body: errors, not allocations or hangs
+        for bytes in [&b"\x7f\xff\xff\xff"[..], b"\xff\xff\xff\xfe", b"\x00\x00\x00\x10abc", b"\xff\xff\xff\xff\xff"] {
+            let mut framed = wire::Framed(VecDeque::from(bytes.to_vec()));
+            assert!(wire::MessageStream::recv_message(&mut framed, MAX_REQUEST).is_err());
+        }
+    }
+}

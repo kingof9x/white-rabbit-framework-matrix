@@ -426,4 +426,94 @@ mod tests {
         assert!(fx.effects().settings.learned_ports.is_empty());
         let _ = std::fs::remove_dir_all(dir);
     }
+
+    /// Every command, with random and odd fields: always a JSON reply with "ok", never a panic.
+    /// ("quit" and "keyboard" are left out: they reach the tray and the keyboard thread.)
+    #[test]
+    fn fuzzed_requests_always_get_a_reply() {
+        let (c, _, dir) = commands();
+        let mut seed = 0x5EED_0000_1234_5678u64;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let cmds = [
+            "status",
+            "brightness",
+            "reload",
+            "preview",
+            "resume",
+            "identify",
+            "music",
+            "effects",
+            "shortcuts",
+            "power",
+            "sensor_source",
+            "serial",
+            "serial_many",
+            "hold",
+            "frames",
+            "release",
+            "",
+            "STATUS",
+        ];
+        let keys = [
+            "action",
+            "port",
+            "ports",
+            "write",
+            "writes",
+            "read",
+            "timeout",
+            "reset_input",
+            "pid",
+            "frames",
+            "left",
+            "right",
+            "seconds",
+            "level",
+            "follow_screen",
+            "turn_off_with_lid",
+            "key",
+            "position",
+            "text",
+            "event",
+            "reload",
+        ];
+        let values = [
+            json!(null),
+            json!(true),
+            json!(-1),
+            json!(1e300),
+            json!(-1e300),
+            json!(0.5),
+            json!(4294967296u64),
+            json!(""),
+            json!("COM4"),
+            json!("zz"),
+            json!("32ac08"),
+            json!("on"),
+            json!("toggle"),
+            json!("left-back"),
+            json!([]),
+            json!(["COM4", 5, null]),
+            json!(["32ac", "zz"]),
+            json!([[0, 255, -3, 999]]),
+            json!([{"port": "COM5", "writes": ["32ac"]}, {"nope": 1}]),
+            json!({"left": [[1]], "right": "x"}),
+        ];
+        for _ in 0..3000 {
+            let mut m = Map::new();
+            m.insert("cmd".into(), json!(cmds[(next() % cmds.len() as u64) as usize]));
+            for _ in 0..next() % 5 {
+                let k = keys[(next() % keys.len() as u64) as usize];
+                m.insert(k.into(), values[(next() % values.len() as u64) as usize].clone());
+            }
+            let reply = ask(&c, Value::Object(m.clone()));
+            assert!(reply.get("ok").is_some_and(Value::is_boolean), "{m:?} -> {reply}");
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }
