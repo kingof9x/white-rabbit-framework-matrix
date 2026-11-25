@@ -25,7 +25,10 @@ use wr_panel::panel::{Panel, Panels};
 use wr_panel::ports::{Pins, PortInfo};
 use wr_panel::protocol;
 
+/// The counting allocator: forwards to the system allocator and keeps a running total in `LIVE`.
 struct Counting;
+/// Bytes allocated and not yet freed by the whole test binary (signed, so a realloc that shrinks can
+/// subtract). Counts requested sizes, not the allocator's own overhead.
 static LIVE: AtomicIsize = AtomicIsize::new(0);
 
 // SAFETY: passes every call straight to the system allocator, only counting the sizes.
@@ -39,11 +42,13 @@ unsafe impl GlobalAlloc for Counting {
         System.dealloc(ptr, layout)
     }
     unsafe fn realloc(&self, ptr: *mut u8, layout: AllocLayout, new_size: usize) -> *mut u8 {
+        // Counted as the change in size, whether the block grew or shrank.
         LIVE.fetch_add(new_size as isize - layout.size() as isize, Ordering::Relaxed);
         System.realloc(ptr, layout, new_size)
     }
 }
 
+/// Makes every allocation in this test binary go through `Counting`.
 #[global_allocator]
 static ALLOCATOR: Counting = Counting;
 
@@ -61,6 +66,7 @@ impl Port for Sink {
     }
 }
 
+/// Two panels that are always plugged in at the usual slots and never fail.
 struct TwoPanels;
 impl PortSystem for TwoPanels {
     fn list(&self) -> Vec<PortInfo> {
@@ -83,9 +89,11 @@ impl PortSystem for TwoPanels {
 /// Readings that change every pass, like a busy laptop.
 struct Changing(u64);
 impl Readings for Changing {
+    /// Eight cores whose load changes every pass.
     fn cpu_cores(&mut self) -> Vec<f64> {
         (0..8).map(|i| ((self.0 + i) % 100) as f64 / 100.0).collect()
     }
+    /// 30 history points, all known.
     fn cpu_history(&mut self) -> Vec<Option<f64>> {
         (0..30).map(|i| Some(((self.0 + i) % 100) as f64 / 100.0)).collect()
     }
@@ -95,9 +103,11 @@ impl Readings for Changing {
     fn battery(&mut self) -> Option<(f64, bool)> {
         Some(((self.0 % 100) as f64 / 100.0, self.0 % 200 < 100))
     }
+    /// A four-digit time and a blinking colon, changing every pass.
     fn clock(&mut self, _: &App) -> (String, bool) {
         (format!("{:04}", self.0 % 2400), self.0.is_multiple_of(2))
     }
+    /// Simulated seconds: 0.1 per pass.
     fn now(&mut self) -> f64 {
         self.0 as f64 * 0.1
     }
@@ -109,6 +119,8 @@ impl Readings for Changing {
     }
 }
 
+/// Proves that the main loop's drawing path, run for tens of thousands of passes, keeps a flat memory
+/// use after its warm-up (less than 16 kB of growth).
 #[test]
 fn the_drawing_path_does_not_grow() {
     let layout = Layout::parse(include_str!("../../../led_mon/config.yaml")).expect("bundled layout");
@@ -120,6 +132,8 @@ fn the_drawing_path_does_not_grow() {
     let mut readings = Changing(0);
 
     // One pass of the main loop, at simulated time `t` seconds (10 passes a second, as the monitor)
+    // Note: the effects overlay keeps real time (its own `Instant`), not this simulated time, so the
+    // ripples and messages started below may still be playing when the next ones start.
     let mut pass = |i: u64| {
         let t = i as f64 * 0.1;
         readings.0 = i;
@@ -136,7 +150,9 @@ fn the_drawing_path_does_not_grow() {
             let mut grid = Grid::new();
             readings.set_panel(side == 1);
             let animate = render_panel_on(&mut grid, &apps, &mut readings, fg, bg, ["left", "right"][side]);
+            // The scroll setting is only sent when that side's app changed, as the monitor does.
             let scroll = [changed.left, changed.right][side].then_some(animate);
+            // Called directly, without the drawing threads, so the whole pass runs on this one thread.
             panel.handle(Item::Frame(grid, scroll));
         }
     };
@@ -146,6 +162,7 @@ fn the_drawing_path_does_not_grow() {
     for i in 0..warm_up {
         pass(i);
     }
+    // Measured with no other thread running, so the number is only this test's allocations.
     let after_warm_up = LIVE.load(Ordering::Relaxed);
     // 25,000 passes (about 40 minutes of the monitor's main loop, in simulated time) in CI;
     // WR_MEMORY_PASSES=500000 runs about 14 hours' worth (7 minutes on a debug build)
