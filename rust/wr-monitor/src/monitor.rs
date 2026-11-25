@@ -172,6 +172,8 @@ pub struct Monitor {
     /// The side showed a preview on the last frame.
     previewed: [bool; 2],
     last_check: Instant,
+    /// settings.json's size and change time when it was last read: it is read again only when they change.
+    settings_stamp: Option<(u64, SystemTime)>,
     /// What each panel last showed from its apps, for the old-TV switch-off.
     last_grids: [Option<Grid>; 2],
     low_battery: LowBattery,
@@ -249,6 +251,7 @@ impl Monitor {
             music_settings: None,
             previewed: [false; 2],
             last_check: Instant::now(),
+            settings_stamp: None,
             last_grids: [None, None],
             low_battery: LowBattery::default(),
         }
@@ -281,7 +284,13 @@ impl Monitor {
         if self.source.changed() {
             self.reload();
         }
-        *self.shared.settings.lock().unwrap() = Settings::load(&crate::paths::settings_file());
+        // Parse settings.json only when it changed (it used to be parsed every second regardless)
+        let file = crate::paths::settings_file();
+        let stamp = std::fs::metadata(&file).ok().and_then(|m| Some((m.len(), m.modified().ok()?)));
+        if stamp.is_none() || stamp != self.settings_stamp {
+            self.settings_stamp = stamp;
+            *self.shared.settings.lock().unwrap() = Settings::load(&file);
+        }
     }
 
     /// One pass of the loop. Returns how long to wait before the next one.
