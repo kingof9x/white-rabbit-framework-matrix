@@ -1,0 +1,679 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How White Rabbit works</title>
+<meta name="description" content="How White Rabbit works, for power users and sysadmins who don't write code (yet): two programs, a named pipe, COM ports and 306 numbers per panel. Each part has a 'Go deeper' button that shows the real Rust code.">
+<meta property="og:title" content="How White Rabbit works: down the rabbit hole">
+<meta property="og:description" content="A tour of the White Rabbit app, from what you see down to the real code.">
+<meta property="og:image" content="site/screens/home.jpg">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 9'%3E%3Crect width='9' height='9' rx='2' fill='%23111'/%3E%3Cg fill='%23fff'%3E%3Ccircle cx='3' cy='2' r='.8'/%3E%3Ccircle cx='3' cy='3.5' r='.8'/%3E%3Ccircle cx='6' cy='2' r='.8'/%3E%3Ccircle cx='6' cy='3.5' r='.8'/%3E%3Ccircle cx='4.5' cy='6' r='1.8'/%3E%3C/g%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#0c0d10; --bg2:#14161b; --card:#181b21; --line:#2a2e37;
+  --text:#eceef2; --muted:#9aa1ad; --led:#ffffff; --led-off:#262a31;
+  --accent:#f2f2f2; --accent-ink:#0c0d10; --link:#c9d4ff;
+  --radius:14px; --max:1100px;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);
+  font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--link)}
+img{max-width:100%;display:block}
+.wrap{max-width:var(--max);margin:0 auto;padding:0 20px}
+code,kbd{font-family:ui-monospace,Consolas,monospace;font-size:.9em}
+kbd{background:var(--bg2);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 6px}
+
+/* nav */
+nav{position:sticky;top:0;z-index:10;background:rgba(12,13,16,.85);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+nav .wrap{display:flex;align-items:center;gap:20px;height:58px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;color:var(--text);text-decoration:none;white-space:nowrap}
+.brand svg{width:26px;height:26px}
+nav ul{display:flex;gap:18px;list-style:none;margin:0 0 0 auto;padding:0}
+nav ul a{color:var(--muted);text-decoration:none;font-size:15px}
+nav ul a:hover{color:var(--text)}
+.brand .sub{font-weight:400;opacity:.7;margin:0;color:inherit}
+@media (max-width:720px){nav ul li.opt{display:none}}
+@media (max-width:900px){.brand .sub{display:none}}
+
+/* LED dot texture */
+.dots{background-image:radial-gradient(circle,var(--led-off) 1.6px,transparent 2px);background-size:14px 14px}
+
+/* hero */
+.hero{padding:72px 0 56px;border-bottom:1px solid var(--line)}
+.hero .wrap{display:grid;grid-template-columns:1.3fr 1fr;gap:48px;align-items:center}
+@media (max-width:860px){.hero .wrap{grid-template-columns:1fr}.hero-art{order:-1}}
+.eyebrow{color:var(--muted);letter-spacing:.12em;text-transform:uppercase;font-size:13px;margin:0 0 12px}
+h1{font-size:clamp(36px,6vw,60px);line-height:1.05;margin:0 0 18px;letter-spacing:-.02em}
+.lead{font-size:19px;color:#cfd3da;margin:0 0 28px;max-width:34em}
+.btns{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:16px}
+.btn{display:inline-flex;align-items:center;gap:10px;padding:13px 20px;border-radius:10px;font-weight:600;text-decoration:none;border:1px solid var(--line);color:var(--text);background:var(--card)}
+.btn:hover{border-color:#4a505c}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.primary:hover{background:#fff}
+.btn small{font-weight:400;opacity:.7}
+.fine{color:var(--muted);font-size:14px;margin:0}
+.hero-art{display:flex;justify-content:center;gap:18px}
+.hero-art figure{margin:0;text-align:center}
+.panelpair{border-radius:18px;background:#0a0b0d;padding:10px;box-shadow:0 0 0 1px var(--line),0 30px 80px -30px rgba(255,255,255,.15)}
+.panelpair img{width:240px;image-rendering:auto}
+.hero-art figcaption{color:var(--muted);font-size:13px;margin-top:10px}
+
+/* sections */
+section{padding:72px 0;border-bottom:1px solid var(--line)}
+h2{font-size:32px;margin:0 0 10px;letter-spacing:-.01em}
+.sub{color:var(--muted);margin:0 0 36px;max-width:44em}
+
+/* what's new */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin:0 0 28px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:22px}
+.stat b{display:block;font-size:40px;line-height:1.1;letter-spacing:-.02em}
+.stat span{color:var(--muted);font-size:14px}
+.stat.hi{border-color:#5a606c}
+.newlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px 28px;padding:0;margin:0;list-style:none}
+.newlist li{padding-left:18px;position:relative;color:#cfd3da}
+.newlist li::before{content:"";position:absolute;left:0;top:.65em;width:7px;height:7px;border-radius:50%;background:var(--led)}
+
+/* why */
+.why{display:grid;grid-template-columns:1fr 1fr;gap:28px;align-items:center}
+@media (max-width:820px){.why{grid-template-columns:1fr}}
+.why p{margin:0 0 14px;color:#cfd3da}
+.flow{display:flex;flex-direction:column;gap:10px}
+.flow div{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 16px}
+.flow b{display:block}
+.flow span{color:var(--muted);font-size:14px}
+
+/* features */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:22px}
+.card h3{margin:0 0 8px;font-size:18px;display:flex;align-items:center;gap:10px}
+.card p{margin:0;color:var(--muted);font-size:15px}
+.ico{width:22px;height:22px;flex:none}
+
+/* gallery */
+.tabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px}
+.tabs button{font:inherit;font-size:14px;background:var(--card);color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:7px 14px;cursor:pointer}
+.tabs button[aria-selected="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.shot{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:10px}
+.shot img{border-radius:8px;width:100%}
+.shot p{color:var(--muted);font-size:14px;margin:10px 6px 4px}
+
+/* panel gifs */
+.reel{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:16px}
+.reel figure{margin:0;background:#0a0b0d;border:1px solid var(--line);border-radius:12px;padding:10px;text-align:center}
+.reel img{margin:0 auto;height:200px;width:auto}
+.reel figcaption{color:var(--muted);font-size:13px;margin-top:8px}
+.reel .tag{display:block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#6f7682}
+
+/* install */
+.steps{counter-reset:s;list-style:none;padding:0;margin:0;display:grid;gap:14px;max-width:820px}
+.steps li{counter-increment:s;position:relative;padding:16px 18px 16px 62px;background:var(--card);border:1px solid var(--line);border-radius:12px}
+.steps li::before{content:counter(s);position:absolute;left:18px;top:14px;width:30px;height:30px;border-radius:50%;background:var(--accent);color:var(--accent-ink);font-weight:700;display:grid;place-items:center}
+.downloads{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin:0 0 32px}
+.dl{display:block;text-decoration:none;color:var(--text);background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px}
+.dl:hover{border-color:#4a505c}
+.dl b{display:block;font-family:ui-monospace,Consolas,monospace;font-size:15px}
+.dl span{color:var(--muted);font-size:14px}
+
+/* faq */
+details{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 18px;margin-bottom:10px;max-width:820px}
+summary{cursor:pointer;font-weight:600}
+details p{color:#cfd3da;margin:10px 0 0}
+
+/* support */
+.support{display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:space-between;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:26px}
+.support p{margin:0;color:#cfd3da;max-width:36em}
+
+footer{padding:36px 0 48px;color:var(--muted);font-size:14px}
+footer .wrap{display:flex;flex-wrap:wrap;gap:12px 28px;justify-content:space-between}
+footer a{color:var(--muted)}
+
+/* how-it-works page */
+.depth{position:fixed;right:14px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:7px;z-index:5}
+.depth a{width:7px;height:7px;border-radius:50%;background:var(--led-off);display:block}
+.depth a.on{background:var(--led)}
+@media (max-width:1180px){.depth{display:none}}
+.level{padding:64px 0}
+.levelbody{display:grid;gap:28px;align-items:start}
+.levelbody.withimg{grid-template-columns:1.1fr 1fr}
+@media (max-width:860px){.levelbody.withimg{grid-template-columns:1fr}}
+.levelbody p{color:#cfd3da;margin:0 0 16px;max-width:42em}
+.analogy{background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:12px 16px}
+.analogy b{font-family:ui-monospace,Consolas,monospace;font-size:13px;color:var(--link);margin-right:8px}
+.deeper{margin-top:26px;background:transparent;border:0;padding:0;max-width:none}
+.deeper>summary{list-style:none;display:inline-flex;align-items:center;gap:12px;padding:12px 20px;border-radius:10px;background:var(--accent);color:var(--accent-ink);font-weight:600}
+.deeper>summary::-webkit-details-marker{display:none}
+.deeper>summary::after{content:"\2193";font-weight:700}
+.deeper[open]>summary::after{content:"\2191"}
+.deeper>summary small{font-weight:400;opacity:.65}
+@media (max-width:600px){.deeper>summary small{display:none}}
+.deep{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:24px;margin-top:16px}
+.deep h3{margin:0 0 10px;font-size:22px}
+.deep>p{color:#cfd3da;margin:0 0 18px;max-width:48em}
+.codewrap{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:22px;align-items:start}
+@media (max-width:900px){.codewrap{grid-template-columns:1fr}}
+figure.code{margin:0;background:#0a0b0d;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+figure.code figcaption{font-family:ui-monospace,Consolas,monospace;font-size:12px;color:var(--muted);padding:10px 14px;border-bottom:1px solid var(--line)}
+figure.code pre{margin:0;padding:12px 14px 14px 6px;overflow-x:auto;font:13px/1.55 ui-monospace,Consolas,monospace;color:var(--text)}
+.ln{display:block;white-space:pre;position:relative;padding-left:28px}
+.ln i{position:absolute;left:0;top:1px;display:grid;place-items:center;width:18px;height:18px;border-radius:50%;font:700 11px/1 system-ui,sans-serif;font-style:normal}
+.ln i:not(:empty){background:var(--accent);color:var(--accent-ink)}
+.k{color:var(--link);font-weight:600}.s{color:#e4d9b4}.c{color:#6f7682}
+ol.points{list-style:none;counter-reset:p;margin:0;padding:0;display:grid;gap:14px}
+ol.points li{counter-increment:p;position:relative;padding-left:34px}
+ol.points li::before{content:counter(p);position:absolute;left:0;top:1px;width:22px;height:22px;border-radius:50%;background:var(--accent);color:var(--accent-ink);font-weight:700;font-size:12px;display:grid;place-items:center}
+ol.points b{display:block}
+ol.points span{color:var(--muted);font-size:14px}
+ol.frame{list-style:none;counter-reset:f;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}
+ol.frame li{counter-increment:f;background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+ol.frame li b::before{content:counter(f) "  ";color:var(--muted)}
+ol.frame b{display:block}
+ol.frame code{color:var(--muted);font-size:12px}
+.crates{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-top:16px}
+.crates div{background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.crates div.hi{border-color:#5a606c}
+.crates span{display:block;color:var(--muted);font-size:14px}
+.exchange{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px}
+@media (max-width:700px){.exchange{grid-template-columns:1fr}}
+.exchange div{background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.exchange pre{margin:8px 0 0;font:13px/1.5 ui-monospace,Consolas,monospace;color:#e4d9b4;white-space:pre-wrap}
+table.phrase{width:100%;border-collapse:collapse;font-size:14px}
+table.phrase th{text-align:left;color:var(--muted);font-weight:600;padding:8px 10px;border-bottom:1px solid var(--line)}
+table.phrase td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+table.phrase td:first-child{font-family:ui-monospace,Consolas,monospace;color:var(--link);white-space:nowrap}
+table.phrase td:last-child{font-family:ui-monospace,Consolas,monospace;color:#e4d9b4}
+.tablewrap{overflow-x:auto}
+.bottom .grid .card a{color:var(--text)}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="index.html">
+      <svg viewBox="0 0 9 9" aria-hidden="true"><rect width="9" height="9" rx="2" fill="#1d2027"/><g fill="#fff"><circle cx="3" cy="2" r=".8"/><circle cx="3" cy="3.5" r=".8"/><circle cx="6" cy="2" r=".8"/><circle cx="6" cy="3.5" r=".8"/><circle cx="4.5" cy="6" r="1.8"/></g></svg>
+      White Rabbit <span class="sub">- How it works</span>
+    </a>
+    <ul>
+      <li class="opt"><a href="#level-1">The tour</a></li>
+      <li class="opt"><a href="#phrasebook">Reading Rust</a></li>
+      <li><a href="site/how/how-white-rabbit-works.pptx">Slides</a></li>
+      <li><a href="index.html">Home</a></li>
+      <li class="opt"><a href="https://github.com/kingof9x/white-rabbit-framework-matrix">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<nav class="depth" aria-label="How deep you are"><a href="#level-1" title="What you actually see"></a><a href="#level-2" title="Meet the hardware"></a><a href="#level-3" title="The map of the rabbit hole"></a><a href="#level-4" title="WhiteRabbit.exe: a service in disguise"></a><a href="#level-5" title="The window is just the console"></a><a href="#level-6" title="Only one program may hold a COM port"></a><a href="#level-7" title="Speaking panel: bytes down a serial line"></a><a href="#level-8" title="Which panel is the left one?"></a><a href="#level-9" title="System monitor: perfmon on 306 LEDs"></a><a href="#level-10" title="Audio reactivity: a graphic equaliser"></a><a href="#level-11" title="Everything is a 9 × 34 picture"></a><a href="#level-12" title="The keyboard and macropad"></a><a href="#level-13" title="Inside the panel: the firmware"></a><a href="#level-14" title="Updating firmware without a screwdriver"></a><a href="#level-15" title="Why rewrite it all in Rust?"></a><a href="#level-16" title="The sysadmin's cheat sheet"></a><a href="#level-17" title="From idea to installer"></a><a href="#bottom" title="The bottom"></a></nav>
+
+<header class="hero dots" id="top">
+  <div class="wrap" style="grid-template-columns:1fr">
+    <div>
+      <p class="eyebrow">How it works</p>
+      <h1>How deep does the rabbit hole go?</h1>
+      <p class="lead">A tour of White Rabbit for people who run computers but don't (yet) write code for them. If you've restarted a service, poked around Device Manager or tidied up startup entries in Task Manager, you already know most of the ideas. Each part has a <b>Go deeper</b> button that opens the real code behind it, with plain-English notes.</p>
+      <div class="btns">
+        <a class="btn primary" href="#level-1">Start at the top</a>
+        <a class="btn" href="#phrasebook">New to Rust? Read this first</a>
+        <a class="btn" href="site/how/how-white-rabbit-works.pptx">Download the slides <small>.pptx, 41 slides</small></a>
+      </div>
+      <p class="fine">About 47,000 lines of Rust in 6 crates, with 334 automated tests. Snippets are trimmed to fit (cut lines show as <code>...</code>), but nothing is made up.</p>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<section id="phrasebook">
+  <div class="wrap">
+    <p class="eyebrow">Before you dig</p>
+    <h2>Reading Rust in two minutes</h2>
+    <p class="sub">Before the code, a phrasebook. If you've written PowerShell scripts you already know most of these ideas; Rust just spells them differently. fn is function. let makes a variable, and it can't change unless you say mut. A struct is a record with named fields, like a PSCustomObject. match is switch. The two ideas that are really Rust are Option and Result. Option means 'there might be nothing here' and Rust makes you check before you use it, which wipes out null-reference crashes. Result means 'this might have failed', and the question mark means: if it failed, stop here and pass the error up, like a throw. Arc and Mutex are how threads share data safely: a shared object with a lock on it.</p>
+    <div class="tablewrap"><table class="phrase"><thead><tr><th>Rust</th><th>What it means</th><th>PowerShell-ish</th></tr></thead><tbody>
+      <tr><td>fn draw(grid: &amp;mut Grid)</td><td>a function; &amp;mut = may change it</td><td>function Draw($Grid)</td></tr>
+      <tr><td>let x = 5;  let mut y = 0;</td><td>a variable; mut = allowed to change</td><td>$x = 5</td></tr>
+      <tr><td>struct Grid { v: ... }</td><td>a record with named fields</td><td>[PSCustomObject]@{...}</td></tr>
+      <tr><td>match cmd { &quot;status&quot; =&gt; ... }</td><td>pick a branch by value</td><td>switch ($cmd) { ... }</td></tr>
+      <tr><td>Option: Some(x) / None</td><td>maybe nothing; must be checked</td><td>if ($x -ne $null)</td></tr>
+      <tr><td>Result: Ok(x) / Err(e), and ?</td><td>may fail; ? = pass the error up</td><td>try { } / throw</td></tr>
+      <tr><td>Arc&lt;Mutex&lt;T&gt;&gt;</td><td>shared between threads, with a lock</td><td>a synchronized hashtable</td></tr>
+      <tr><td>thread::spawn(move || ...)</td><td>run this on its own thread</td><td>Start-ThreadJob { }</td></tr>
+    </tbody></table></div>
+  </div>
+</section>
+
+<section class="level" id="level-1" data-depth="1">
+  <div class="wrap">
+    <p class="eyebrow">LEVEL 1 · THE SURFACE</p>
+    <h2>What you actually see</h2>
+    <div class="levelbody withimg">
+      <div><p>Before we open anything up, here is what the app does from the outside. The two LED panels, one each side of the keyboard, become little screens: a system monitor, a clock, an audio visualizer, games, maths animations, your own drawings. The RGB keyboard and macropad get lighting effects and key mapping. And there's a tray icon by the clock that you can right-click. That's the whole user-facing story. Everything else on this page is about how that happens.</p></div>
+      <figure class="shot"><img src="screenshots/panel-apps.png" alt="Five of the panel apps, drawn exactly as the panels show them"><p>Five of the panel apps, drawn exactly as the panels show them</p></figure>
+    </div>
+    <details class="deeper">
+      <summary><span>Go deeper: show me the code</span><small>real code, with notes</small></summary>
+      <article class="deep" id="code-22">
+      <h3>The life of one frame</h3>
+      <p>Here's the whole journey of one picture, start to finish, with the file that does each step. Ten times a second, the main loop wakes up. It reads numbers from Windows, like how much memory is in use. Each app draws itself into a 9 by 34 grid. The grid goes into a queue that only ever keeps the newest frame, so a slow panel never falls behind and shows old data. The panel's own drawing thread picks it up, adds any effects on top, turns it into bytes, and writes them to the COM port. Inside the panel, the firmware stages each column and then shows them all at once. The rest of the page takes each of these steps apart.</p>
+      <ol class="frame"><li><b>Read Windows</b><code>sensors.rs</code></li><li><b>Main loop, 10× a second</b><code>monitor.rs</code></li><li><b>App draws a 9×34 grid</b><code>render.rs, apps/</code></li><li><b>Newest-only queue</b><code>queue.rs</code></li><li><b>Effects on top</b><code>effects.rs</code></li><li><b>Grid → bytes</b><code>protocol.rs</code></li><li><b>Bytes → COM port</b><code>panel.rs, hub.rs</code></li><li><b>Firmware lights the LEDs</b><code>ledmatrix/src/main.rs</code></li></ol>
+      
+      
+    </article>
+    </details>
+  </div>
+</section>
+
+<section class="level" id="level-2" data-depth="2">
+  <div class="wrap">
+    <p class="eyebrow">LEVEL 2 · THE IRON</p>
+    <h2>Meet the hardware</h2>
+    <div class="levelbody">
+      <div><p>Each LED panel is not just a bunch of lights: it is a tiny computer of its own, built around a Raspberry Pi RP2040 chip, the same chip as a Raspberry Pi Pico. When you plug it in, Windows sees it as a USB serial port, a COM port, exactly like a USB-to-serial console cable you'd use on a switch. Its USB ID is 32AC:0020: 32AC is Framework's vendor number. The keyboard and macropad are different: they show up as HID devices, the same class as any keyboard or mouse, and they run QMK, a popular open-source keyboard firmware. The laptop itself is the third piece: Windows supplies all the numbers that end up on the panels.</p><p class="analogy"><b>Sysadmin translation</b> A panel is a serial console; the keyboard is a HID device.</p></div>
+      
+    </div>
+    <details class="deeper">
+      <summary><span>Go deeper: show me the code</span><small>real code, with notes</small></summary>
+      <article class="deep" id="code-23">
+      <h3>How the code recognises each device</h3>
+      <p>Everything the app knows about the hardware starts with a few constants. The LED panel's USB vendor and product IDs are 32AC and 0020, exactly what you'd see in Device Manager under the device's hardware IDs. The keyboard and macropad share Framework's vendor ID with their own product IDs, and White Rabbit talks to them on usage page FF60, the private VIA channel, in 32-byte reports. Then a one-line rule decides whether a COM port is a panel: either its IDs match, or Windows describes it as an LED Matrix Input Module. In Rust, u16 just means a 16-bit number, and the 0x prefix means hexadecimal.</p>
+      
+      <div class="codewrap"><figure class="code"><figcaption>protocol.rs (panel and keyboard)  ·  ports.rs</figcaption><pre><code><span class="ln"><i>1</i><span class="k">pub</span> <span class="k">const</span> LED_MATRIX_VID: u16 = 0x32AC;</span><span class="ln"><i></i><span class="k">pub</span> <span class="k">const</span> LED_MATRIX_PID: u16 = 0x0020;</span><span class="ln"><i></i><span class="k">pub</span> <span class="k">const</span> BAUD_RATE: u32 = 115_200;</span><span class="ln"><i></i> </span><span class="ln"><i>2</i><span class="k">pub</span> <span class="k">const</span> PID_KEYBOARD: u16 = 0x0012;</span><span class="ln"><i></i><span class="k">pub</span> <span class="k">const</span> PID_MACROPAD: u16 = 0x0013;</span><span class="ln"><i></i><span class="k">pub</span> <span class="k">const</span> RAW_USAGE_PAGE: u16 = 0xFF60;</span><span class="ln"><i></i><span class="k">pub</span> <span class="k">const</span> REPORT_LEN: usize = 32;</span><span class="ln"><i></i> </span><span class="ln"><i>3</i><span class="k">pub</span> <span class="k">fn</span> is_led_matrix_port(port: &amp;PortInfo) -&gt; bool {</span><span class="ln"><i></i>    (port.vid == <span class="k">Some</span>(LED_MATRIX_VID)</span><span class="ln"><i></i>        &amp;&amp; port.pid == <span class="k">Some</span>(LED_MATRIX_PID))</span><span class="ln"><i></i>    || port.description</span><span class="ln"><i></i>        .contains(<span class="s">&quot;LED Matrix Input Module&quot;</span>)</span><span class="ln"><i></i>}</span></code></pre></figure><ol class="points"><li><b>The panel's ID card</b><span>Framework's USB vendor ID and the LED Matrix product ID: the same values Device Manager shows.</span></li><li><b>The keyboard's</b><span>Same vendor, its own product IDs. FF60 is the private VIA channel next to the typing one.</span></li><li><b>Is this COM port a panel?</b><span>Yes if the IDs match, or if Windows' description says so. Some(...) means 'there is a value'.</span></li></ol></div>
+      
+    </article>
+    </details>
+  </div>
+</section>
+
+<section class="level" id="level-3" data-depth="3">
+  <div class="wrap">
+    <p class="eyebrow">LEVEL 3 · THE BIG PICTURE</p>
+    <h2>The map of the rabbit hole</h2>
+    <div class="levelbody">
+      <div><p>This is the one picture to remember. There are two programs. WhiteRabbit.exe is always running: it owns the panels and the keyboard, reads the numbers from Windows, and draws. WhiteRabbitWindow.exe is the settings window, and it only exists while you have it open. The two talk over a named pipe, which is Windows' built-in way for two programs on the same PC to pass messages. Both read and write the same settings files in your AppData folder. Out to the right are the devices: two panels on COM ports and the keyboard and macropad over HID. Each device runs its own firmware, which is the code inside the hardware.</p><p class="analogy"><b>Sysadmin translation</b> A service plus its console, driving devices on COM ports.</p></div>
+      
+    </div>
+    <details class="deeper">
+      <summary><span>Go deeper: show me the code</span><small>real code, with notes</small></summary>
+      <article class="deep" id="code-24">
+      <h3>Six crates, two programs</h3>
+      <p>The code is split into six crates. A crate is Rust's word for a package or module, a bit like a DLL except it's built into the exe rather than shipped beside it. Two of them become programs: wr-monitor builds WhiteRabbit.exe, and wr-window builds WhiteRabbitWindow.exe. The other four are libraries both programs share. wr-core holds all the drawing and has no Windows code at all, which is why it can be tested on Linux. wr-panel knows how to talk to the panels, wr-music does the audio analysis, and wr-keyboard talks to the keyboard. Because the window uses the same wr-core as the monitor, the preview in the window is drawn by exactly the same code as the real panels.</p>
+      
+      <div class="codewrap"><figure class="code"><figcaption>rust/Cargo.toml</figcaption><pre><code><span class="ln"><i></i>[workspace]</span><span class="ln"><i></i>members = [<span class="s">&quot;wr-core&quot;</span>, <span class="s">&quot;wr-panel&quot;</span>, <span class="s">&quot;wr-monitor&quot;</span>,</span><span class="ln"><i></i>           <span class="s">&quot;wr-music&quot;</span>, <span class="s">&quot;wr-window&quot;</span>, <span class="s">&quot;wr-keyboard&quot;</span>]</span></code></pre></figure></div>
+      <div class="crates">
+    <div class="hi"><code>wr-monitor</code> → <b>WhiteRabbit.exe</b><span>tray, main loop, Windows readings, the pipe</span></div>
+    <div class="hi"><code>wr-window</code> → <b>WhiteRabbitWindow.exe</b><span>every page of the window (Slint UI)</span></div>
+    <div><code>wr-core</code><span>drawing, layout, settings. No Windows code</span></div>
+    <div><code>wr-panel</code><span>panel protocol, finding ports, drawing threads</span></div>
+    <div><code>wr-music</code><span>sound capture and the FFT</span></div>
+    <div><code>wr-keyboard</code><span>HID protocol and the lighting engine</span></div>
+  </div>
+    </article>
+    </details>
+  </div>
+</section>
+
+<section class="level" id="level-4" data-depth="4">
+  <div class="wrap">
+    <p class="eyebrow">LEVEL 4 · THE ALWAYS-ON PART</p>
+    <h2>WhiteRabbit.exe: a service in disguise</h2>
+    <div class="levelbody">
+      <div><p>WhiteRabbit.exe behaves a lot like a Windows service, even though technically it's a normal program with a tray icon. It starts at login from the Run key in the registry, which is the same list you see in Task Manager's Startup tab, and if you disable it there, White Rabbit respects that. It uses a mutex, a system-wide 'I'm already running' flag, so a second copy can't start and fight over the panels. It keeps both COM ports open the whole time, draws every frame, watches the lid and sleep events, and listens for the Ctrl+Alt+Shift shortcuts. All of that in about 6 megabytes.</p></div>
+      
+    </div>
+    <details class="deeper">
+      <summary><span>Go deeper: show me the code</span><small>2 parts</small></summary>
+      <article class="deep" id="code-25">
+      <h3>Startup, line by line</h3>
+      <p>This is the start of WhiteRabbit.exe, trimmed. First it checks the single-instance lock: if a copy is already running, this one just opens the window and quits. Next it looks for the panels. At sign-in, USB devices can still be appearing, so it tries up to 15 times, two seconds apart. Then it starts one drawing thread per panel, so each panel gets its own worker and a slow one can't hold up the other. It opens the control pipe for the window, starts the main loop on its own thread, and finally hands the main thread to the tray icon, which runs until you click Quit. That's a pattern you'll recognise from services: initialise, spin up workers, then wait for a stop signal.</p>
+      
+      <div class="codewrap"><figure class="code"><figcaption>wr-monitor/src/app.rs  (trimmed)</figcaption><pre><code><span class="ln"><i></i><span class="k">pub</span> <span class="k">fn</span> run() -&gt; i32 {</span><span class="ln"><i>1</i>    <span class="k">if</span> !ui::single_instance() {</span><span class="ln"><i></i>        launch::open_window(&amp;[<span class="s">&quot;--window&quot;</span>]);</span><span class="ln"><i></i>        <span class="k">return</span> 0;</span><span class="ln"><i></i>    }</span><span class="ln"><i></i>    <span class="k">let</span> <span class="k">mut</span> found = discover(&amp;ports.list(), &amp;pins);</span><span class="ln"><i>2</i>    <span class="k">for</span> _ <span class="k">in</span> 0..15 {</span><span class="ln"><i></i>        <span class="k">if</span> !found.is_empty() { break; }</span><span class="ln"><i></i>        std::thread::sleep(Duration::from_secs(2));</span><span class="ln"><i></i>        found = discover(&amp;ports.list(), &amp;pins);</span><span class="ln"><i></i>    }</span><span class="ln"><i></i>    <span class="c">// ... one drawing thread per panel:</span></span><span class="ln"><i>3</i>    spawn(<span class="k">move</span> || panel.run(queue));</span><span class="ln"><i>4</i>    crate::control::serve(Arc::new(commands));</span><span class="ln"><i></i>    spawn(<span class="k">move</span> || monitor.run());</span><span class="ln"><i>5</i>    ui::run(shared.clone());</span></code></pre></figure><ol class="points"><li><b>Already running?</b><span>A named mutex. If found, just open the window and exit.</span></li><li><b>Wait for USB</b><span>At sign-in the panels may not exist yet: 15 tries, 2 s apart.</span></li><li><b>A worker per panel</b><span>Each panel gets its own thread, fed by a queue.</span></li><li><b>Open the pipe</b><span>Starts answering the window's requests.</span></li><li><b>Hand over to the tray</b><span>Runs until Quit, then everything shuts down.</span></li></ol></div>
+      
+    </article>
+      <article class="deep" id="code-26">
+      <h3>Hearing the lid close</h3>
+      <p>How does the app know you've shut the lid? The tray icon has a hidden window, and every Windows window gets messages. At startup the app registers for two power notifications: the lid switch and the console display state. Windows then sends WM_POWERBROADCAST messages, and this match statement sorts them: lid changed, screen turned on or off, PC suspending, PC resuming. Each one becomes a power event, which sets a shared flag. The main loop checks that flag ten times a second and, if it's set, plays the old-TV switch-off and sends the panels to sleep. If you've ever set up a scheduled task triggered by a power event in Event Viewer, this is the program-side version of that.</p>
+      
+      <div class="codewrap"><figure class="code"><figcaption>wr-monitor/src/ui.rs  (trimmed)</figcaption><pre><code><span class="ln"><i></i>WM_POWERBROADCAST =&gt; <span class="k">match</span> wparam {</span><span class="ln"><i></i>    PBT_POWERSETTINGCHANGE <span class="k">if</span> lparam != 0 =&gt; {</span><span class="ln"><i></i>        <span class="k">if</span> same_guid(&amp;setting.PowerSetting,</span><span class="ln"><i>1</i>                     &amp;GUID_LIDSWITCH_STATE_CHANGE) {</span><span class="ln"><i></i>            power_event(PowerEvent::Lid(value));</span><span class="ln"><i></i>        } <span class="k">else</span> <span class="k">if</span> same_guid(&amp;setting.PowerSetting,</span><span class="ln"><i>2</i>                     &amp;GUID_CONSOLE_DISPLAY_STATE) {</span><span class="ln"><i></i>            power_event(PowerEvent::Display(value));</span><span class="ln"><i></i>        }</span><span class="ln"><i></i>    }</span><span class="ln"><i>3</i>    PBT_APMSUSPEND =&gt; power_event(PowerEvent::Suspend),</span><span class="ln"><i></i>    PBT_APMRESUMESUSPEND | PBT_APMRESUMEAUTOMATIC =&gt;</span><span class="ln"><i></i>        power_event(PowerEvent::Resume),</span><span class="ln"><i></i>    _ =&gt; {}</span><span class="ln"><i></i>},</span></code></pre></figure><ol class="points"><li><b>The lid switch</b><span>A power setting the app asked Windows to report (RegisterPowerSettingNotification).</span></li><li><b>Screen on or off</b><span>Same message, a different GUID.</span></li><li><b>Sleep and wake</b><span>Classic suspend and resume messages. Each sets a flag the main loop reads.</span></li></ol></div>
+      
+    </article>
+    </details>
+  </div>
+</section>
+
+<section class="level" id="level-5" data-depth="5">
+  <div class="wrap">
+    <p class="eyebrow">LEVEL 5 · THE CONTROL PANEL</p>
+    <h2>The window is just the console</h2>
+    <div class="levelbody withimg">
+      <div><p>The window you click around in is a completely separate program, WhiteRabbitWindow.exe. Think of services.msc: closing the console doesn't stop the service. Same here. Close the window and its memory is handed back; the panels carry on. When you flip a switch in the window, it doesn't touch the panels itself. It sends a short message over a named pipe to the always-on part, like 'set brightness to 60' written in JSON, which is just a structured text format. The pipe is locked down: only your Windows user can open it, and only from this PC, not over the network.</p><p class="analogy"><b>Sysadmin translation</b> Services.msc vs the service: closing it stops nothing.</p></div>
+      <figure class="shot"><img src="screenshots/white-rabbit-home.png" alt="The window's Home page"><p>The window's Home page</p></figure>
+    </div>
+    <details class="deeper">
+      <summary><span>Go deeper: show me the code</span><small>real code, with notes</small></summary>
+      <article class="deep" id="code-27">
+      <h3>One request, one reply</h3>
+      <p>Here's the monitor's side of the conversation. Every request from the window is a small JSON object with a cmd field. The code pulls out cmd, defaulting to an empty string if it's missing, and a match statement routes it to the right handler, like a switch statement in a script. There are about twenty commands in total. Anything it doesn't recognise gets a polite error reply rather than a crash. The box on the right is a real exchange, taken from the app's own tests: the window asks to set brightness to 42 and not follow the screen, and the monitor confirms. One connection carries exactly one request and one reply, then closes.</p>
+      
+      <div class="codewrap"><figure class="code"><figcaption>wr-monitor/src/control/commands.rs  (trimmed)</figcaption><pre><code><span class="ln"><i></i><span class="k">fn</span> handle(&amp;self, message: &amp;Map&lt;String, Value&gt;) -&gt; Reply {</span><span class="ln"><i></i>    <span class="k">let</span> cmd = message.get(<span class="s">&quot;cmd&quot;</span>)</span><span class="ln"><i>1</i>        .and_then(Value::as_str).unwrap_or(<span class="s">&quot;&quot;</span>);</span><span class="ln"><i>2</i>    <span class="k">match</span> cmd {</span><span class="ln"><i></i>        <span class="s">&quot;status&quot;</span> =&gt; self.status(),</span><span class="ln"><i></i>        <span class="s">&quot;brightness&quot;</span> =&gt; self.brightness(message),</span><span class="ln"><i></i>        <span class="s">&quot;preview&quot;</span> =&gt; self.preview(message),</span><span class="ln"><i></i>        <span class="s">&quot;hold&quot;</span> =&gt; <span class="k">Ok</span>(self.bridge.hold(message)),</span><span class="ln"><i></i>        <span class="s">&quot;serial&quot;</span> =&gt; self.bridge.serial(message),</span><span class="ln"><i></i>        <span class="s">&quot;release&quot;</span> =&gt; self.release(message),</span><span class="ln"><i></i>        <span class="c">// ... about 20 commands in all</span></span><span class="ln"><i>3</i>        _ =&gt; <span class="k">Ok</span>(object(json!({<span class="s">&quot;ok&quot;</span>: <span class="k">false</span>,</span><span class="ln"><i></i>            <span class="s">&quot;error&quot;</span>: format!(<span class="s">&quot;Unknown command {cmd}&quot;</span>)}))),</span><span class="ln"><i></i>    }</span><span class="ln"><i></i>}</span></code></pre></figure></div>
+      <div class="exchange"><div><b>The window sends</b><pre>{"cmd": "brightness",
+ "follow_screen": false,
+ "level": 42}</pre></div><div><b>The monitor replies</b><pre>{"ok": true,
+ "brightness": {"follow_screen": false,
+                "level": 42}}</pre></div></div>
+    </article>
+    </details>
+  </div>
+</section>
+
+<section class="level" id="level-6" data-depth="6">
+  <div class="wrap">
+    <p class="eyebrow">LEVEL 6 · SHARING NICELY</p>
+    <h2>Only one program may hold a COM port</h2>
+    <div class="levelbody">
+      <div><p>Here's a real-world snag. Windows lets only one program open a serial port at a time, just as only one person can be on a switch's console port. The always-on part holds both panel ports. So how does the window show a live preview or let you play Snake? It borrows. It sends 'hold' and the monitor stops drawing on that panel, like putting a server into maintenance mode. Then the window sends its drawing commands through the monitor, which passes them along. When it's done it sends 'release'. And if the window crashes mid-game, a watchdog notices its process ID has gone and takes the panel back, so you're never stuck with a frozen Snake.</p><p class="analogy"><b>Sysadmin translation</b> One console session per port, plus maintenance mode.</p></div>
+      
+    </div>
+    <details class="deeper">
+      <summary><span>Go deeper: show me the code</span><small>real code, with notes</small></summary>
+      <article class="deep" id="code-28">
+      <h3>Borrowing a panel, and the watchdog</h3>
+      <p>Two pieces of code make the sharing work. When the window sends hold, the monitor records which ports are held and the process ID of the window that asked. From then on, the panel's drawing thread still runs, but the hub drops its frames for that port, so only the window's commands reach the panel. The second piece is a tiny thread named holders. Every two seconds it asks Windows whether each holder's process is still alive. If the window has crashed or been killed in Task Manager, its panels are released and the monitor is told to redraw. Two seconds later, your system monitor is back. It's the same idea as a lease with a heartbeat.</p>
+      
+      <div class="codewrap"><figure class="code"><figcaption>wr-monitor/src/control/bridge.rs  ·  app.rs  (trimmed)</figcaption><pre><code><span class="ln"><i></i><span class="k">pub</span> <span class="k">fn</span> hold(&amp;self, message: &amp;Map&lt;String, Value&gt;) -&gt; ... {</span><span class="ln"><i>1</i>    <span class="k">let</span> owner = message.get(<span class="s">&quot;pid&quot;</span>)</span><span class="ln"><i></i>        .and_then(Value::as_u64) ...;</span><span class="ln"><i></i>    <span class="k">let</span> names = port_names(message.get(<span class="s">&quot;ports&quot;</span>));</span><span class="ln"><i>2</i>    <span class="k">let</span> held = self.panels.hub().hold(&amp;names, owner);</span><span class="ln"><i></i>    <span class="c">// ... reply with what the panels show now</span></span><span class="ln"><i></i>}</span><span class="ln"><i></i> </span><span class="ln"><i></i>std::thread::Builder::new().name(<span class="s">&quot;holders&quot;</span>.into())</span><span class="ln"><i></i>    .spawn(<span class="k">move</span> || <span class="k">loop</span> {</span><span class="ln"><i>3</i>        std::thread::sleep(Duration::from_secs(2));</span><span class="ln"><i>4</i>        <span class="k">if</span> bridge.release_orphans(pid_alive) {</span><span class="ln"><i></i>            shared.redraw.store(<span class="k">true</span>, Ordering::SeqCst);</span><span class="ln"><i></i>        }</span><span class="ln"><i></i>    })</span></code></pre></figure><ol class="points"><li><b>Who's asking?</b><span>The window sends its own process ID with the request.</span></li><li><b>Lend the ports</b><span>The hub now drops the monitor's frames for these ports.</span></li><li><b>A 2-second heartbeat</b><span>A tiny thread called 'holders' wakes every 2 s.</span></li><li><b>Holder gone? Take it back</b><span>If that process no longer exists, release and redraw.</span></li></ol></div>
+      
+    </article>
+    </details>
+  </div>
+</section>
+
+<section class="level" id="level-7" data-depth="7">
+  <div class="wrap">
+    <p class="eyebrow">LEVEL 7 · THE WIRE</p>
+    <h2>Speaking panel: bytes down a serial line</h2>
+    <div class="levelbody">
+      <div><p>How does a picture get onto a panel? Down the serial line at 115,200 baud, in tiny messages. Every message starts with the same two bytes, 32 AC, a sort of 'hey, panel'. Then a command number, then any data. To draw, White Rabbit sends 'stage column' for each column that has something lit, carrying the 34 brightness values for that column, then one 'flush' to show them all at once, so you never see a half-drawn frame. Columns that are completely dark are skipped to save time. If you've ever typed AT commands to a modem, it's the same idea, just in bytes rather than letters.</p><p class="analogy"><b>Sysadmin translation</b> AT commands to a modem: stage the changes, then commit.</p></div>
+      
+    </div>
+    <details class="deeper">
+      <summary><span>Go deeper: show me the code</span><small>real code, with notes</small></summary>
+      <article class="deep" id="code-29">
+      <h3>Turning a picture into bytes</h3>
+      <p>This short function is the whole translation from picture to wire. It takes the grid and walks across its 9 columns. A column that's completely dark is skipped, because the panel starts every frame dark anyway. For every other column it builds a stage-column command: the column number followed by its 34 brightness values. After the last column it adds one flush command, and the panel shows the new frame all at once. Each command gets the two magic bytes 32 AC on the front. One more detail lives in panel.rs: each command is written to the port separately, because the firmware reads one command per USB transfer, and if a frame is identical to what's already shown it isn't sent again.</p>
+      
+      <div class="codewrap"><figure class="code"><figcaption>wr-panel/src/protocol.rs</figcaption><pre><code><span class="ln"><i></i><span class="k">pub</span> <span class="k">fn</span> frame_commands(grid: &amp;Grid) -&gt; Vec&lt;Vec&lt;u8&gt;&gt; {</span><span class="ln"><i></i>    <span class="k">let</span> bytes = grid.to_bytes();</span><span class="ln"><i></i>    <span class="k">let</span> <span class="k">mut</span> out = Vec::new();</span><span class="ln"><i></i>    <span class="k">for</span> (x, column) <span class="k">in</span> bytes.iter().enumerate() {</span><span class="ln"><i>1</i>        <span class="k">if</span> column.iter().all(|&amp;v| v == 0) {</span><span class="ln"><i></i>            <span class="k">continue</span>;</span><span class="ln"><i></i>        }</span><span class="ln"><i></i>        <span class="k">let</span> <span class="k">mut</span> params = vec![x as u8];</span><span class="ln"><i></i>        params.extend_from_slice(column);</span><span class="ln"><i>2</i>        out.push(command(STAGE_COL, &amp;params));</span><span class="ln"><i></i>    }</span><span class="ln"><i>3</i>    out.push(command(FLUSH_COLS, &amp;[]));</span><span class="ln"><i></i>    out</span><span class="ln"><i></i>}</span><span class="ln"><i>4</i><span class="c">// command() puts 0x32 0xAC and the id in front</span></span></code></pre></figure><ol class="points"><li><b>Dark column? Skip it</b><span>The panel starts each frame dark, so there's nothing to send.</span></li><li><b>Stage a column</b><span>Column number, then its 34 brightness values (0x07).</span></li><li><b>Flush</b><span>Show every staged column at once (0x08): no half-drawn frames.</span></li><li><b>The magic prefix</b><span>Every message starts 32 AC, then the command.</span></li></ol></div>
+      
+    </article>
+    </details>
+  </div>
+</section>
+
+<section class="level" id="level-8" data-depth="8">
+  <div class="wrap">
+    <p class="eyebrow">LEVEL 8 · ROLL CALL</p>
+    <h2>Which panel is the left one?</h2>
+    <div class="levelbody withimg">
+      <div><p>Two identical panels, two COM port numbers, and Windows hands those numbers out in whatever order it likes. So how does White Rabbit know which one is on the left? It asks Windows where each device is plugged in: the USB location path, which is like knowing a server's rack and slot rather than its hostname. The left and right slots of the Framework 16 always have the same location. If that information isn't available it falls back to the USB ID and makes a sensible guess, and if the guess is wrong you can swap the panels in Settings or use 'Teach my ports' to pin each side.</p><p class="analogy"><b>Sysadmin translation</b> Find a server by rack and slot, not by its DHCP address.</p></div>
+      <figure class="shot"><img src="site/how/teach-my-ports.png" alt="Teach my ports, in Settings"><p>Teach my ports, in Settings</p></figure>
+    </div>
+    <details class="deeper">
+      <summary><span>Go deeper: show me the code</span><small>real code, with notes</small></summary>
+      <article class="deep" id="code-30">
+      <h3>Deciding left from right</h3>
+      <p>This is the function that sorts the panels. First it filters the list of every serial port on the PC down to just the LED panels, keeping each one's USB location and COM name. Then it sorts them by USB location, and since the laptop's left slot always comes first in that order, the first panel found is the left one. That's the normal case. If you've used Teach my ports or swapped the panels, those choices are saved as pins in the layout file, and the rest of the function honours them before falling back to the sorted order. The |p| syntax is a tiny inline function, the same idea as $_ in a PowerShell Where-Object.</p>
+      
+      <div class="codewrap"><figure class="code"><figcaption>wr-panel/src/ports.rs  (trimmed)</figcaption><pre><code><span class="ln"><i></i><span class="k">pub</span> <span class="k">fn</span> discover(ports: &amp;[PortInfo], pins: &amp;Pins)</span><span class="ln"><i></i>    -&gt; Vec&lt;(Option&lt;String&gt;, String)&gt; {</span><span class="ln"><i></i>    <span class="k">let</span> <span class="k">mut</span> found: Vec&lt;_&gt; = ports.iter()</span><span class="ln"><i>1</i>        .filter(|p| is_led_matrix_port(p))</span><span class="ln"><i></i>        .map(|p| (p.location.clone(), p.device.clone()))</span><span class="ln"><i></i>        .collect();</span><span class="ln"><i>2</i>    found.sort_by_key(|(l, d)| sort_key(l, d));</span><span class="ln"><i></i> </span><span class="ln"><i>3</i>    <span class="k">let</span> <span class="k">mut</span> left = nonempty(&amp;pins.left_port);</span><span class="ln"><i></i>    <span class="k">let</span> <span class="k">mut</span> right = nonempty(&amp;pins.right_port);</span><span class="ln"><i></i>    <span class="c">// ... or a pinned USB location for each side</span></span><span class="ln"><i></i>    <span class="k">if</span> left.is_none() &amp;&amp; right.is_none() {</span><span class="ln"><i>4</i>        <span class="k">return</span> found;</span><span class="ln"><i></i>    }</span><span class="ln"><i></i>    <span class="c">// ... pinned sides first, then the rest in order</span></span></code></pre></figure><ol class="points"><li><b>Only the panels</b><span>Every COM port on the PC, filtered to the ones that are panels.</span></li><li><b>Sort by USB location</b><span>The left slot sorts first, so it becomes the left panel.</span></li><li><b>Your overrides</b><span>Teach my ports and Swap panels are saved as pins.</span></li><li><b>No pins? Done</b><span>First found is left, second is right.</span></li></ol></div>
+      
+    </article>
+    </details>
+  </div>
+</section>
+
+<section class="level" id="level-9" data-depth="9">
+  <div class="wrap">
+    <p class="eyebrow">LEVEL 9 · THE DASHBOARD</p>
+    <h2>System monitor: perfmon on 306 LEDs</h2>
+    <div class="levelbody withimg">
+      <div><p>The system monitor is the headline feature. Every second or so, the always-on part collects numbers, mostly from the same places Task Manager and Performance Monitor read them: CPU and memory from Windows itself, GPU use from the same 'GPU Engine' performance counters Task Manager uses, disk and network rates, the battery. Temperatures and fans come from Framework's own control service or Libre Hardware Monitor. Weather comes from the internet, and 'now playing' from the same media controls the Windows volume pop-up shows. A layout file decides what goes where: each panel is split into a top and bottom half, and each half has a playlist of apps that take turns.</p><p class="analogy"><b>Sysadmin translation</b> Perfmon counters on a tiny wall dashboard.</p></div>
+      <figure class="shot"><img src="site/how/new-layout-still.png" alt="Left panel: CPU and memory. Right panel: network, disk and C: drive space"><p>Left panel: CPU and memory. Right panel: network, disk and C: drive space</p></figure>
+    </div>
+    <details class="deeper">
+      <summary><span>Go deeper: show me the code</span><small>2 parts</small></summary>
+      <article class="deep" id="code-31">
+      <h3>The main loop</h3>
+      <p>This is the heartbeat of the app. run is a loop that keeps going until Quit sets the quit flag. Each pass calls step, which returns how long to wait, normally 100 milliseconds, so the loop runs about ten times a second. Inside step, the rotation works out which app each half-panel should show right now, from the playlists in the layout file. Then, for each panel, it makes a blank grid, asks render_panel_on to draw that panel's apps into it using the latest readings, and puts the finished grid in that panel's queue. Notice that it never touches a COM port itself: the drawing threads do that, so a missing or slow panel can never freeze the loop.</p>
+      
+      <div class="codewrap"><figure class="code"><figcaption>wr-monitor/src/monitor.rs  (trimmed)</figcaption><pre><code><span class="ln"><i></i><span class="k">pub</span> <span class="k">fn</span> run(<span class="k">mut</span> self) {</span><span class="ln"><i></i>    <span class="k">while</span> !self.shared.quit.load(Ordering::SeqCst) {</span><span class="ln"><i>1</i>        <span class="k">let</span> wait = self.step();</span><span class="ln"><i></i>        std::thread::sleep(wait);</span><span class="ln"><i></i>    }</span><span class="ln"><i></i>}</span><span class="ln"><i></i><span class="k">pub</span> <span class="k">fn</span> step(&amp;<span class="k">mut</span> self) -&gt; Duration {</span><span class="ln"><i></i>    <span class="c">// ... paused or lid shut: dark frames, then wait</span></span><span class="ln"><i>2</i>    <span class="k">let</span> changed = self.rotation.step(now, next);</span><span class="ln"><i></i>    <span class="k">let</span> panels = [self.rotation.panel(<span class="k">false</span>),</span><span class="ln"><i></i>                  self.rotation.panel(<span class="k">true</span>)];</span><span class="ln"><i></i>    <span class="k">for</span> (side, (q, apps)) <span class="k">in</span> ... {</span><span class="ln"><i></i>        <span class="k">let</span> <span class="k">mut</span> grid = Grid::new();</span><span class="ln"><i>3</i>        render_panel_on(&amp;<span class="k">mut</span> grid, apps, readings, ...);</span><span class="ln"><i>4</i>        q.put(Item::Frame(grid, do_animate));</span><span class="ln"><i></i>    }</span><span class="ln"><i></i>    Duration::from_millis(100)</span><span class="ln"><i></i>}</span></code></pre></figure><ol class="points"><li><b>Loop until Quit</b><span>Each pass returns how long to rest: 100 ms.</span></li><li><b>Whose turn is it?</b><span>The layout's playlists decide which app shows in each half.</span></li><li><b>Draw</b><span>A blank 9×34 grid, filled in by that panel's apps.</span></li><li><b>Hand it over</b><span>Into the queue. The drawing thread does the slow USB part.</span></li></ol></div>
+      
+    </article>
+      <article class="deep" id="code-32">
+      <h3>From a Windows number to lit LEDs</h3>
+      <p>Let's follow one number all the way. The memory reading calls GlobalMemoryStatusEx, the same Windows API that Task Manager's memory figure comes from. It works out the fraction of physical memory in use, a number between 0 and 1. That number goes to draw_memory in wr-core, which turns it into lit pixels: the memory bar is 7 pixels wide and 2 rows tall, so 14 steps, and it fills the top row and bottom row to match. fill_x lights a run of pixels in one row with the current brightness. This split is deliberate: the Windows-specific reading lives in wr-monitor, and the drawing, which is the same on every platform, lives in wr-core where it can be tested.</p>
+      
+      <div class="codewrap"><figure class="code"><figcaption>sensors.rs  ·  drawing.rs  (simplified)</figcaption><pre><code><span class="ln"><i></i><span class="k">fn</span> memory(&amp;<span class="k">mut</span> self) -&gt; f64 {</span><span class="ln"><i></i>    <span class="k">let</span> <span class="k">mut</span> m: MEMORYSTATUSEX = std::mem::zeroed();</span><span class="ln"><i></i>    m.dwLength = size_of::&lt;MEMORYSTATUSEX&gt;() as u32;</span><span class="ln"><i>1</i>    GlobalMemoryStatusEx(&amp;<span class="k">mut</span> m);</span><span class="ln"><i></i>    <span class="k">let</span> used = m.ullTotalPhys - m.ullAvailPhys;</span><span class="ln"><i>2</i>    used as f64 / m.ullTotalPhys as f64</span><span class="ln"><i></i>}</span><span class="ln"><i></i> </span><span class="ln"><i></i><span class="k">pub</span> <span class="k">fn</span> draw_memory(grid: &amp;<span class="k">mut</span> Grid, memory_ratio: f64,</span><span class="ln"><i></i>                   fill_value: i32, y: usize) {</span><span class="ln"><i>3</i>    <span class="k">let</span> lit = 7.0 * 2.0 * memory_ratio;</span><span class="ln"><i></i>    <span class="k">let</span> bottom = int_round(lit / 2.0);</span><span class="ln"><i></i>    <span class="k">let</span> top = int_round((lit - 0.49) / 2.0);</span><span class="ln"><i>4</i>    grid.fill_x(1, 1 + top, y + 1, fill_value);</span><span class="ln"><i></i>    grid.fill_x(1, 1 + bottom, y + 2, fill_value);</span><span class="ln"><i></i>}</span></code></pre></figure><ol class="points"><li><b>Ask Windows</b><span>The same API Task Manager's memory figure comes from.</span></li><li><b>A fraction</b><span>Used ÷ total: 0.0 to 1.0.</span></li><li><b>14 steps</b><span>The bar is 7 pixels wide and 2 rows tall.</span></li><li><b>Light the pixels</b><span>fill_x lights a run of pixels in one row.</span></li></ol></div>
+      
+    </article>
+    </details>
+  </div>
+</section>
+
+<section class="level" id="level-10" data-depth="10">
+  <div class="wrap">
+    <p class="eyebrow">LEVEL 10 · THE DISCO</p>
+    <h2>Audio reactivity: a graphic equaliser</h2>
+    <div class="levelbody withimg">
+      <div><p>Audio reactivity listens to whatever the laptop is playing. It uses a Windows feature called WASAPI loopback, which lets a program hear the sound going to the speakers without touching it: think of it as a port mirror, or a SPAN port, but for audio. Then a bit of maths called an FFT splits the sound into bass, middle and treble, exactly what the sliders on an old hi-fi graphic equaliser represent. Each column of LEDs becomes a frequency band and lights up with how loud that band is. Both panels share one recording, so they always move in step, and when the music stops you get a calm idle version of the look instead of a dead screen.</p><p class="analogy"><b>Sysadmin translation</b> A SPAN port for sound, read through a graphic equaliser.</p></div>
+      <figure class="shot"><img src="site/how/audio-2rows.png" alt="14 of the 22 audio looks, on both panels"><p>14 of the 22 audio looks, on both panels</p></figure>
+    </div>
+    <details class="deeper">
+      <summary><span>Go deeper: show me the code</span><small>real code, with notes</small></summary>
+      <article class="deep" id="code-33">
+      <h3>Splitting sound into bars</h3>
+      <p>This is the maths behind the bars, and it's less scary than it looks. The sound comes in as 48,000 numbers a second; the analyser looks at the latest 4,096 of them, about 85 milliseconds. First it smooths the edges of that slice with a window function, so the cut-off doesn't sound like a click. Then the FFT, a fast Fourier transform, turns 'how the speaker moves over time' into 'how much of each pitch there is'. The bins are the pitch ranges for each bar, spaced in octaves from deep bass to treble, like the sliders on a graphic equaliser. Each band's energy is converted to decibels, and a later step maps the decibels onto a bar 0 to 34 pixels tall.</p>
+      
+      <div class="codewrap"><figure class="code"><figcaption>wr-music/src/analyzer.rs  (trimmed)</figcaption><pre><code><span class="ln"><i></i><span class="k">pub</span> <span class="k">const</span> SAMPLE_RATE: usize = 48000;</span><span class="ln"><i></i><span class="k">pub</span> <span class="k">const</span> FFT_SIZE: usize = 4096;      <span class="c">// about 85 ms</span></span><span class="ln"><i></i> </span><span class="ln"><i></i><span class="k">pub</span> <span class="k">fn</span> band_db(&amp;self, samples: &amp;[f64]) -&gt; Vec&lt;f64&gt; {</span><span class="ln"><i></i>    <span class="k">let</span> <span class="k">mut</span> input: Vec&lt;f64&gt; = x.iter().zip(&amp;self.window)</span><span class="ln"><i>1</i>        .map(|(v, w)| (v - m) * w).collect();</span><span class="ln"><i>2</i>    self.fft.process(&amp;<span class="k">mut</span> input, &amp;<span class="k">mut</span> spectrum);</span><span class="ln"><i></i>    <span class="k">let</span> power: Vec&lt;f64&gt; = spectrum.iter()</span><span class="ln"><i></i>        .map(|c| c.norm().powi(2)).collect();</span><span class="ln"><i>3</i>    self.bins.iter().map(|idx| {</span><span class="ln"><i></i>        <span class="k">let</span> band: Vec&lt;f64&gt; =</span><span class="ln"><i></i>            idx.iter().map(|&amp;i| power[i]).collect();</span><span class="ln"><i></i>        <span class="k">let</span> rms = (2.0 * sum(&amp;band)).sqrt() / scale;</span><span class="ln"><i>4</i>        20.0 * (rms + 1e-10).log10()</span><span class="ln"><i></i>    }).collect()</span><span class="ln"><i></i>}</span></code></pre></figure><ol class="points"><li><b>Smooth the edges</b><span>A window function, so the cut-off slice doesn't add a click.</span></li><li><b>The FFT</b><span>Turns 'wobble over time' into 'how much of each pitch'.</span></li><li><b>One band per bar</b><span>Octave-spaced pitch ranges, bass to treble.</span></li><li><b>To decibels</b><span>Loudness in dB; later scaled to a bar 0-34 tall.</span></li></ol></div>
+      
+    </article>
+    </details>
+  </div>
+</section>
+
+<section class="level" id="level-11" data-depth="11">
+  <div class="wrap">
+    <p class="eyebrow">LEVEL 11 · THE CANVAS</p>
+    <h2>Everything is a 9 × 34 picture</h2>
+    <div class="levelbody withimg">
+      <div><p>Here's a nice simplification: whatever is on the panel, a game of Snake, a Lorenz attractor, your drawing, the clock, it's all the same thing underneath. A grid of 9 by 34 numbers, each from 0 to 255. Each app's only job is to fill in that grid; the panel layer then sends it down the wire. Effects like slide, fade and pixel rain are just ways of mixing yesterday's grid into today's. And because every picture is just numbers, the project can test it automatically: the expected pictures are saved as 'golden frames', and every build checks that each app still draws them pixel for pixel.</p></div>
+      <figure class="shot"><img src="site/how/all-12-overview.png" alt="Math page effects: same grid, different maths"><p>Math page effects: same grid, different maths</p></figure>
+    </div>
+    <details class="deeper">
+      <summary><span>Go deeper: show me the code</span><small>real code, with notes</small></summary>
+      <article class="deep" id="code-34">
+      <h3>The grid, and the test that guards it</h3>
+      <p>Here's the grid itself: a struct with one field, v, which is 9 columns of 34 numbers. That's the whole data type every app draws into. Below it is the golden-frame test. The Python version of the app drew every monitor app with fixed, made-up readings and saved the results to a JSON file. This test draws the same cases with the Rust code, compares them row by row, and collects every difference with the app's name and the first row that differs. If there's even one wrong pixel, the build fails. That's how the rewrite could be trusted: not 'it looks about right', but 'every pixel matches the old version'.</p>
+      
+      <div class="codewrap"><figure class="code"><figcaption>wr-core/src/grid.rs  ·  wr-core/tests/golden.rs  (trimmed)</figcaption><pre><code><span class="ln"><i></i><span class="k">pub</span> <span class="k">const</span> WIDTH: usize = 9;</span><span class="ln"><i></i><span class="k">pub</span> <span class="k">const</span> HEIGHT: usize = 34;</span><span class="ln"><i></i><span class="k">pub</span> <span class="k">struct</span> Grid {</span><span class="ln"><i>1</i>    <span class="k">pub</span> v: [[i32; HEIGHT]; WIDTH],</span><span class="ln"><i></i>}</span><span class="ln"><i></i> </span><span class="ln"><i></i>#[test]</span><span class="ln"><i></i><span class="k">fn</span> monitor_apps_match_python() {</span><span class="ln"><i>2</i>    <span class="c">// saved = tests/golden/monitor_apps.json</span></span><span class="ln"><i></i>    <span class="k">let</span> drawn = monitor_cases();</span><span class="ln"><i></i>    <span class="k">for</span> (name, grid) <span class="k">in</span> &amp;drawn {</span><span class="ln"><i></i>        <span class="k">match</span> saved.get(name) {</span><span class="ln"><i>3</i>            <span class="k">Some</span>(rows) <span class="k">if</span> &amp;encode(grid) != rows =&gt;</span><span class="ln"><i></i>                problems.push(format!(<span class="s">&quot;differs: {name}&quot;</span>)),</span><span class="ln"><i></i>            <span class="c">// ...</span></span><span class="ln"><i>4</i>    assert!(problems.is_empty());</span></code></pre></figure><ol class="points"><li><b>The whole picture</b><span>9 columns × 34 numbers. Every app draws into this.</span></li><li><b>Python's answers</b><span>Frames the old Python app drew, saved as JSON.</span></li><li><b>Draw and compare</b><span>Rust draws the same cases; any difference is noted.</span></li><li><b>One wrong pixel fails</b><span>The build goes red and says which app and row.</span></li></ol></div>
+      
+    </article>
+    </details>
+  </div>
+</section>
+
+<section class="level" id="level-12" data-depth="12">
+  <div class="wrap">
+    <p class="eyebrow">LEVEL 12 · THE KEYS</p>
+    <h2>The keyboard and macropad</h2>
+    <div class="levelbody withimg">
+      <div><p>The keyboard side came from a separate app that has now moved inside White Rabbit. Keyboards don't have COM ports; they're HID devices. Alongside the normal typing channel, QMK firmware can open a second, private channel called raw HID. White Rabbit sends 32-byte messages on that channel: 'set this effect', 'paint this key', 'here is the sound level'. Your typing never goes through it. Like the panels, the always-on part drives the lighting while the window is closed, and the window borrows it while you're editing. Key mapping changes are written into the keyboard itself, so they work on any computer, even without White Rabbit.</p><p class="analogy"><b>Sysadmin translation</b> An out-of-band port, like iDRAC or iLO.</p></div>
+      <figure class="shot"><img src="screenshots/white-rabbit-keyboard-lighting.png" alt="The keyboard Lighting page"><p>The keyboard Lighting page</p></figure>
+    </div>
+    <details class="deeper">
+      <summary><span>Go deeper: show me the code</span><small>real code, with notes</small></summary>
+      <article class="deep" id="code-35">
+      <h3>Painting the keyboard, 8 keys at a time</h3>
+      <p>When the app draws a lighting effect itself, for the audio show for example, it has a colour for every LED and needs to get them to the keyboard. encode_frame chops that list into chunks of 8 LEDs. Each chunk becomes one 32-byte HID message: where the chunk starts, how many LEDs are in it, then red, green and blue for each. set wraps it with the VIA header: 07 for set, a channel byte, and the value ID for a frame. Why only 8 LEDs when 9 would fit? The comment in the code explains: the keyboard's chip sometimes receives only 31 of the 32 bytes, so the app never relies on the last one. That's the kind of hard-won hardware lesson that ends up in comments.</p>
+      
+      <div class="codewrap"><figure class="code"><figcaption>wr-keyboard/src/protocol.rs  (trimmed)</figcaption><pre><code><span class="ln"><i></i><span class="c">/// Host-&gt;device messages stay within 31 bytes</span></span><span class="ln"><i></i><span class="c">/// (3 + 2 + 8 * 3 = 29) because the RP2040 sometimes</span></span><span class="ln"><i></i><span class="c">/// only receives 31 of 32.</span></span><span class="ln"><i>1</i><span class="k">pub</span> <span class="k">const</span> FRAME_LEDS_PER_MSG: usize = 8;</span><span class="ln"><i></i> </span><span class="ln"><i></i><span class="k">pub</span> <span class="k">fn</span> encode_frame(colors: &amp;[[u8; 3]]) -&gt; Vec&lt;Report&gt; {</span><span class="ln"><i>2</i>    colors.chunks(FRAME_LEDS_PER_MSG)</span><span class="ln"><i></i>        .enumerate()</span><span class="ln"><i></i>        .map(|(i, chunk)| {</span><span class="ln"><i></i>            <span class="k">let</span> <span class="k">mut</span> payload = Vec::new();</span><span class="ln"><i></i>            payload.push((i * FRAME_LEDS_PER_MSG) as u8);</span><span class="ln"><i></i>            payload.push(chunk.len() as u8);</span><span class="ln"><i>3</i>            <span class="k">for</span> c <span class="k">in</span> chunk { payload.extend_from_slice(c); }</span><span class="ln"><i>4</i>            set(ValueId::Frame, &amp;payload)</span><span class="ln"><i></i>        })</span><span class="ln"><i></i>        .collect()</span><span class="ln"><i></i>}</span></code></pre></figure><ol class="points"><li><b>8, not 9</b><span>The chip sometimes drops the 32nd byte, so it's never used.</span></li><li><b>Chop into chunks</b><span>8 LEDs per message.</span></li><li><b>Red, green, blue</b><span>3 bytes per LED, after the start and count.</span></li><li><b>Wrap it</b><span>VIA header: 07 = set, then the 'frame' value ID.</span></li></ol></div>
+      
+    </article>
+    </details>
+  </div>
+</section>
+
+<section class="level" id="level-13" data-depth="13">
+  <div class="wrap">
+    <p class="eyebrow">LEVEL 13 · THE CHIP</p>
+    <h2>Inside the panel: the firmware</h2>
+    <div class="levelbody withimg">
+      <div><p>Firmware is the program that lives inside the panel, on its own chip, and it's written in Rust too. It does a few simple jobs in a loop: read a command from USB, update its picture, and push the picture out to the LED driver chip, an IS31FL3741, that actually powers the 306 LEDs. White Rabbit's version of the firmware adds a startup animation setting. That setting is stored in a small 4 KB area of the chip's flash memory, which survives power-off, a bit like the CMOS settings in a BIOS. The panel also looks after itself: if nothing has talked to it for a minute, or the laptop suspends the USB port, it fades out and sleeps.</p><p class="analogy"><b>Sysadmin translation</b> The startup animation is a BIOS setting kept in CMOS.</p></div>
+      <figure class="shot"><img src="screenshots/white-rabbit-startup.png" alt="The Startup animation page"><p>The Startup animation page</p></figure>
+    </div>
+    <details class="deeper">
+      <summary><span>Go deeper: show me the code</span><small>real code, with notes</small></summary>
+      <article class="deep" id="code-36">
+      <h3>Inside the panel: the firmware's loop</h3>
+      <p>This code runs on the panel's own chip, in the inputmodule-rs repo. The firmware is one big loop. Each time round, it checks whether the PC sent anything over USB. If a command arrived and parses correctly, three things happen: any startup animation still playing is cancelled, the sleep timer is reset, and the command is handled. Then comes a line with a story. Originally the LEDs were redrawn after every command, so a frame of ten commands redrew the LEDs ten times and the panels lagged behind the app. White Rabbit's firmware skips the redraw for stage-column commands and only redraws on flush. And if nothing arrives for 60 seconds, the timer check sends the panel to sleep.</p>
+      
+      <div class="codewrap"><figure class="code"><figcaption>inputmodule-rs: ledmatrix/src/main.rs  (trimmed)</figcaption><pre><code><span class="ln"><i></i><span class="k">match</span> serial.read(&amp;<span class="k">mut</span> buf) {</span><span class="ln"><i>1</i>    <span class="k">Ok</span>(count) =&gt; <span class="k">match</span> parse_command(count, &amp;buf) {</span><span class="ln"><i></i>        <span class="k">Some</span>(command) =&gt; {</span><span class="ln"><i></i>            state.upcoming_frames = <span class="k">None</span>;</span><span class="ln"><i>2</i>            sleep_timer = timer.get_counter().ticks();</span><span class="ln"><i></i>            <span class="k">if</span> <span class="k">let</span> <span class="k">Some</span>(response) = handle_command(</span><span class="ln"><i></i>                    &amp;command, &amp;<span class="k">mut</span> state, &amp;<span class="k">mut</span> matrix, random) {</span><span class="ln"><i></i>                <span class="k">let</span> _ = serial.write(&amp;response);</span><span class="ln"><i></i>            }</span><span class="ln"><i></i>            <span class="k">if</span> !matches!(command, Command::StageGreyCol(_, _)) {</span><span class="ln"><i>3</i>                fill_grid_pixels(&amp;state, &amp;<span class="k">mut</span> matrix);</span><span class="ln"><i></i>            }</span><span class="ln"><i></i>        }</span><span class="ln"><i></i>        <span class="k">None</span> =&gt; {}</span><span class="ln"><i></i>    }, ...</span><span class="ln"><i></i>}</span><span class="ln"><i>4</i><span class="k">if</span> timer.get_counter().ticks() &gt; sleep_timer + SLEEP_TIMEOUT {</span></code></pre></figure><ol class="points"><li><b>Anything from the PC?</b><span>Read the USB serial line and decode the command.</span></li><li><b>Reset the sleep timer</b><span>Any message keeps the panel awake (and stops the startup animation).</span></li><li><b>Redraw only on flush</b><span>White Rabbit's fix for laggy panels: no redraw per staged column.</span></li><li><b>60 s of silence</b><span>Nothing heard for a minute? Fade out and sleep.</span></li></ol></div>
+      
+    </article>
+    </details>
+  </div>
+</section>
+
+<section class="level" id="level-14" data-depth="14">
+  <div class="wrap">
+    <p class="eyebrow">LEVEL 14 · THE UPGRADE</p>
+    <h2>Updating firmware without a screwdriver</h2>
+    <div class="levelbody">
+      <div><p>Updating the panel's firmware is surprisingly low-tech, and that's a good thing. The app sends one command, 'go to the bootloader'. The panel reboots into a built-in recovery mode that's burned into the RP2040 chip and can't be broken, and in that mode it shows up on your PC as a USB drive called RPI-RP2. Copying the ledmatrix.uf2 file onto that drive installs it, and the panel restarts with the new firmware. It's exactly like flashing a BIOS from a USB stick, except the panel is the USB stick. Because the recovery mode lives in read-only memory, a bad update can always be fixed by doing it again.</p><p class="analogy"><b>Sysadmin translation</b> A BIOS flash from a USB stick (the panel is the stick).</p></div>
+      
+    </div>
+    <details class="deeper">
+      <summary><span>Go deeper: show me the code</span><small>real code, with notes</small></summary>
+      <article class="deep" id="code-37">
+      <h3>Flashing firmware, in code</h3>
+      <p>This is the window's flash function, and it reads almost like the four steps above. It reads the .uf2 file into memory. It looks for an RPI-RP2 drive, which it recognises by an INFO_UF2.TXT file on it. If there isn't one yet, it sends the panel the one-byte bootloader command, closes the port because the panel is about to vanish, and waits for the drive to appear. Then it simply writes the firmware to a file on that drive. The chip's bootloader does the rest. Finally it waits for the drive to disappear, which means the panel has restarted, so that flashing the second panel doesn't accidentally write to the first one again. The question marks pass any error straight up to show you.</p>
+      
+      <div class="codewrap"><figure class="code"><figcaption>wr-window/src/pages/firmware.rs  (trimmed)</figcaption><pre><code><span class="ln"><i></i><span class="k">pub</span> <span class="k">fn</span> flash(sender: &amp;Sender, panel: &amp;Panel, path: &amp;Path, ...)</span><span class="ln"><i></i>    -&gt; Result&lt;String, String&gt; {</span><span class="ln"><i></i>    <span class="k">let</span> firmware = std::fs::read(path).map_err(...)?;</span><span class="ln"><i>1</i>    <span class="k">let</span> <span class="k">mut</span> drives = get_drives();</span><span class="ln"><i></i>    <span class="k">if</span> drives.is_empty() {</span><span class="ln"><i></i>        <span class="k">let</span> _ = sender.write(&amp;panel.device,</span><span class="ln"><i>2</i>                             &amp;[cmd::bootloader()]);</span><span class="ln"><i></i>        sender.close_direct();</span><span class="ln"><i></i>        drives = wait_for(<span class="k">true</span>, BOOTLOADER_WAIT);</span><span class="ln"><i></i>    }</span><span class="ln"><i></i>    <span class="k">for</span> drive <span class="k">in</span> &amp;drives {</span><span class="ln"><i>3</i>        std::fs::write(format!(<span class="s">&quot;{drive}/NEW.UF2&quot;</span>),</span><span class="ln"><i></i>                       &amp;firmware).map_err(...)?;</span><span class="ln"><i></i>    }</span><span class="ln"><i>4</i>    wait_for(<span class="k">false</span>, RESTART_WAIT);</span><span class="ln"><i></i>    <span class="k">Ok</span>(...)</span><span class="ln"><i></i>}</span></code></pre></figure><ol class="points"><li><b>Find the drive</b><span>Any drive letter with INFO_UF2.TXT on it is a panel in bootloader mode.</span></li><li><b>Reboot the panel</b><span>One command (0x02). The panel vanishes and comes back as a drive.</span></li><li><b>Copy the file</b><span>Literally a file copy. The chip does the rest.</span></li><li><b>Wait for the restart</b><span>So the next panel doesn't get flashed twice.</span></li></ol></div>
+      
+    </article>
+    </details>
+  </div>
+</section>
+
+<section class="level" id="level-15" data-depth="15">
+  <div class="wrap">
+    <p class="eyebrow">LEVEL 15 · THE REWRITE</p>
+    <h2>Why rewrite it all in Rust?</h2>
+    <div class="levelbody">
+      <div><p>White Rabbit started life in Python, which is lovely to write but has two problems for an app like this. First, to ship Python as a Windows exe, a tool called PyInstaller packs the whole Python runtime into a self-extracting bundle. Antivirus programs see a lot of malware packed the same way, so they flagged the app. Second, all that runtime sits in memory: about 66 MB for the background part. Rust compiles straight to a normal Windows program: no interpreter, no unpacking: about 8 MB in the first Rust version and about 6 MB today. The Python version wasn't thrown away: it became the reference, and the Rust code is tested against pictures Python drew, pixel for pixel.</p></div>
+      
+    </div>
+    <details class="deeper">
+      <summary><span>Go deeper: show me the code</span><small>real code, with notes</small></summary>
+      <article class="deep" id="code-38">
+      <h3>How Rust keeps it small and safe</h3>
+      <p>Part of the small size comes from these five lines in Cargo.toml, the release build settings. opt-level s tells the compiler to optimise for size rather than raw speed. lto, link-time optimisation, lets it look across all six crates and every library at once and throw away anything that's never called. codegen-units 1 trades a slower build for a tighter result. panic abort means that if something goes badly wrong, the program logs it and stops, rather than carrying extra machinery to recover. strip removes the debugging symbols from the exe. The safety side isn't a setting at all: it's the compiler refusing to build code that might use missing data or share memory between threads without a lock.</p>
+      
+      <div class="codewrap"><figure class="code"><figcaption>rust/Cargo.toml</figcaption><pre><code><span class="ln"><i></i>[profile.release]</span><span class="ln"><i>1</i>opt-level = <span class="s">&quot;s&quot;</span></span><span class="ln"><i>2</i>lto = <span class="k">true</span></span><span class="ln"><i></i>codegen-units = 1</span><span class="ln"><i>3</i>panic = <span class="s">&quot;abort&quot;</span></span><span class="ln"><i>4</i>strip = <span class="k">true</span></span></code></pre></figure><ol class="points"><li><b>Size over speed</b><span>Optimise for a small exe.</span></li><li><b>Link-time optimisation</b><span>Looks at all the code at once and drops what's never called.</span></li><li><b>Fail fast</b><span>A crash is logged, then the program stops cleanly.</span></li><li><b>No debug symbols</b><span>Strips the exe down to what runs.</span></li></ol></div>
+      
+    </article>
+    </details>
+  </div>
+</section>
+
+<section class="level" id="level-16" data-depth="16">
+  <div class="wrap">
+    <p class="eyebrow">LEVEL 16 · WHERE THE BODIES ARE BURIED</p>
+    <h2>The sysadmin's cheat sheet</h2>
+    <div class="levelbody">
+      <div><p>If you ever need to troubleshoot White Rabbit, this is where everything lives. Settings and the layout file are in your roaming AppData folder; the log is in local AppData and is kept under a megabyte. The startup entry is a normal Run key value called WhiteRabbit. The installer is built with Inno Setup, the same tool lots of open-source Windows apps use, and there's a portable zip if you'd rather not install anything. The --diagnose option prints a report of what the app can see and then exits, handy when something is not showing up.</p></div>
+      
+    </div>
+    <details class="deeper">
+      <summary><span>Go deeper: show me the code</span><small>real code, with notes</small></summary>
+      <article class="deep" id="code-39">
+      <h3>The pipe's lock and key</h3>
+      <p>Here's where two lines on the cheat sheet come from. address builds the pipe's name from the app name and your Windows user name, so two people signed in to the same PC get separate pipes. When the monitor starts, new_key makes 32 random bytes and writes them to control.key in your local AppData. Every connection starts with a handshake that proves the other side knows that key, before any request is read. On top of that, the pipe itself is created so that only your user can open it and remote clients are refused. So another user, or another machine on the network, can't tell your panels what to do. A new key is made every time the monitor starts.</p>
+      
+      <div class="codewrap"><figure class="code"><figcaption>wr-monitor/src/control/mod.rs  (trimmed)</figcaption><pre><code><span class="ln"><i></i><span class="k">pub</span> <span class="k">fn</span> address() -&gt; String {</span><span class="ln"><i>1</i>    format!(r<span class="s">&quot;\\.\pipe\{}-{}&quot;</span>, APP_NAME, user_tag())</span><span class="ln"><i></i>}</span><span class="ln"><i></i><span class="k">pub</span> <span class="k">fn</span> new_key() -&gt; io::Result&lt;Vec&lt;u8&gt;&gt; {</span><span class="ln"><i>2</i>    <span class="k">let</span> key = wire::random_bytes(32)?;</span><span class="ln"><i></i>    <span class="k">let</span> path = crate::paths::control_key_file();</span><span class="ln"><i></i>    io::Write::write_all(&amp;<span class="k">mut</span> options.open(&amp;path)?, &amp;key)?;</span><span class="ln"><i></i>    <span class="k">Ok</span>(key)</span><span class="ln"><i></i>}</span><span class="ln"><i></i><span class="k">pub</span> <span class="k">fn</span> serve_connection(conn: ..., key: &amp;[u8], ...) {</span><span class="ln"><i>3</i>    wire::server_handshake(conn, key)?;</span><span class="ln"><i>4</i>    <span class="k">let</span> request = conn.recv_message(MAX_REQUEST)?;</span><span class="ln"><i></i>    <span class="k">let</span> reply = reply_to(handler, &amp;request);</span><span class="ln"><i></i>    conn.send_message(reply.to_string().as_bytes())</span><span class="ln"><i></i>}</span></code></pre></figure><ol class="points"><li><b>One pipe per user</b><span>\\.\pipe\WhiteRabbit-&lt;you&gt;.</span></li><li><b>A fresh secret</b><span>32 random bytes in control.key, new at every start.</span></li><li><b>Prove you know it</b><span>A handshake before anything else is read.</span></li><li><b>Size limit</b><span>Requests over 16 MB are refused.</span></li></ol></div>
+      
+    </article>
+    </details>
+  </div>
+</section>
+
+<section class="level" id="level-17" data-depth="17">
+  <div class="wrap">
+    <p class="eyebrow">LEVEL 17 · CHANGE MANAGEMENT</p>
+    <h2>From idea to installer</h2>
+    <div class="levelbody">
+      <div><p>Finally, how a change gets from an idea to your laptop. Every change goes on its own branch and gets a pull request, which is a proposal: 'here's what I want to change'. GitHub Actions, a build server in the cloud, then spins up a fresh Windows machine, runs the tests including the pixel-for-pixel golden frames, opens the app and clicks through every page as a smoke test, and builds the installer. A link to that test build appears on the pull request. Only after it's been tried on real hardware does it get merged, and a release is a separate, deliberate button press. It's change management, with the robot doing the boring checks.</p><p class="analogy"><b>Sysadmin translation</b> A change request with automated checks.</p></div>
+      
+    </div>
+    <details class="deeper">
+      <summary><span>Go deeper: show me the code</span><small>real code, with notes</small></summary>
+      <article class="deep" id="code-40">
+      <h3>The robot that clicks every page</h3>
+      <p>Good news for a sysadmin: the build pipeline's checks are written in PowerShell. This is part of the smoke test that runs on a fresh Windows machine in GitHub Actions for every change. It starts the window with --list-apps and --diagnose, waits up to two minutes for each to finish, and fails the build if either hangs or exits with an error. Then it opens the real window with a special smoke-test setting that visits every page, and checks the log file to make sure each page reported that it was shown. If any page is missing, the build goes red and nobody gets a broken installer. You could run the same commands by hand on your own machine.</p>
+      
+      <div class="codewrap"><figure class="code"><figcaption>.github/workflows/windows.yml  (PowerShell, trimmed)</figcaption><pre><code><span class="ln"><i></i><span class="k">foreach</span> ($arguments <span class="k">in</span> @(<span class="s">&quot;--list-apps&quot;</span>, <span class="s">&quot;--diagnose&quot;</span>)) {</span><span class="ln"><i></i>  $exe = <span class="s">&quot;dist\WhiteRabbit\WhiteRabbitWindow.exe&quot;</span></span><span class="ln"><i>1</i>  $p = Start-Process -FilePath $exe -PassThru ...</span><span class="ln"><i>2</i>  <span class="k">if</span> (-not $p.WaitForExit(120000)) {</span><span class="ln"><i></i>    $p.Kill(); <span class="k">throw</span> <span class="s">&quot;$exe $arguments did not exit&quot;</span> }</span><span class="ln"><i></i>  <span class="k">if</span> ($p.ExitCode -ne 0) {</span><span class="ln"><i></i>    <span class="k">throw</span> <span class="s">&quot;$exe $arguments exited with $($p.ExitCode)&quot;</span> }</span><span class="ln"><i></i>}</span><span class="ln"><i></i><span class="k">foreach</span> ($page <span class="k">in</span> @(<span class="s">&quot;monitor&quot;</span>, <span class="s">&quot;games&quot;</span>, <span class="s">&quot;music&quot;</span>, <span class="s">&quot;math&quot;</span>,</span><span class="ln"><i></i>                   <span class="s">&quot;draw&quot;</span>, <span class="s">&quot;settings&quot;</span>, <span class="s">&quot;firmware&quot;</span>, <span class="s">&quot;about&quot;</span>)) {</span><span class="ln"><i>3</i>  <span class="k">if</span> (-not (Select-String -Path $log -Quiet ...</span><span class="ln"><i></i>      -Pattern <span class="s">&quot;Smoke test: page $page shown&quot;</span>)) {</span><span class="ln"><i>4</i>    $failures += <span class="s">&quot;$arguments didn't show the $page page&quot;</span></span><span class="ln"><i></i>  }</span><span class="ln"><i></i>}</span></code></pre></figure><ol class="points"><li><b>Run it</b><span>The real exe, on a fresh Windows machine in the cloud.</span></li><li><b>Hang = fail</b><span>Two minutes to finish, or it's killed and the build fails.</span></li><li><b>Read the log</b><span>Every page must write 'shown' to the log.</span></li><li><b>Collect failures</b><span>Any missing page turns the build red.</span></li></ol></div>
+      
+    </article>
+    </details>
+  </div>
+</section>
+
+<section class="bottom" id="bottom" style="border-bottom:0">
+  <div class="wrap">
+    <p class="eyebrow">The very bottom</p>
+    <h2>Now you really are at the bottom</h2>
+    <p class="sub">No more hole. Well, about 47,000 more lines of it, if you want them. These are written for exactly this:</p>
+    <div class="grid">
+      <div class="card"><h3><a href="https://github.com/kingof9x/white-rabbit-framework-matrix/blob/main/docs/ARCHITECTURE.md">ARCHITECTURE.md</a></h3><p>How the pieces fit together, file by file.</p></div>
+      <div class="card"><h3><a href="https://github.com/kingof9x/white-rabbit-framework-matrix/blob/main/rust/README.md">rust/README.md</a></h3><p>What each crate does and how to build it.</p></div>
+      <div class="card"><h3><a href="https://github.com/kingof9x/white-rabbit-framework-matrix/blob/main/REVIEW.md">REVIEW.md</a></h3><p>The code review, stress tests and memory measurements.</p></div>
+    </div>
+    <div class="btns" style="margin-top:28px">
+      <a class="btn primary" href="index.html">Climb back out</a>
+      <a class="btn" href="#top">Back to the top of the hole</a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>White Rabbit by <a href="https://github.com/kingof9x">kingof9x</a> · MIT license · Not made or endorsed by Framework Computer.</span>
+    <span><a href="index.html">Home</a> · <a href="https://github.com/kingof9x/white-rabbit-framework-matrix">Source</a> · <a href="https://github.com/kingof9x/white-rabbit-framework-matrix/releases">Releases</a> · <a href="https://github.com/kingof9x/white-rabbit-framework-matrix/issues">Report a bug</a></span>
+  </div>
+</footer>
+
+<script>
+// The depth gauge: one more LED lights for each level you scroll past
+(function () {
+  var dots = document.querySelectorAll('.depth a');
+  var levels = Array.prototype.slice.call(document.querySelectorAll('section.level, #bottom'));
+  function update() {
+    var y = window.scrollY + window.innerHeight * 0.4, deepest = -1;
+    levels.forEach(function (s, i) { if (s.offsetTop <= y) deepest = i; });
+    dots.forEach(function (d, i) { d.classList.toggle('on', i <= deepest); });
+  }
+  window.addEventListener('scroll', update, { passive: true });
+  update();
+  // Opening a link to a piece of code opens its "Go deeper" box
+  function openHash() {
+    var t = location.hash && document.getElementById(location.hash.slice(1));
+    var d = t && t.closest && t.closest('details');
+    if (d) { d.open = true; t.scrollIntoView(); }
+  }
+  window.addEventListener('hashchange', openHash);
+  openHash();
+  window.addEventListener('load', openHash);
+})();
+</script>
+</body>
+</html>
