@@ -2,6 +2,22 @@
 //! Changes are saved straight away ("music" in settings.json) and the monitor picks them up while
 //! music mode is on. The preview plays the real sound through wr-music, the code the panels use, so it
 //! doubles as a check that the microphone is heard.
+//!
+//! How the Slint callbacks (`MusicPage` in `ui/pages/music.slint`) map to Rust, connected in `wire`:
+//! `changed()` fires on any setting (look, input, sensitivity...): it rebuilds the settings from the
+//! page, saves them and asks the monitor to "reload"; `find-microphones()` lists the recording devices
+//! again. Turning music mode itself on and off is not here: that is `app::set_music_mode`, used by the
+//! Home page and the shortcut, and this page only shows the result (`show_music_mode`).
+//!
+//! Threads: listing microphones (a Windows audio API call that can take a moment) and every request to
+//! the monitor run on worker threads through `Ctx::in_background`. The preview runs on the UI thread from
+//! a 50 ms timer: the sound itself is recorded by wr-music's capture thread, and each tick only copies
+//! its latest samples and runs them through two `MusicPanel`s, which is quick. Listening only happens
+//! while the page is showing (started and stopped by the page-shown hook), so the window doesn't keep a
+//! microphone open in the background.
+//!
+//! What is saved: the "music" object in settings.json, in the same key names the Python version used
+//! (`to_json`).
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -17,12 +33,16 @@ use wr_music::{MusicPanel, Settings, Stereo, STYLES};
 use crate::app::Ctx;
 use crate::{link, preview, settings, App, AppWindow, MusicPage};
 
+/// Seconds between preview frames (20 a second) while the page is showing.
 const FRAME_SECONDS: f64 = 0.05;
+/// Seconds between "is music mode on, and what does it hear?" questions to the monitor.
 const POLL_SECONDS: f64 = 2.0;
 
 /// The settings as settings.json keeps them (Python's `looks.normalize` output).
+/// The three tuning numbers are written only when set, as hand-edited values that the page doesn't show.
 pub fn to_json(s: &Settings) -> Value {
     let mut m = Map::new();
+    // Key names use dashes, as Python's settings did, so both versions read the same file.
     m.insert("input-mode".into(), json!(s.input_mode.as_str()));
     m.insert("input-device".into(), json!(s.input_device));
     m.insert("style".into(), json!(s.style));
@@ -53,6 +73,8 @@ pub fn to_json(s: &Settings) -> Value {
 }
 
 /// One line about what music mode is hearing, from the monitor's reply.
+/// `hearing` holds one object per panel side with the sound device's name, whether it is silent, and any
+/// problem. A missing or empty reply means the visualizer hasn't reported yet.
 pub fn hearing_text(hearing: Option<&Value>) -> String {
     let Some(hearing) = hearing.filter(|h| h.as_object().is_some_and(|m| !m.is_empty())) else {
         return "Audio reactivity is starting...".into();
@@ -78,7 +100,10 @@ pub fn hearing_text(hearing: Option<&Value>) -> String {
     }
 }
 
+/// The loudest sample in decibels relative to full scale: 0 dB is the loudest possible, -6 dB is half.
+/// Pure silence gives -120 dB instead of minus infinity.
 pub fn loudness_db(samples: &[Stereo]) -> f64 {
+    // The biggest absolute value over both channels; samples run from -1.0 to 1.0.
     let peak = samples.iter().flat_map(|s| s.iter()).fold(0.0f64, |m, v| m.max(v.abs()));
     if peak > 0.0 {
         20.0 * peak.log10()
@@ -87,24 +112,41 @@ pub fn loudness_db(samples: &[Stereo]) -> f64 {
     }
 }
 
+/// The page's state, on the UI thread only.
 struct State {
+    /// The music settings as last saved.
     settings: Settings,
+    /// The microphone names in the drop-down's order (after "Default microphone"), including a saved one
+    /// that isn't plugged in.
     microphones: Vec<String>,
+    /// The recording the preview listens to, while the page is showing. Shared with the rest of the window
+    /// through wr-music's registry: the same input is recorded once however many users it has.
     capture: Option<Arc<Capture>>,
+    /// Which input `capture` is (or failed to be), so it isn't reopened when nothing changed.
     capture_key: Option<(InputMode, String)>,
+    /// Why listening failed, shown instead of the sound check.
     capture_problem: Option<String>,
+    /// The left and right visualizers for the preview; made on first use and thrown away when the settings
+    /// change, so they start fresh with the new look.
     panels: Option<[MusicPanel; 2]>,
+    /// When the last preview frame was drawn, to move the visualizers on by the real time passed.
     last_frame: Instant,
+    /// Whether the Music page is the page on screen.
     showing: bool,
 }
 
 impl State {
+    /// Starts listening to the input the settings ask for, unless that one is already open. A failure is
+    /// logged and kept in `capture_problem` for the page to show; the key is remembered either way, so a
+    /// broken device isn't retried every frame.
     fn listen(&mut self) {
+        // The input wanted now: playback (what the laptop plays) or a microphone, by name.
         let key = (self.settings.input_mode, self.settings.input_device.clone());
         if self.capture.is_some() && self.capture_key.as_ref() == Some(&key) {
             return;
         }
         self.stop_listening();
+        // None: no callback for device changes; the preview doesn't need one.
         match capture::acquire(key.0, &key.1, None) {
             Ok(c) => {
                 self.capture = Some(c);
@@ -119,6 +161,7 @@ impl State {
         }
     }
 
+    /// Leaves the recording (wr-music stops it when nobody else uses it).
     fn stop_listening(&mut self) {
         if let Some(c) = self.capture.take() {
             capture::release(&c);
@@ -127,10 +170,12 @@ impl State {
     }
 }
 
+/// Reads "music" from settings.json; anything missing or broken gives wr-music's defaults.
 fn load_settings() -> Settings {
     wr_music::from_json(&settings::get("music").unwrap_or(Value::Null))
 }
 
+/// The fall speed as its position in the page's drop-down.
 fn fall_index(f: FallSpeed) -> i32 {
     match f {
         FallSpeed::Slow => 0,
@@ -139,9 +184,11 @@ fn fall_index(f: FallSpeed) -> i32 {
     }
 }
 
+/// Copies the settings into the page's controls. The bar options are hidden for looks that have no bars.
 fn show_settings(app: &AppWindow, s: &Settings) {
     let page = app.global::<MusicPage>();
     page.set_input_mode(if s.input_mode == InputMode::Microphone { 1 } else { 0 });
+    // An unknown look (from a newer version) shows as the first one.
     let look = STYLES.iter().position(|(k, _, _)| *k == s.style).unwrap_or(0);
     page.set_look(look as i32);
     page.set_look_help(STYLES[look].2.into());
@@ -158,6 +205,8 @@ fn show_settings(app: &AppWindow, s: &Settings) {
 /// The first choice in Home's sound drop-downs (the rest are the microphones).
 pub const PLAYBACK_SOURCE: &str = "What the laptop is playing";
 
+/// Fills both drop-downs: the Music page's microphone list ("Default microphone" then each name) and Home's
+/// sound source list (the same, after "What the laptop is playing"), and selects the saved microphone.
 fn fill_microphones(app: &AppWindow, state: &mut State, names: Vec<String>) {
     state.microphones = names;
     let mut values: Vec<SharedString> = vec![DEFAULT_MICROPHONE.into()];
@@ -169,20 +218,26 @@ fn fill_microphones(app: &AppWindow, state: &mut State, names: Vec<String>) {
         values.push(format!("{wanted} (not found)").into());
     }
     let page = app.global::<MusicPage>();
+    // The Home page's list: playback first, then the same microphone entries.
     let mut sources: Vec<SharedString> = vec![PLAYBACK_SOURCE.into()];
     sources.extend(values.iter().cloned());
     page.set_sources(ModelRc::new(VecModel::from(sources)));
     page.set_microphones(ModelRc::new(VecModel::from(values)));
+    // 0 is "Default microphone"; a named one is its position + 1.
     let index =
         if wanted.is_empty() { 0 } else { state.microphones.iter().position(|m| *m == wanted).map_or(0, |i| i + 1) };
     page.set_microphone(index as i32);
 }
 
+/// Builds the settings from the page's controls. It goes through the JSON form so wr-music's own loader
+/// does the cleaning (unknown look, out-of-range sensitivity), and fields the page doesn't show are kept.
 fn read_settings(app: &AppWindow, state: &State) -> Settings {
     let page = app.global::<MusicPage>();
     let mut raw = to_json(&state.settings);
     raw["input-mode"] = json!(if page.get_input_mode() == 1 { "microphone" } else { "playback" });
     let index = page.get_microphone();
+    // 0 is "Default microphone" (saved as ""); above that is an index into `microphones`, shifted by one;
+    // -1 (nothing selected) keeps the saved device.
     raw["input-device"] = json!(if index > 0 {
         state.microphones.get(index as usize - 1).cloned().unwrap_or_default()
     } else if index < 0 {
@@ -203,17 +258,22 @@ fn read_settings(app: &AppWindow, state: &State) -> Settings {
     wr_music::from_json(&raw)
 }
 
+// Set once by `wire`; a thread-local so reply callbacks, which must be `Send`, can find the state.
 thread_local! {
     static STATE: RefCell<Option<Rc<RefCell<State>>>> = const { RefCell::new(None) };
 }
 
+/// The page's state. Panics before `wire`, which can't happen because nothing calls it earlier.
 fn page_state() -> Rc<RefCell<State>> {
     STATE.with(|s| s.borrow().clone()).expect("music page wired")
 }
 
 /// The music mode line, from the monitor's reply to {"cmd": "music"}.
+/// No reply means no monitor, and without the monitor music mode can't run. Also updates the shared
+/// `App.music-mode` flag, so the Home page's switch matches.
 fn show_music_mode(app: &AppWindow, reply: Option<Value>) {
     let page = app.global::<MusicPage>();
+    // A reply without "music_mode" counts as no monitor too.
     let Some(on) = reply.as_ref().and_then(|r| r.get("music_mode")).and_then(|v| v.as_bool()) else {
         page.set_mode_status("The system monitor isn't running, so audio reactivity can't start.".into());
         page.set_mode_hearing("".into());
@@ -230,6 +290,7 @@ fn show_music_mode(app: &AppWindow, reply: Option<Value>) {
     });
 }
 
+/// Lists the microphones on a worker thread and fills the drop-downs on the UI thread when done.
 fn find_microphones(ctx: &Ctx) {
     ctx.in_background(capture::list_microphones, |app, names| {
         let st = page_state();
@@ -237,15 +298,21 @@ fn find_microphones(ctx: &Ctx) {
     });
 }
 
+/// One preview frame: takes the newest sound (silence if not listening), moves both visualizers on by
+/// the time since the last frame, and updates the preview, the level meter and the sound check line.
 fn draw_frame(app: &AppWindow, state: &mut State) {
     let now = Instant::now();
+    // At most half a second, so after a pause (the page was hidden) the bars don't jump.
     let dt = now.duration_since(state.last_frame).as_secs_f64().min(0.5);
     state.last_frame = now;
+    // The newest FFT_SIZE sample pairs from the recording, or silence when not listening.
     let samples: Vec<Stereo> = match &state.capture {
         Some(c) => c.snapshot_f64(),
         None => vec![[0.0, 0.0]; FFT_SIZE],
     };
     let settings = state.settings.clone();
+    // Two visualizers, left (false) and right (true): some looks differ per side. They count as idle
+    // after IDLE_AFTER_SEC seconds of silence, like on the panels.
     let panels = state.panels.get_or_insert_with(|| {
         [
             MusicPanel::new(&settings, false, wr_music::panel::IDLE_AFTER_SEC),
@@ -253,21 +320,26 @@ fn draw_frame(app: &AppWindow, state: &mut State) {
         ]
     });
     let frames: Vec<preview::Levels> = panels.iter_mut().map(|p| p.frame(&samples, dt)).collect();
+    // Whether the sound is too quiet for the bars to move (the left panel speaks for both).
     let silent = panels[0].is_silent();
     let page = app.global::<MusicPage>();
     page.set_preview(preview::render(&frames, 2));
 
     // The sound check
+    // The meter uses only the newest 2048 sample pairs (about 40 ms at 48,000 a second), so it reacts
+    // quickly. It maps -80 dB .. 0 dB onto 0..1.
     let tail = &samples[samples.len().saturating_sub(2048)..];
     let db = loudness_db(tail);
     page.set_meter(((db + 80.0) / 80.0).clamp(0.0, 1.0) as f32);
     let text = if let Some(problem) = &state.capture_problem {
         problem.clone()
     } else if let Some(c) = &state.capture {
+        // The sound check line: a capture problem, silence, too quiet, or hearing sound, in that order.
         let name = c.device_name().unwrap_or_else(|| "the sound device".into());
         let mic = settings.input_mode == InputMode::Microphone;
         if let Some(problem) = c.problem() {
             problem
+        // Practically digital silence: nothing reaches the device at all.
         } else if db <= -100.0 {
             format!("{} ({name})", if mic { "Silence" } else { "Nothing is playing" })
         } else if silent {
@@ -285,6 +357,8 @@ fn draw_frame(app: &AppWindow, state: &mut State) {
     page.set_hearing(text.into());
 }
 
+/// Sets up the state and lists, starts looking for microphones, registers the page-shown hook and the two
+/// timers, and connects the callbacks (see the file header). Runs once at start-up on the UI thread.
 pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
     let state = Rc::new(RefCell::new(State {
         settings: load_settings(),
@@ -296,13 +370,17 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
         last_frame: Instant::now(),
         showing: false,
     }));
+    // From here on `page_state()` works.
     STATE.with(|s| *s.borrow_mut() = Some(state.clone()));
     let page = app.global::<MusicPage>();
+    // The page names the keyboard shortcut that turns music mode on and off.
     page.set_shortcut(crate::pages::shortcuts::keys_text("m").into());
     let looks: Vec<SharedString> = STYLES.iter().map(|(_, label, _)| SharedString::from(*label)).collect();
     page.set_looks(ModelRc::new(VecModel::from(looks)));
     page.set_preview(preview::render(&[preview::dark(), preview::dark()], 2));
     show_settings(app, &state.borrow().settings);
+    // Fill the drop-downs at once with just the saved microphone; the real list follows from the
+    // worker thread.
     fill_microphones(app, &mut state.borrow_mut(), Vec::new());
     find_microphones(ctx);
 
@@ -312,6 +390,8 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
     }
     {
         let (ctx2, state) = (ctx.clone(), state.clone());
+        // `changed()`: nothing happens if the settings didn't really change (for example a control
+        // was set back to the value it had).
         page.on_changed(move || {
             let Some(app) = ctx2.ui.upgrade() else { return };
             let mut s = state.borrow_mut();
@@ -320,10 +400,12 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
                 return;
             }
             s.settings = new.clone();
+            // New visualizers with the new look; reopen the input if it changed and the page is showing.
             s.panels = None;
             if s.showing {
                 s.listen();
             }
+            // Done with the state before updating the page and saving.
             drop(s);
             show_settings(&app, &new);
             let page = app.global::<MusicPage>();
@@ -333,6 +415,7 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
             }
             page.set_status("Saved. Audio reactivity uses this look from now on.".into());
             // The monitor starts the visualizer again with the new look, if music mode is on
+            // (On a worker thread; the reply isn't needed.)
             ctx2.in_background(
                 || link::request(json!({"cmd": "music", "action": "reload"}), Duration::from_secs(3)),
                 |_, _| {},
@@ -345,6 +428,8 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
         ctx.on_page.lock().unwrap().push(Box::new(move |_app, key| {
             let st = page_state();
             let mut s = st.borrow_mut();
+            // Start listening when the Music page comes up, stop when another page replaces it, and
+            // ask the monitor for the music mode line straight away rather than waiting for the poll.
             let showing = key == "music";
             if showing == s.showing {
                 return;
@@ -352,6 +437,7 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
             s.showing = showing;
             if showing {
                 s.listen();
+                // Start the frame clock now, so the first frame doesn't count the hidden time.
                 s.last_frame = Instant::now();
                 drop(s);
                 ctx2.in_background(
@@ -376,6 +462,7 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
     }
     {
         let (ctx2, state) = (ctx.clone(), state.clone());
+        // Every 2 seconds while the page is showing: is music mode on, and is it hearing anything?
         ctx.every(POLL_SECONDS, move || {
             if !state.borrow().showing {
                 return;
@@ -392,6 +479,8 @@ pub fn wire(ctx: &Rc<Ctx>, app: &AppWindow) {
 mod tests {
     use super::*;
 
+    /// Settings written by `to_json` use the Python key names and load back to the same settings, including
+    /// an optional tuning number.
     #[test]
     fn settings_round_trip_with_python_keys() {
         let s = wr_music::from_json(&json!({"style": "bars", "fall-speed": "fast", "sensitivity": 7, "level-gain": 2}));
@@ -403,6 +492,7 @@ mod tests {
         assert_eq!(wr_music::from_json(&j), s);
     }
 
+    /// The monitor's "hearing" reply becomes a readable line per panel, with defaults for missing parts.
     #[test]
     fn hearing_line() {
         assert_eq!(hearing_text(None), "Audio reactivity is starting...");
@@ -413,6 +503,7 @@ mod tests {
         );
     }
 
+    /// Silence gives -120 dB, and a full-scale sample (1.0, either sign) gives 0 dB.
     #[test]
     fn loudness() {
         assert_eq!(loudness_db(&[[0.0, 0.0]]), -120.0);

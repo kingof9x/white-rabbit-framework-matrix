@@ -34,6 +34,9 @@ fn version_numbers(version: &str) -> u64 {
     (parts[0] << 48) | (parts[1] << 32) | (parts[2] << 16) | parts[3]
 }
 
+/// Writes the icon and the version details into the exe being built.
+/// Only runs when both the build machine and the target are Windows (`winresource` calls the Windows
+/// resource compiler). Any other build returns at once, so Linux CI builds need no Windows tools.
 fn windows_resources(exe_name: &str) {
     let version = app_version();
     let for_windows = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows");

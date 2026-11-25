@@ -37,6 +37,8 @@
 // loops index several arrays at once.
 #![allow(clippy::type_complexity, clippy::needless_range_loop)]
 
+// Pulls in the Rust code that build.rs generated from the Slint markup in `ui/`: `AppWindow` and the
+// globals each page uses (`App`, `Theme`, `MathPage`, ...).
 slint::include_modules!();
 
 mod app;
@@ -70,6 +72,9 @@ use std::time::{Duration, Instant};
 use slint::ComponentHandle;
 
 /// --tab names (older names too) -> pages
+///
+/// The tray menu and older versions pass different names for the same page; anything unknown opens
+/// Home.
 pub fn start_page(tab: &str) -> &'static str {
     match tab {
         "panels" | "monitor" => "monitor",
@@ -89,6 +94,7 @@ pub fn start_page(tab: &str) -> &'static str {
     }
 }
 
+/// The argument right after `name` (e.g. the page after `--tab`), or None if `name` isn't there or is last.
 fn arg_after(args: &[String], name: &str) -> Option<String> {
     args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned()
 }
@@ -113,6 +119,8 @@ pub fn version() -> String {
     if let Some(v) = option_env!("WHITE_RABBIT_VERSION").filter(|v| !v.is_empty()) {
         return v.to_string();
     }
+    // pyproject.toml is read into the exe at compile time; its first line starting with "version" gives
+    // the number (e.g. `version = "1.5.0"` -> 1.5.0). Empty if no such line exists.
     const PYPROJECT: &str = include_str!("../../../pyproject.toml");
     PYPROJECT
         .lines()
@@ -125,6 +133,10 @@ pub fn version() -> String {
 }
 
 /// Let a windowless exe print to the console it was started from (for --diagnose and --list-apps).
+///
+/// The release exe is a "windows subsystem" program with no console of its own. AttachConsole with
+/// ATTACH_PARENT_PROCESS (u32::MAX, i.e. -1) joins the console of the program that started it, so
+/// `println!` reaches the terminal.
 fn attach_console() {
     #[cfg(windows)]
     // SAFETY: plain call; failing just means there is no console.
@@ -134,6 +146,12 @@ fn attach_console() {
 }
 
 /// If the window is already open, bring it to the front. True if it was.
+///
+/// Only one window may run per user. A named mutex works as the "already running" marker: creating it
+/// succeeds either way, but GetLastError says ERROR_ALREADY_EXISTS when another window made it first.
+/// Then that window is found by its exact title, restored if minimised and brought to the front, and
+/// this process exits. The first window keeps its mutex handle open for its whole life (Windows
+/// deletes the mutex when the last handle closes, i.e. when that window exits).
 #[cfg(windows)]
 fn focus_open_window() -> bool {
     use windows_sys::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
@@ -145,6 +163,7 @@ fn focus_open_window() -> bool {
     let handle = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
     // SAFETY: plain call, right after CreateMutexW.
     if unsafe { GetLastError() } != ERROR_ALREADY_EXISTS {
+        // Deliberately not closed: holding the handle is what keeps the mutex (and the marker) alive.
         let _ = handle;
         return false;
     }
@@ -160,12 +179,17 @@ fn focus_open_window() -> bool {
     true
 }
 
+/// Away from Windows there is no single-window check: always "not open yet".
 #[cfg(not(windows))]
 fn focus_open_window() -> bool {
     false
 }
 
 /// Started together with the monitor: let it open the panels first, so the two don't collide.
+///
+/// Asks the monitor for its status every half second (each try waits up to 1.5 s) until it answers
+/// or `seconds` have passed. Either way the window then opens; this only avoids both programs
+/// opening the serial ports at the same moment when Windows starts them together.
 fn wait_for_monitor(seconds: u64) {
     let link = link::Link::default();
     let end = Instant::now() + Duration::from_secs(seconds);
@@ -178,6 +202,10 @@ fn wait_for_monitor(seconds: u64) {
 }
 
 /// Builds the window and every page.
+///
+/// On the UI thread, before the window is shown: applies the theme, makes the shared state (which
+/// finds the panels), wires every page's callbacks, shows the `start` page and starts reading the
+/// panels' firmware in the background. Also used by `shoot.rs` to draw pages for screenshots.
 pub fn build(start: &str) -> (AppWindow, Rc<app::Ctx>) {
     let ui = AppWindow::new().expect("the window couldn't be made");
     let g = ui.global::<App>();
@@ -215,6 +243,12 @@ fn pick_renderer() {
     }
 }
 
+/// Opens the window and runs the event loop until it closes; the normal way the program runs.
+///
+/// Order: hand over to an already-open window if there is one; wait for the monitor if asked; pick
+/// the renderer and build the window; show it; run Slint's event loop (this blocks until the window
+/// is closed). Closing stops every job and the keyboard driver, saves the layout editor, and gives
+/// borrowed panels back to the monitor before the window hides.
 fn run_window(args: &[String]) {
     if focus_open_window() {
         return;
@@ -230,6 +264,7 @@ fn run_window(args: &[String]) {
     pick_renderer();
     let (ui, ctx) = build(start);
     if std::env::var_os("WHITE_RABBIT_SMOKE_TEST").is_some() {
+        // The CI smoke test (see `shoot::smoke_test`), switched on by an environment variable.
         shoot::smoke_test(&ui, &ctx);
     }
     if let Err(e) = ui.show() {
@@ -237,8 +272,11 @@ fn run_window(args: &[String]) {
         wr_core::error!("The window couldn't open: {e}. Setting WHITE_RABBIT_RENDERER=software may help.");
         return;
     }
+    // The title bar is drawn by Windows; tell it to use dark colours if our theme is dark.
     theme::title_bar(&ui, ui.global::<Theme>().get_dark());
     let close_ctx = ctx.clone();
+    // Runs on the UI thread when the user closes the window. The give-back blocks here (talking to the
+    // monitor) because the process is about to end and a worker thread might not get the chance.
     ui.window().on_close_requested(move || {
         jobs::stop_all();
         keyboard::stop();
@@ -254,16 +292,21 @@ fn run_window(args: &[String]) {
     if let Err(e) = slint::run_event_loop() {
         wr_core::error!("The window stopped with an error: {e}");
     }
+    // Drop the shared state (and its timers) only after the event loop has ended.
     drop(ctx);
 }
 
+/// Entry point: reads the arguments, starts the log, then picks one of the jobs listed at the top of
+/// this file (screenshot, report, open an outside program, or the window itself).
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     wr_core::log::init(paths::log_file());
+    // --shoot returns before the panic hook below is set, so a panic there keeps Rust's default message.
     if args.first().map(String::as_str) == Some("--shoot") {
         shoot::shoot(&args[1..]);
         return;
     }
+    // From here a panic is written to the log (in release builds the program then aborts, see above).
     std::panic::set_hook(Box::new(|info| wr_core::error!("The window stopped: {info}")));
     wr_core::info!("White Rabbit window {} starting: {}", version(), args.join(" "));
     if args.iter().any(|a| a == "--diagnose" || a == "--list-apps") {
@@ -282,6 +325,9 @@ fn main() {
 }
 
 /// Screenshots: put the window in a state first (WHITE_RABBIT_SHOOT_ACTION).
+///
+/// Each action is a small string naming something to click or set before the picture is taken; an
+/// unknown action is only logged. Used by `shoot.rs`.
 pub fn shoot_action(ui: &AppWindow, _ctx: &Rc<app::Ctx>, action: &str) {
     let g = ui.global::<App>();
     match action {
