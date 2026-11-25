@@ -1,5 +1,30 @@
 //! The window's requests: a port of `handle_control_request` in `led_mon/led_system_monitor.py`
 //! and the commands `white_rabbit/bridge.py` adds to it.
+//!
+//! Each request is a JSON object with "cmd"; the reply is a JSON object with "ok" (true unless it
+//! says otherwise) and, on failure, "error". The commands:
+//!
+//! | cmd             | does                                                             |
+//! |-----------------|------------------------------------------------------------------|
+//! | `status`        | the ports in use, the layout file, brightness, the GPUs' names    |
+//! | `brightness`    | save "follow_screen" and/or "level" (0-100)                       |
+//! | `reload`        | read the layout file again (and end any preview)                  |
+//! | `preview`       | show still pictures on the panels for "seconds" (layout editor)   |
+//! | `resume`        | end the preview                                                   |
+//! | `identify`      | show each panel's name, then its apps' names                      |
+//! | `music`         | audio reactivity: "action" on / off / toggle / reload / status    |
+//! | `effects`       | Effects pages: reload, try an effect, say a text, learn a port    |
+//! | `shortcuts`     | re-register the Ctrl+Alt+Shift shortcuts from settings.json       |
+//! | `power`         | the lid / unused-screen settings                                  |
+//! | `sensor_source` | where temperatures come from now                                  |
+//! | `quit`          | quit (the window installs an update)                              |
+//! | `serial`, `serial_many`, `hold`, `release`, `frames` | the panels (`bridge.rs`)   |
+//! | `keyboard`      | hand the RGB keyboard to the window and back (`keyboard.rs`)      |
+//!
+//! Requests come from the control thread, one at a time. They change the main loop's `Shared` state
+//! (it acts on it within a tenth of a second), write settings.json with `save_key`, or ask the tray
+//! window (`UiRequest`). None of them waits for the main loop. Bad input gives an error reply, never
+//! a panic: `fuzzed_requests_always_get_a_reply` below sends thousands of random requests.
 
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;

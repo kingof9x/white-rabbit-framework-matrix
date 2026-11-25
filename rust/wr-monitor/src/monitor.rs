@@ -285,6 +285,26 @@ impl Monitor {
     }
 
     /// One pass of the loop. Returns how long to wait before the next one.
+    ///
+    /// In order:
+    /// 1. requests from the tray and the window: read the layout again, a changed layout file or
+    ///    settings.json (checked once a second), panels given back by the window;
+    /// 2. paused (tray) or the lid closed: play the old-TV switch-off once, send dark frames, and with
+    ///    the lid send the panels to sleep; then wait 250 ms and do nothing else;
+    /// 3. brightness from the screen (or the fixed level), the next apps from the rotation, the
+    ///    visualizers started or stopped (`run_music`), the low-battery message;
+    /// 4. identifying: the panel names, then the apps' names, instead of the apps;
+    /// 5. otherwise each panel's picture: the window's preview if there is one, nothing if a visualizer
+    ///    draws that panel, else its apps drawn from the readings. A panel that now shows other apps
+    ///    gets the slide transition; scrolling on/off is sent only when it changes;
+    /// 6. coming back from off: the old-TV switch-on into the new pictures; then the frames go to the
+    ///    drawing threads' queues. Wait 100 ms.
+    ///
+    /// Nothing here waits for slow hardware: the quick readings (CPU, memory, battery) are taken here,
+    /// the slow ones (sensors, GPU, weather, what's playing) come from background threads, and the
+    /// panels are written by the drawing threads, so a slow sensor or a missing panel can't hold up
+    /// the loop.
+    /// (The old-TV effect is the exception: `play_tv` sleeps between its frames, under a second.)
     pub fn step(&mut self) -> Duration {
         if self.shared.reload.swap(false, Ordering::SeqCst) {
             self.reload();

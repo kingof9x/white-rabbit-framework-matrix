@@ -1,5 +1,15 @@
-//! `settings.json` in `%APPDATA%\WhiteRabbit`, shared with the Python window: brightness, the lid,
-//! which keyboard shortcuts are on. Only the keys the monitor reads; everything else is left alone.
+//! `settings.json` in `%APPDATA%\WhiteRabbit`, shared by the monitor and the window (and with the
+//! Python version, which uses the same file): brightness, the lid, which keyboard shortcuts are on.
+//! Only the keys the monitor reads; everything else is left alone.
+//!
+//! Who writes it: mostly the window (every page saves its own key). The monitor writes single keys
+//! from the tray menu and the control commands with [`save_key`], which reads the file, changes one
+//! key and writes it back through a temporary file and a rename, so a reader never sees half a file.
+//! The monitor reads it again once a second (`monitor.rs`, `check_files`), so a change made in the
+//! window reaches the panels within a second.
+//!
+//! Reading is forgiving on purpose: a missing file, broken JSON or a value of the wrong type gives
+//! the default for that key (as Python's `bool()` / `clamp_level` would), never an error.
 
 use serde_json::Value;
 use std::path::Path;

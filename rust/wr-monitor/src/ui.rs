@@ -255,7 +255,7 @@ fn command(hwnd: HWND, id: usize) {
             launch::open_window(&["--window"]);
         }
         ID_MUSIC => toggle_music(shared),
-        // Finding these apps (and asking where Libre Hardware Monitor is) is the Python app's
+        // Finding these apps (and asking where Libre Hardware Monitor is) is done by the window exe
         ID_LHM => {
             launch::open_window(&["--open-lhm"]);
         }

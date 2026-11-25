@@ -1,5 +1,7 @@
 //! The control channel between the running monitor and the White Rabbit window: a port of
-//! `led_mon/control.py`, so the unchanged Python window can drive the Rust monitor.
+//! `led_mon/control.py`. It was first written so the Python window could drive the Rust monitor; the
+//! window is Rust too now (`wr-window/src/link.rs`), and the protocol was kept so either window works
+//! with either monitor, and the Python client test below still checks it byte for byte.
 //!
 //! The monitor listens on a named pipe (Windows) or a Unix socket (Linux) that only this user can
 //! reach. Both ends prove they know the key in control.key with the handshake of Python's

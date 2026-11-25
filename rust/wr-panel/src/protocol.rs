@@ -1,5 +1,23 @@
 //! The bytes sent to an LED Matrix panel (from Framework's inputmodule-rs `commands.md`), as the
 //! Python monitor sends them.
+//!
+//! Every command is `0x32 0xAC <command id> <parameters...>` over the panel's USB serial port (the
+//! baud rate is ignored by USB but set anyway). The firmware reads one command per USB transfer, so
+//! each command must be its own write: two joined in one write are cut up and lost.
+//!
+//! A frame of the 9 x 34 greyscale panel is sent column by column:
+//!
+//! ```text
+//! 32 AC 07 <x> <34 brightness values, top to bottom>   StageCol: put column x in the back buffer
+//! ...                                                  (only lit columns: the back buffer starts dark)
+//! 32 AC 08                                             FlushCols: show the back buffer at once
+//! ```
+//!
+//! So a frame is 2 to 10 writes of 3 to 38 bytes. Other commands used: Sleep (0x03) fades the panel
+//! out until the next command, Animate (0x04) turns the firmware's own downward scroll on or off,
+//! Version (0x20) asks for the firmware version, and GlobalCurrent (0x30, White Rabbit firmware
+//! only) sets or asks for the LED current used for dimming (see `dimming.rs`). A panel answers a
+//! query with 32 bytes; firmware that doesn't know a command doesn't answer at all.
 
 use wr_core::grid::{Grid, HEIGHT, WIDTH};
 
