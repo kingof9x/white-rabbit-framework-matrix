@@ -2,6 +2,14 @@
 //! keyboard.txt in White Rabbit's settings folder (%APPDATA%\WhiteRabbit). The window and the
 //! monitor both read it. The first time, the Framework 16 Keyboard Control app's settings
 //! (%APPDATA%\framework-16-keyboard-control\settings.txt) are copied in; that file is left alone.
+//!
+//! Format: one `key=value` per line, written by [`to_text`] and read by [`from_text`]. Reading is
+//! forgiving on purpose: unknown keys, broken lines and bad values are skipped and the default is
+//! kept, so a hand-edited or older file never stops the app. Values with several parts are
+//! separated by spaces (`kb=b13 11 220 255 128` is effect, hue, saturation, brightness, speed).
+//!
+//! The caller chooses the path and when to save. Writing is a plain overwrite of the whole file,
+//! with no locking between the window and the monitor.
 
 use crate::audio::{AudioColors, AudioLook, KeyReact};
 use crate::deck::{Choice, Dev, KbType, Look, Setup};
@@ -12,8 +20,10 @@ use crate::protocol::PaintMode;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+/// Everything kept in keyboard.txt. Built with defaults, then overwritten by each line read.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Saved {
+    /// Keyboard type, side module and which side it is on.
     pub setup: Setup,
     /// How painted keys look while an effect runs.
     pub paint_mode: PaintMode,
@@ -21,9 +31,13 @@ pub struct Saved {
     pub join: bool,
     /// Lighting page, when not joined: edit the keyboard (false) or the side module (true).
     pub edit_module: bool,
+    /// The keyboard's look (or both devices' look when joined).
     pub kb: Look,
+    /// The side module's look when not joined.
     pub module: Look,
+    /// The Paint page's brush color: (hue, saturation), QMK 0..=255 scale.
     pub brush: (u8, u8),
+    /// Painted keys: (device, key number) -> (hue, saturation). Also saved on the devices.
     pub paint: HashMap<(Dev, usize), (u8, u8)>,
     /// The window's look: "system", "light", "dark" or "classic".
     pub theme: String,
@@ -41,7 +55,9 @@ pub struct Saved {
     pub audio_hotkey: bool,
     /// Audio mode listens to a microphone (`audio_device`, "" = default) instead of what the PC plays.
     pub audio_mic: bool,
+    /// Which microphone ("" = the default one).
     pub audio_device: String,
+    /// The audio show's palette.
     pub audio_colors: AudioColors,
     /// Key presses on top of the audio show.
     pub audio_keys: KeyReact,
@@ -50,11 +66,14 @@ pub struct Saved {
 }
 
 impl Saved {
+    /// Whether to start with Windows: the user's choice, or, until they choose, on as soon as any
+    /// "Open an app" key has a program (those keys need the app running to work).
     pub fn autostart_on(&self) -> bool {
         self.autostart.unwrap_or_else(|| self.apps.iter().any(|a| !a.is_empty()))
     }
 }
 
+/// A first run: clear RGB keyboard with a macropad on the right, joined, cycle left-right.
 impl Default for Saved {
     fn default() -> Self {
         let look = |choice, hue, sat, val, speed| Look { choice, hue, sat, val, speed };
@@ -84,6 +103,8 @@ impl Default for Saved {
     }
 }
 
+/// The folder that holds per-user settings: %APPDATA% on Windows, else $XDG_CONFIG_HOME or
+/// ~/.config (so tests and Linux builds have somewhere to look). None if none is set.
 fn config_dir() -> Option<PathBuf> {
     std::env::var_os("APPDATA")
         .map(PathBuf::from)
@@ -98,6 +119,7 @@ fn old_paths() -> Vec<PathBuf> {
     vec![dir.join("framework-16-keyboard-control").join("settings.txt"), dir.join("f16-lights").join("settings.txt")]
 }
 
+/// The settings word for an effect choice: "paint", "b<id>" or "pc-<name>".
 pub fn choice_str(c: Choice) -> String {
     match c {
         Choice::PaintOnly => "paint".into(),
@@ -108,6 +130,7 @@ pub fn choice_str(c: Choice) -> String {
     }
 }
 
+/// Reads [`choice_str`]'s word; None for anything else, including built-in ids outside 1..=44.
 pub fn parse_choice(s: &str) -> Option<Choice> {
     Some(match s {
         "paint" => Choice::PaintOnly,
@@ -118,10 +141,12 @@ pub fn parse_choice(s: &str) -> Option<Choice> {
     })
 }
 
+/// A look as "choice hue sat val speed".
 fn look_str(l: &Look) -> String {
     format!("{} {} {} {} {}", choice_str(l.choice), l.hue, l.sat, l.val, l.speed)
 }
 
+/// Reads [`look_str`]'s text; None unless there are exactly five valid parts.
 fn parse_look(s: &str) -> Option<Look> {
     let p: Vec<&str> = s.split_whitespace().collect();
     if p.len() != 5 {
@@ -136,6 +161,7 @@ fn parse_look(s: &str) -> Option<Look> {
     })
 }
 
+/// The settings word for a keyboard type.
 fn kb_str(t: KbType) -> &'static str {
     match t {
         KbType::ClearRgb => "clear",
@@ -144,6 +170,7 @@ fn kb_str(t: KbType) -> &'static str {
     }
 }
 
+/// The keyboard type for a settings word; anything unknown is a clear RGB keyboard.
 fn parse_kb(v: &str) -> KbType {
     match v {
         "black-rgb" => KbType::BlackRgb,
@@ -152,8 +179,11 @@ fn parse_kb(v: &str) -> KbType {
     }
 }
 
+/// The whole file as text. Painted keys are sorted so the file doesn't change order between
+/// saves; empty app slots and an unchosen autostart are left out.
 pub fn to_text(s: &Saved) -> String {
     let mut out = String::new();
+    // Lines are written in a fixed order; the order doesn't matter when reading back.
     let kb = kb_str(s.setup.kb);
     let side = match s.setup.side {
         SideModule::None => "none",
@@ -169,6 +199,7 @@ pub fn to_text(s: &Saved) -> String {
         "keyboard={kb}\nside={side}\nleft={}\npaint-mode={mode}\njoin={}\nedit-module={}\n",
         s.setup.module_left, s.join, s.edit_module
     );
+    // One "keyboard-of=<type> <serial>" line per keyboard the user has told us about.
     for (serial, t) in &s.kb_types {
         out += &format!("keyboard-of={} {serial}\n", kb_str(*t));
     }
@@ -182,6 +213,7 @@ pub fn to_text(s: &Saved) -> String {
         s.audio_sensitivity,
         s.audio_hotkey
     );
+    // The device name goes last on the line, since it may contain spaces.
     out += &format!("audio-input={} {}\n", if s.audio_mic { "mic" } else { "playback" }, s.audio_device);
     out += &format!("audio-colors={}\naudio-keys={}\n", s.audio_colors.key(), s.audio_keys.key());
     if let Some(a) = s.autostart {
@@ -200,13 +232,17 @@ pub fn to_text(s: &Saved) -> String {
     out
 }
 
+/// Reads settings text. Never fails: see the file header. Later lines win over earlier ones,
+/// except `keyboard-of`, `paint` and `app` lines, which add up.
 pub fn from_text(text: &str) -> Saved {
     let mut s = Saved::default();
     for line in text.lines() {
+        // Split at the first '=' only, so values (program paths) may contain '='.
         let Some((k, v)) = line.split_once('=') else {
             continue;
         };
         match k {
+            // Each arm parses one key; a bad value keeps the default (or the previous line's value).
             "keyboard" => {
                 s.setup.kb = match v {
                     "black-rgb" => KbType::BlackRgb,
@@ -248,6 +284,7 @@ pub fn from_text(text: &str) -> Saved {
                 s.audio_mic = kind == "mic";
                 s.audio_device = name.trim().to_string();
             }
+            // "audio=<look> <sensitivity 1..10> <shortcut on>", all three or nothing.
             "audio" => {
                 let p: Vec<&str> = v.split_whitespace().collect();
                 if let [look, sens, hotkey] = p[..] {
@@ -257,6 +294,7 @@ pub fn from_text(text: &str) -> Saved {
                 }
             }
             "autostart" => s.autostart = Some(v == "true"),
+            // "app=N path": N is 1-based in the file, 0-based in `apps`; out-of-range slots are ignored.
             "app" => {
                 if let Some((n, path)) = v.split_once(' ') {
                     if let Some(slot) = n.parse::<usize>().ok().and_then(|n| n.checked_sub(1)) {
@@ -277,6 +315,7 @@ pub fn from_text(text: &str) -> Saved {
             "paint" => {
                 let p: Vec<&str> = v.split_whitespace().collect();
                 if p.len() == 4 {
+                    // "paint=kb|module key hue sat".
                     let dev = if p[0] == "kb" { Dev::Keyboard } else { Dev::Module };
                     if let (Ok(i), Ok(h), Ok(sat)) = (p[1].parse(), p[2].parse(), p[3].parse()) {
                         s.paint.insert((dev, i), (h, sat));
@@ -291,7 +330,11 @@ pub fn from_text(text: &str) -> Saved {
 
 /// The settings in `path` (keyboard.txt in White Rabbit's settings folder). When it doesn't exist
 /// yet, the keyboard app's settings are copied in, so everything chosen there carries over.
+///
+/// Errors are never returned: a missing or unreadable file gives the defaults. Side effect: on
+/// the first run with old settings, writes the new file straight away.
 pub fn load(path: &Path) -> Saved {
+    // The new file wins. Otherwise try the old app's files, newest name first.
     if let Ok(text) = std::fs::read_to_string(path) {
         return from_text(&text);
     }
@@ -305,6 +348,8 @@ pub fn load(path: &Path) -> Saved {
     }
 }
 
+/// Writes the settings to `path`, creating its folder if needed. Errors (disk full, no access)
+/// are ignored: losing a settings change is not worth interrupting the user for.
 pub fn save(path: &Path, s: &Saved) {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
@@ -316,6 +361,7 @@ pub fn save(path: &Path, s: &Saved) {
 mod tests {
     use super::*;
 
+    /// Every field survives writing and reading back.
     #[test]
     fn settings_round_trip() {
         let mut s = Saved {
@@ -343,6 +389,7 @@ mod tests {
         assert_eq!(from_text(&to_text(&s)), s);
     }
 
+    /// Bad values and unknown lines are ignored; the old "follow" switch still reads.
     #[test]
     fn junk_falls_back_to_defaults() {
         let s = from_text("kb=b99 1 2 3 4\nside=?\nnonsense\nfollow=false\n");

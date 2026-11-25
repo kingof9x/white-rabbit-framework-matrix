@@ -13,6 +13,9 @@
 //! `key=value` text file ([`settings`]), read forgivingly. [`sim`] is a pretend keyboard and macropad
 //! for `--demo` and the tests.
 
+// Pure logic, no USB: audio shows, the built-in effects copied for the preview, PC-drawn
+// effects, key codes and keymaps (with their generated data tables), key and LED layouts, and
+// the HID message format.
 pub mod audio;
 pub mod builtin;
 pub mod effects;
@@ -27,6 +30,7 @@ pub mod audio_src;
 pub mod deck;
 pub mod device;
 pub mod engine;
+// The Fn lock stress test (test builds only).
 #[cfg(test)]
 mod fn_lock_stress;
 pub mod render;

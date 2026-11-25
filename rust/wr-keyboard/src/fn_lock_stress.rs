@@ -5,6 +5,15 @@
 //! on the keyboard, key changes on the Key mapping page, resets, and keymaps scrambled the
 //! way old firmware or hand changes can leave them. After every step it checks what the top
 //! row really sends, with and without Fn.
+//!
+//! Only compiled for tests (`#[cfg(test)]` in lib.rs). Everything goes through the real
+//! [`Device`] code and the simulator ([`SimPort`]), so the bytes on the wire are the same as with
+//! a real keyboard; only the key-resolution rules ([`sends`], [`lookup`]) are re-implemented here.
+//!
+//! The model of the firmware: layer 0 is the base layer, 1 the Fn layer, 2 the Fn lock layer and
+//! 3 "Fn held while Fn lock is on". Fn lock off makes layer 0 the default layer and the Fn key
+//! MO(1); Fn lock on makes layer 2 the default layer, whose Fn key is MO(3). Layer 2 only sets the
+//! top row; its other keys are see-through, so they fall back to layer 0.
 
 use crate::device::{self, Device};
 use crate::keycodes::{is_f_key, Board, KeyWrite, Keymap, KC_F1, KC_TRNS};
@@ -12,14 +21,18 @@ use crate::keymap_data::QK_MOMENTARY;
 use crate::protocol::{self as proto, DeviceKind};
 use crate::sim::SimPort;
 
+/// The firmware's own key code for its FN_LOCK key (Fn + Esc), a custom code in QMK's user range.
 const FN_LOCK: u16 = 0x7E41;
+/// Key number of Esc in the app's key order.
 const ESC: usize = 0;
+/// Key number of the Fn key in the app's key order.
 const FN_KEY: usize = 68;
 
 /// What the firmware sends for `key` (app order), like QMK: the highest active layer that
 /// isn't see-through wins, falling back to layer 0. Holding Fn turns on the layer its key
 /// asks for (MO(n)) on top of the default layer.
 fn sends(km: &Keymap, default_layer: u8, fn_held: bool, key: usize) -> u16 {
+    // Fn adds the layer named by its MO(n) code (only MO(0)..MO(3) exist on this keymap).
     let mut active = vec![default_layer as usize];
     if fn_held {
         let fn_code = lookup(km, &active, FN_KEY);
@@ -30,6 +43,8 @@ fn sends(km: &Keymap, default_layer: u8, fn_held: bool, key: usize) -> u16 {
     lookup(km, &active, key)
 }
 
+/// QMK's layer rule: try the active layers from the highest down and take the first code that
+/// isn't see-through (KC_TRNS); if all are see-through, layer 0 decides.
 fn lookup(km: &Keymap, active: &[usize], key: usize) -> u16 {
     let mut layers = active.to_vec();
     layers.sort_unstable();
@@ -50,11 +65,13 @@ struct Rig {
 }
 
 impl Rig {
+    /// A fresh pretend keyboard with its default keymap read into the app's copy.
     fn new() -> Self {
         let dev = Device::new(DeviceKind::Keyboard, Box::new(SimPort::keyboard()));
         let km = dev.keymap().unwrap();
         Rig { dev, km }
     }
+    /// The keyboard's Fn lock as INFO reports it (0 or 1). Panics if it isn't reported.
     fn fn_lock(&self) -> u8 {
         self.dev.info().unwrap().layer.expect("keyboard reports Fn lock")
     }
@@ -63,17 +80,21 @@ impl Rig {
         self.dev.keymap().unwrap()
     }
     /// Top row: (sends on its own, sends with Fn) for keys F1..F12.
+    /// Fn lock on means layer 2 is the default layer.
     fn top_row(&self) -> Vec<(u16, u16)> {
         let km = self.device_keymap();
         let dl = if self.fn_lock() == 1 { 2 } else { 0 };
         (1..=12).map(|k| (sends(&km, dl, false, k), sends(&km, dl, true, k))).collect()
     }
+    /// Writes keys to the device and to the app's copy, the way the engine does for SetKeys.
     fn write(&mut self, writes: &[KeyWrite]) {
         let reqs: Vec<_> = writes.iter().map(|&(l, r, c, code)| proto::set_keycode(l, r, c, code)).collect();
         self.dev.transact_many(&reqs).unwrap();
         self.km.apply(writes);
     }
     /// Fn + Esc pressed on the keyboard: the firmware's FN_LOCK key.
+    /// Does nothing if Fn + Esc doesn't send FN_LOCK in the current keymap (the user remapped it)
+    /// or if Fn doesn't reach layer 1 or 3.
     fn press_fn_esc(&mut self) {
         let km = self.device_keymap();
         let dl = if self.fn_lock() == 1 { 2u8 } else { 0 };
@@ -81,6 +102,7 @@ impl Rig {
             return; // Esc was changed to something else
         }
         // QMK: with _FN held lock on, with _FM held lock off (see process_record_keymap)
+        // Which layer the Fn key reaches tells whether Fn lock is on (MO(3) on layer 2) or off (MO(1)).
         let fn_layer = lookup(&km, &[dl as usize], FN_KEY).wrapping_sub(QK_MOMENTARY);
         let lock = match fn_layer {
             1 => 1,
@@ -90,36 +112,49 @@ impl Rig {
         self.dev.transact(&proto::set_layer(lock)).unwrap();
     }
     /// The app's Top row setting.
+    /// `f_keys_first = true` is "F1 to F12" (Fn lock on), false is "Shortcuts" (Fn lock off).
     fn choose(&mut self, f_keys_first: bool) -> device::FnLockResult {
         device::set_fn_lock(&self.dev, Some(&mut self.km), f_keys_first).unwrap()
     }
 }
 
 /// Small repeatable random numbers (no extra crates).
+/// A linear congruential generator (Knuth's MMIX constants), seeded per test round so a failure
+/// can be replayed from the seed printed in the assert message.
 struct Lcg(u64);
 impl Lcg {
+    /// The top 31 bits of the next state (the low bits of an LCG repeat quickly).
     fn next(&mut self) -> u32 {
         self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
         (self.0 >> 33) as u32
     }
+    /// A number in 0..n (slightly uneven for large n, which doesn't matter here).
     fn below(&mut self, n: usize) -> usize {
         self.next() as usize % n
     }
+    /// A random element of `xs`.
     fn pick<T: Copy>(&mut self, xs: &[T]) -> T {
         xs[self.below(xs.len())]
     }
 }
 
+/// The default base-layer code (the media or brightness shortcut) of top-row key `k`.
 fn default_shortcut(k: usize) -> u16 {
     Board::Keyboard.default_code(0, k)
 }
 
 /// Checks what the top row does right after the Top row setting was chosen.
+///
+/// Fn lock must be what was chosen; the app's copy must equal the keyboard's keymap; on the
+/// shortcut side no key may send an F-key; and the two sides must be the base and Fn layers'
+/// codes, the right way round for the choice.
 fn check_choice(rig: &Rig, f_keys_first: bool, ctx: &str) {
     assert_eq!(rig.fn_lock(), f_keys_first as u8, "{ctx}: Fn lock not set");
     assert_eq!(rig.km, rig.device_keymap(), "{ctx}: app's keymap copy out of step with the keyboard");
     for (i, (alone, with_fn)) in rig.top_row().into_iter().enumerate() {
         let k = i + 1;
+        // With "F1 to F12" chosen the key sends its F-key alone and the shortcut with Fn; with
+        // "Shortcuts" it is the other way round.
         let (shortcut, f_key) = if f_keys_first { (with_fn, alone) } else { (alone, with_fn) };
         assert!(
             !is_f_key(shortcut),
@@ -136,6 +171,7 @@ fn check_choice(rig: &Rig, f_keys_first: bool, ctx: &str) {
     }
 }
 
+/// On an untouched keymap, both choices work back and forth without any repairs.
 #[test]
 fn default_keyboard_both_ways() {
     let mut rig = Rig::new();
@@ -167,6 +203,7 @@ fn swapped_top_row_is_put_back() {
         let f = KC_F1 + (k - 1) as u16;
         writes.extend([(0, r, c, f), (1, r, c, s), (2, r, c, s), (3, r, c, f)]);
     }
+    // Put every top-row key's F-key on the base layer and its shortcut on the Fn layers.
     rig.write(&writes);
     // Before: Shortcuts gives F-keys on their own (the bug Callum saw)
     rig.dev.transact(&proto::set_layer(0)).unwrap();
@@ -183,6 +220,7 @@ fn swapped_top_row_is_put_back() {
     assert_eq!(rig.choose(false).fixed_keys, 0);
 }
 
+/// Firmware that can't set Fn lock gives `took: false` instead of an error.
 #[test]
 fn old_firmware_says_it_did_not_take() {
     // A keyboard that answers "not supported" to the Fn lock command, like firmware before it
@@ -192,6 +230,8 @@ fn old_firmware_says_it_did_not_take() {
     assert_eq!(dev.info().unwrap().layer, None);
 }
 
+/// 40 seeds x 500 random steps of choices, Fn + Esc, page edits, scrambles and resets; after each
+/// step the top row must behave as the user would expect, and at the end both choices must work.
 #[test]
 fn stress_random_steps() {
     let shortcuts: Vec<u16> = (1..=12).map(default_shortcut).collect();
@@ -211,6 +251,7 @@ fn stress_random_steps() {
         while steps < 500 {
             steps += 1;
             let ctx = format!("seed {seed} step {steps}");
+            // A random code: a top-row shortcut, an F-key (F1-F24), or something unrelated.
             let any_code = |rng: &mut Lcg| match rng.below(3) {
                 0 => rng.pick(&shortcuts),
                 1 => rng.pick(&f_keys),
