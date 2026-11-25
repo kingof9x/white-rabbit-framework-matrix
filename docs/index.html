@@ -34,7 +34,7 @@ nav .wrap{display:flex;align-items:center;gap:20px;height:58px}
 nav ul{display:flex;gap:18px;list-style:none;margin:0 0 0 auto;padding:0}
 nav ul a{color:var(--muted);text-decoration:none;font-size:15px}
 nav ul a:hover{color:var(--text)}
-.brand .sub{font-weight:400;opacity:.7}
+.brand .sub{font-weight:400;opacity:.7;margin:0;color:inherit}
 @media (max-width:720px){nav ul li.opt{display:none}}
 @media (max-width:900px){.brand .sub{display:none}}
 
@@ -66,7 +66,7 @@ section{padding:72px 0;border-bottom:1px solid var(--line)}
 h2{font-size:32px;margin:0 0 10px;letter-spacing:-.01em}
 .sub{color:var(--muted);margin:0 0 36px;max-width:44em}
 
-/* new in 1.5 */
+/* what's new */
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin:0 0 28px}
 .stat{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:22px}
 .stat b{display:block;font-size:40px;line-height:1.1;letter-spacing:-.02em}
@@ -154,12 +154,12 @@ footer a{color:var(--muted)}
     <div>
       <p class="eyebrow">For the Framework Laptop 16 LED Matrix and RGB keyboard</p>
       <h1>Follow the White Rabbit.</h1>
-      <p class="lead">One Windows tray app for everything the LED Matrix can do: a system monitor you lay out yourself, an audio visualizer, games, math art, your own drawings, plug-in animations, messages, startup animations and firmware updates, plus lighting, an audio show and key mapping for the RGB keyboard and macropad, all from one window. Written in Rust, so it barely uses any memory.</p>
+      <p class="lead">One Windows tray app for everything the LED Matrix can do: a system monitor you lay out yourself, an audio visualizer, games, math art, your own drawings, plug-in animations, messages, startup animations and firmware updates, plus lighting, an audio show and key mapping for the RGB keyboard and macropad, all from one window. Written in Rust, so it uses about 6 MB of memory.</p>
       <div class="btns">
         <a class="btn primary" href="https://github.com/kingof9x/white-rabbit-framework-matrix/releases/latest/download/WhiteRabbit-setup.exe">Download for Windows <small>installer</small></a>
         <a class="btn" href="https://github.com/kingof9x/white-rabbit-framework-matrix/releases/latest/download/WhiteRabbit-portable.zip">Portable .zip</a>
       </div>
-      <p class="fine"><span id="ver">Latest release</span> · Free and open source (MIT) · Windows 10 and 11</p>
+      <p class="fine"><span id="ver">Latest release</span> · Free and open source (MIT) · Windows 10 and 11 · About 6 MB of memory</p>
     </div>
     <div class="hero-art">
       <figure>
@@ -174,23 +174,23 @@ footer a{color:var(--muted)}
 
 <section id="new">
   <div class="wrap">
-    <p class="eyebrow">New in 1.5</p>
-    <h2>All of White Rabbit is now Rust</h2>
-    <p class="sub">The background monitor and tray icon moved to Rust in 1.4, and in 1.5 the settings window followed. No Python is shipped any more, so there's no PyInstaller wrapper for antivirus programs to get suspicious of, and the panels show exactly the same pictures as before (checked pixel for pixel).</p>
+    <p class="eyebrow">New in 1.6</p>
+    <h2>The keyboard joins White Rabbit</h2>
+    <p class="sub">The Framework 16 Keyboard Control app is now part of White Rabbit, so one small app looks after the LED Matrix panels and the RGB keyboard and macropad. Your keyboard settings are copied over the first time, and the installer offers to remove the old app.</p>
     <div class="stats">
-      <div class="stat"><b>66 MB</b><span>Memory the background part used before, in Python</span></div>
-      <div class="stat hi"><b>8 MB</b><span>Memory it uses now, in Rust (Task Manager, Framework Laptop 16, window closed)</span></div>
-      <div class="stat"><b>0</b><span>Python files shipped. The window only uses memory while it's open</span></div>
+      <div class="stat"><b>66 MB</b><span>Memory the always-running part used in the old Python version</span></div>
+      <div class="stat hi"><b>6 MB</b><span>Memory it uses now, in Rust: about 11 times less (Task Manager, Framework Laptop 16, window closed)</span></div>
+      <div class="stat"><b>0</b><span>Python files shipped. The settings window only uses memory while it's open</span></div>
     </div>
     <ul class="newlist">
-      <li><b>On/off switches</b> for every section on the Home page and at the top of each page</li>
-      <li><b>Display messages:</b> up to 5 lines, small letters, left, center or right, and a vertical message on each panel</li>
-      <li><b>Plug animations:</b> pick one for unplugging and one for plugging in, including HDMI and DisplayPort screens, with per-side switches</li>
-      <li><b>App transition effects:</b> slide, fade, and the new Pixel rain and Zipper</li>
-      <li><b>Pixel rain</b> startup animation in the White Rabbit firmware</li>
-      <li><b>Draw on both panels,</b> one at a time or as one picture</li>
-      <li><b>Check for updates</b> in Settings for the app and the panel firmware, only when you click it, with firmware build numbers</li>
-      <li><b>Audio reactivity</b> (the new name for music mode), panel settings moved to Settings, and transition and crash fixes</li>
+      <li><b>Keyboard &amp; macropad pages:</b> lighting, the audio show, key mapping and macropad layers, shown only when the hardware is plugged in</li>
+      <li><b>Top row setting:</b> pick shortcuts (volume, brightness...) or F1 to F12 without holding Fn</li>
+      <li><b>Your hardware on Home:</b> the panels, keyboard and macropad White Rabbit found, on a picture of the laptop</li>
+      <li><b>Audio reactivity at the top of Home</b> for the panels and the keyboard, each with its own sound source</li>
+      <li><b>New system monitor halves:</b> memory meters on the CPU and GPU graphs, network over every disk with a drive-space meter</li>
+      <li><b>Battery app</b> shaped like a battery, with six looks for charging and on battery</li>
+      <li><b>Keyboard and macropad firmware updates</b> with build numbers and Check for updates</li>
+      <li><b>Five new startup animations</b>, the White Rabbit logo, and a smoother window drawn with the graphics card</li>
     </ul>
   </div>
 </section>
@@ -199,13 +199,14 @@ footer a{color:var(--muted)}
   <div class="wrap why">
     <div>
       <h2>Why one app?</h2>
-      <p>On Windows only one program at a time can talk to an LED panel. Before White Rabbit, changing the startup animation or playing a game meant quitting the system monitor, opening the control app, and switching back afterwards.</p>
-      <p>White Rabbit owns both panels and shares them. Start a game or a pattern and the monitor steps aside on that panel only. Press <em>Stop</em> or <em>Back to system monitor</em> and it comes straight back.</p>
+      <p>On Windows only one program at a time can talk to an LED panel or the keyboard. Before White Rabbit, changing the startup animation or playing a game meant quitting the system monitor, opening the control app, and switching back afterwards, and the keyboard had an app of its own.</p>
+      <p>White Rabbit owns both panels and shares them. Start a game or a pattern and the monitor steps aside on that panel only. Press <em>Stop</em> or <em>Back to system monitor</em> and it comes straight back. The keyboard works the same way: the window drives it while it's open, and the background part takes over when you close it.</p>
     </div>
     <div class="flow">
       <div><b>led_mon</b><span>System monitor, tray icon, layout editor</span></div>
       <div><b>LED Matrix Control</b><span>Patterns, games, startup animation, firmware</span></div>
-      <div style="border-color:#5a606c"><b>White Rabbit</b><span>Both of them in one window, sharing the panels</span></div>
+      <div><b>Keyboard Control</b><span>Keyboard and macropad lighting, audio show, key mapping</span></div>
+      <div style="border-color:#5a606c"><b>White Rabbit</b><span>All three in one window, sharing the panels and the keyboard</span></div>
     </div>
   </div>
 </section>
@@ -226,7 +227,7 @@ footer a{color:var(--muted)}
       <div class="card"><h3><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v6M12 22v-4M4.9 4.9l4.2 4.2M14.9 14.9l4.2 4.2M2 12h6M22 12h-4"/></svg>Startup animation</h3>
         <p>Pick the animation the panels play when the laptop turns on: one favourite, a random one from a set you choose, or none. It's saved on the panel, so it works without the app.</p></div>
       <div class="card"><h3><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M12 7v7M9 11l3 3 3-3"/></svg>Firmware updates</h3>
-        <p>See which firmware each panel runs, with its build number, and flash the White Rabbit firmware, Framework's official one, or any .uf2 file. No bootloader buttons or file copying needed.</p></div>
+        <p>See which firmware each panel, keyboard and macropad runs, with its build number, and flash the White Rabbit firmware, Framework's official one, or any .uf2 file. No bootloader buttons or file copying needed.</p></div>
       <div class="card"><h3><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20l4-1 11-11-3-3L5 16z"/><path d="M14 6l3 3"/></svg>Draw</h3>
         <p>Draw pictures and animations LED by LED, on one panel or across both as one picture, or import a PNG or GIF. Show them on the panels with the Picture app.</p></div>
       <div class="card"><h3><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3v5M15 3v5M7 8h10v4a5 5 0 01-10 0zM12 17v4"/></svg>Plug animations</h3>
@@ -235,6 +236,14 @@ footer a{color:var(--muted)}
         <p>How a panel changes from one app to the next: slide, fade, pixel rain, zipper, or a straight cut.</p></div>
       <div class="card"><h3><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 10h10M7 14h6"/></svg>Display messages</h3>
         <p>A line of small letters across the top when a song starts, the charger goes in or the battery is low, your own messages of up to 5 lines, or a vertical message on each panel.</p></div>
+      <div class="card"><h3><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg>Keyboard lighting</h3>
+        <p>The 44 built-in effects, effects drawn by the app across the keyboard and macropad as one surface, colours and painted keys. Clear or black keys are remembered for each keyboard.</p></div>
+      <div class="card"><h3><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20l4-1 11-11-3-3L5 16z"/><circle cx="18" cy="18" r="3"/></svg>Key mapping</h3>
+        <p>Click a key to change what it sends, turn it off or make it open an app. Pick shortcuts or F1 to F12 for the top row. Saved on the keyboard, so it works on any computer.</p></div>
+      <div class="card"><h3><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><rect x="2" y="15" width="7" height="6" rx="1"/></svg>Keyboard audio show</h3>
+        <p>The keys and macropad follow the music, from what the laptop plays or a microphone. Keeps going with the window closed.</p></div>
+      <div class="card"><h3><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h2M14 7h2M8 11h2M14 11h2M8 15h2M14 15h2"/></svg>Macropad</h3>
+        <p>Two layers (MIDI notes or a numpad), a layer colour on the top corners, and corner combos to switch.</p></div>
       <div class="card"><h3><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Lives in the tray</h3>
         <p>Starts with Windows, follows your screen brightness, and turns the panels off when you close the lid or the laptop sleeps. Keyboard shortcuts skip, freeze or turn on audio reactivity.</p></div>
       <div class="card"><h3><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></svg>Updates itself</h3>
@@ -261,7 +270,7 @@ footer a{color:var(--muted)}
 <section id="screens">
   <div class="wrap">
     <h2>Screenshots</h2>
-    <p class="sub">The White Rabbit 1.5 window. These pictures are drawn by the app itself away from Windows, so the font is a little different and the panel previews are empty.</p>
+    <p class="sub">The White Rabbit 1.6 window. These pictures are drawn by the app itself away from Windows, with pretend panels and a pretend keyboard, so the font is a little different from Windows.</p>
     <div class="tabs" role="tablist" id="tabs"></div>
     <div class="shot"><a id="shotlink" href="site/screens/home.jpg"><img id="shotimg" src="site/screens/home.jpg" alt="" width="1240" height="860"></a><p id="shotcap"></p></div>
   </div>
@@ -278,7 +287,7 @@ footer a{color:var(--muted)}
     </div>
     <ol class="steps">
       <li><b>Run the installer.</b> If Windows says "Windows protected your PC", click <em>More info</em> and then <em>Run anyway</em>. The app isn't code-signed yet.</li>
-      <li><b>Quit the old apps</b> if you use them (led_mon and ledmatrixgui.exe), because they would be holding the panels. Coming from led_mon? Your layout, brightness and weather key are copied over the first time.</li>
+      <li><b>Quit the old apps</b> if you use them (led_mon, ledmatrixgui.exe and Framework 16 Keyboard Control), because they would be holding the panels or the keyboard. Your layout, brightness, weather key and keyboard settings are copied over the first time.</li>
       <li><b>That's it.</b> The panels show the system monitor, an icon appears in the tray, and the window opens. Open it again any time from the Start menu or the tray.</li>
       <li><b>Optional: flash the White Rabbit firmware</b> for startup animations and extra patterns. Under <em>Settings &gt; Firmware</em> tick one panel, pick <em>White Rabbit firmware</em>, click <em>Flash</em>, then do the other panel.</li>
     </ol>
@@ -291,6 +300,12 @@ footer a{color:var(--muted)}
     <p class="sub">The quick answers. The <a href="https://github.com/kingof9x/white-rabbit-framework-matrix#good-to-know">README</a> goes deeper.</p>
     <details><summary>Does it work without the custom firmware?</summary>
       <p>Yes. The monitor, music visualizer, games and math art all work on Framework's official firmware. Only the startup animation setting and the extra Game of Life patterns need the White Rabbit firmware, and you can flash Framework's official 0.2.0 back from <em>Settings &gt; Firmware</em> at any time.</p></details>
+    <details><summary>Do I need the RGB keyboard, or the LED panels?</summary>
+      <p>No. White Rabbit shows the pages for whatever is plugged in: just the LED panels, just the RGB keyboard or macropad, or both. The keyboard pages need the f16custom keyboard firmware, which the Firmware page installs for you.</p></details>
+    <details><summary>How much memory does it use?</summary>
+      <p>The part that's always running uses about 6 MB in Task Manager on a Framework Laptop 16, down from about 66 MB when it was written in Python. The settings window is a separate program that only runs while it's open. How this was measured is in <a href="https://github.com/kingof9x/white-rabbit-framework-matrix/blob/main/REVIEW.md">REVIEW.md</a>.</p></details>
+    <details><summary>Does it send anything to the internet?</summary>
+      <p>Only the weather (while the weather app is in your layout), and Check for updates and downloads when you click them. There's no telemetry. The details are in <a href="https://github.com/kingof9x/white-rabbit-framework-matrix/blob/main/docs/ARCHITECTURE.md#network-use">How White Rabbit works</a>.</p></details>
     <details><summary>The FPS counter shows nothing.</summary>
       <p>Windows only lets programs read frame timing when your account is in the <em>Performance Log Users</em> group. Run this once in <em>Terminal (Admin)</em>, then sign out and back in:<br><code>Add-LocalGroupMember -SID S-1-5-32-559 -Member "$env:USERDOMAIN\$env:USERNAME"</code></p></details>
     <details><summary>How do I get temperatures and fan speeds?</summary>
@@ -302,7 +317,9 @@ footer a{color:var(--muted)}
     <details><summary>Something isn't working.</summary>
       <p>Right-click the tray icon and pick <em>Open log</em>, or run <code>WhiteRabbit.exe --diagnose</code> in a command prompt to see which panels the app finds. Then <a href="https://github.com/kingof9x/white-rabbit-framework-matrix/issues">open an issue</a> or post in the <a href="https://community.frame.work/t/led-matrix-windows-app-white-rabbit/85889">forum thread</a>.</p></details>
     <details><summary>Where does it come from?</summary>
-      <p>White Rabbit combines two MIT-licensed projects: <a href="https://github.com/MidnightJava/led-matrix">MidnightJava's led-matrix</a> (based on Jeremy's LED System Monitor) and <a href="https://github.com/FrameworkComputer/inputmodule-rs">Framework's inputmodule-rs</a>. The Math page was inspired by mariobx's <a href="https://github.com/mariobx/Framework-LED-Matrix">Framework-LED-Matrix</a> and written from scratch. Thanks to everyone who worked on those.</p></details>
+      <p>White Rabbit builds on two MIT-licensed projects, <a href="https://github.com/MidnightJava/led-matrix">MidnightJava's led-matrix</a> (based on Jeremy's LED System Monitor) and <a href="https://github.com/FrameworkComputer/inputmodule-rs">Framework's inputmodule-rs</a>, and on the <a href="https://github.com/kingof9x/framework-16-keyboard-customization">Framework 16 Keyboard Control</a> app. Ideas, with no code copied, came from mariobx's <a href="https://github.com/mariobx/Framework-LED-Matrix">Framework-LED-Matrix</a> (the Math page), patate's <a href="https://github.com/slowpaste/pixeled">pixeled</a> and Deovandski's <a href="https://github.com/Deovandski/Deo-s-Framework16-LED-Matrix-Manager">Framework16 LED Matrix Manager</a>. Thanks to everyone who worked on those.</p></details>
+    <details><summary>Is the source code available?</summary>
+      <p>Yes, all of it is on <a href="https://github.com/kingof9x/white-rabbit-framework-matrix">GitHub</a> under the MIT licence. <a href="https://github.com/kingof9x/white-rabbit-framework-matrix/blob/main/docs/ARCHITECTURE.md">How White Rabbit works</a> explains how it is put together, for anyone reviewing the code.</p></details>
   </div>
 </section>
 
@@ -323,14 +340,14 @@ footer a{color:var(--muted)}
 <footer>
   <div class="wrap">
     <span>White Rabbit by <a href="https://github.com/kingof9x">kingof9x</a> · MIT license · Not made or endorsed by Framework Computer.</span>
-    <span><a href="https://github.com/kingof9x/white-rabbit-framework-matrix">Source</a> · <a href="https://github.com/kingof9x/white-rabbit-framework-matrix/releases">Releases</a> · <a href="https://github.com/kingof9x/white-rabbit-framework-matrix/issues">Report a bug</a></span>
+    <span><a href="https://github.com/kingof9x/white-rabbit-framework-matrix">Source</a> · <a href="https://github.com/kingof9x/white-rabbit-framework-matrix/blob/main/docs/ARCHITECTURE.md">How it works</a> · <a href="https://github.com/kingof9x/white-rabbit-framework-matrix/releases">Releases</a> · <a href="https://github.com/kingof9x/white-rabbit-framework-matrix/issues">Report a bug</a></span>
   </div>
 </footer>
 
 <script>
 (function(){
   var shots=[
-    ["Home","home.jpg","Every section with its on/off switch."],
+    ["Home","home.jpg","Audio reactivity, the hardware White Rabbit found, and every section with its on/off switch."],
     ["System monitor","monitor.jpg","The layout editor: drag apps onto each panel and set up pages that take turns."],
     ["Audio","audio.jpg","Audio reactivity, the 22 visualizer looks and a live preview of both panels."],
     ["Games & patterns","games.jpg","Games, Game of Life patterns and the firmware's built-in patterns."],
@@ -340,7 +357,12 @@ footer a{color:var(--muted)}
     ["Transitions","transitions.jpg","How a panel changes from one app to the next."],
     ["Messages","messages.jpg","The text line, your own messages and vertical messages."],
     ["Startup","startup.jpg","Choose what the panels play when the laptop turns on."],
+    ["Keyboard lighting","keyboard-lighting.jpg","Effects for the keyboard and macropad, with a live picture of the keys."],
+    ["Key mapping","keyboard-keys.jpg","Change what each key does, and pick shortcuts or F1 to F12 for the top row."],
+    ["Audio show","keyboard-audio.jpg","The keys follow the music."],
+    ["Macropad","keyboard-macropad.jpg","The macropad's layers and corner combos."],
     ["Settings","settings.jpg","Look, panels, Check for updates, firmware and shortcuts."],
+    ["Firmware","firmware.jpg","Firmware for the panels, keyboard and macropad, with build numbers."],
     ["Dark mode","home-dark.jpg","The window follows Windows' light or dark mode and accent colour."]
   ];
   var tabs=document.getElementById('tabs'),img=document.getElementById('shotimg'),
